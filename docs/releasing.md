@@ -20,15 +20,30 @@ it from a clone; the npm package covers the rest of the CLI.
 
 ## What a release is
 
-A release is a tag. Push `vX.Y.Z` and the [Release workflow](../.github/workflows/release.yml)
-checks the commit, publishes version `X.Y.Z` of `@crvouga/dev-fleet` with provenance and
-creates the GitHub Release. `package.json` stays at `0.0.0-development`; the
-workflow stamps the tag's version into the package it publishes, so nobody
-edits a version or runs `npm publish` by hand after the one-time setup below.
-Re-running a tag whose version is already on npm skips the publish.
+Every merge to `main` is a release. When CI passes on `main`, the
+[Release workflow](../.github/workflows/release.yml) picks the next version from
+the commits since the newest `vX.Y.Z` tag
+([`bootstrap/release-version.ts`](../bootstrap/release-version.ts)), publishes it
+to `@crvouga/dev-fleet` with provenance, pushes the tag and creates the GitHub
+Release. The commit messages choose the bump:
+
+| Commits since the last tag                     | Bump                                 |
+| ---------------------------------------------- | ------------------------------------ |
+| any `feat!:`, `fix(x)!:` or `BREAKING CHANGE:` | major (minor while the major is `0`) |
+| otherwise any `feat:`                          | minor                                |
+| otherwise                                      | patch                                |
+
+`package.json` stays at `0.0.0-development`; the workflow stamps the version
+into the package it publishes, so nobody edits a version or runs `npm publish`
+by hand after the one-time setup below. Merges that land while a release runs
+wait, and the newest one releases everything since the last tag. Re-running a
+release whose version is already on npm skips the publish and finishes the tag
+and GitHub Release.
+
+A hand-pushed tag still works and publishes exactly that version:
 
 ```sh
-git tag v0.1.0 && git push origin v0.1.0
+git tag vX.Y.Z && git push origin vX.Y.Z
 ```
 
 CI never receives an npm token: it publishes through npm Trusted Publishing
