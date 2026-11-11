@@ -1,6 +1,7 @@
 import { access } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 
 export interface Settings {
   workspace: string;
@@ -26,6 +27,23 @@ async function findUp(start: string, name: string): Promise<string | null> {
   }
 }
 
+/** A dev-fleet checkout, as opposed to any other project that has a mise.toml. */
+const CHECKOUT_MARKER = 'bootstrap/fleet-manager-run.sh';
+
+/** Where this CLI's own files live: the package root, also when run by npx. */
+const packageRoot = (): string =>
+  fileURLToPath(new URL('../..', import.meta.url));
+
+async function findCheckout(start: string): Promise<string> {
+  let current = resolve(start);
+  while (true) {
+    if (await exists(join(current, CHECKOUT_MARKER))) return current;
+    const parent = dirname(current);
+    if (parent === current) return packageRoot();
+    current = parent;
+  }
+}
+
 export async function resolveSettings(
   overrides: Partial<Settings> = {},
   cwd = process.cwd(),
@@ -34,7 +52,7 @@ export async function resolveSettings(
   const workspace = resolve(
     overrides.workspace ??
       env['PERSONAL_WORKSPACE'] ??
-      dirname((await findUp(cwd, 'mise.toml')) ?? join(cwd, 'mise.toml'))
+      (await findCheckout(cwd))
   );
   const config = resolve(
     overrides.config ??

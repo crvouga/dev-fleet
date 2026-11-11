@@ -3,16 +3,13 @@ import { resolveSettings, type Settings } from './settings';
 import { COMMANDS } from './registry';
 import { execute } from './program';
 import { parseArgs } from 'node:util';
+import manifest from '../../package.json';
 
-declare const PERSONAL_VERSION: string | undefined;
-declare const PERSONAL_RELEASED_AT: string | undefined;
-
-export const VERSION =
-  typeof PERSONAL_VERSION === 'undefined' ? '0.1.0-dev' : PERSONAL_VERSION;
-/** Build timestamp of this distribution, printed with the version for debugging. */
-export const RELEASED_AT =
-  typeof PERSONAL_RELEASED_AT === 'undefined' ? null : PERSONAL_RELEASED_AT;
-const RELEASE = { version: VERSION, releasedAt: RELEASED_AT };
+/** The manifest carries `0.0.0-development` in the repository; the release
+ * workflow stamps the tag's version into the package it publishes.
+ */
+export const VERSION = manifest.version;
+const RELEASE = { version: VERSION, releasedAt: null };
 
 export function wantsInteractive(
   args: string[],

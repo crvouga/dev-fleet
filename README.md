@@ -59,6 +59,19 @@ DEVFLEET_CONFIG=/path/to/your/fleet.json sh bootstrap/fleet-manager-run.sh REVIS
 
 Pin `REVISION` to a full commit SHA of this repository; that is your version.
 
+## Run it from npm
+
+The CLI is also published as `@crvouga/dev-fleet`, for any machine or project
+that has Node:
+
+```sh
+npx @crvouga/dev-fleet commands --json
+npx @crvouga/dev-fleet fleet-status --local
+```
+
+`fleet-sync` still runs from a clone, because it pins a git revision. See
+[releasing](docs/releasing.md) for how versions are published.
+
 ## Add or remove a machine
 
 1. Set up SSH from the manager to the new Ubuntu box (a non-root user with
