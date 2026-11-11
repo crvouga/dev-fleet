@@ -1,0 +1,68 @@
+#!/usr/bin/env python3
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+
+import datetime, json, pathlib, subprocess, sys, os
+
+r = cliproxy_host.default_root().resolve()
+issues = []
+provenance = subprocess.run([str(r / "scripts/audit.py")], capture_output=True)
+if provenance.returncode:
+    issues.append("Installed code differs from its committed-source manifest.")
+p = subprocess.run([str(r / "scripts/ops"), "health"], capture_output=True)
+if p.returncode:
+    issues.append("Application health/authentication failed; inspect sanitized logs.")
+try:
+    import yaml
+
+    strategy = yaml.safe_load((r / "state/runtime/config.yaml").read_text())["routing"]["strategy"]
+    if strategy != "fill-first":
+        issues.append(
+            "Live routing strategy is not fill-first (drift from config.template.yaml); apply a reviewed config with `cliproxy apply`."
+        )
+except Exception:
+    issues.append("Live routing strategy could not be read.")
+f = r / "state/status/backup-success.json"
+if not f.exists():
+    issues.append("No successful independent backup has been recorded.")
+else:
+    try:
+        t = datetime.datetime.fromisoformat(json.loads(f.read_text())["time"])
+        if (datetime.datetime.now(datetime.timezone.utc) - t).total_seconds() > 45 * 60:
+            issues.append("Cloud checkpoint older than 45 minutes.")
+    except Exception:
+        issues.append("Invalid backup status record.")
+if (r / "state/status/vault-failed").exists():
+    issues.append("Vault login/renewal failed; backups cannot fetch credentials.")
+for marker in [
+    "backup-failed",
+    "backup-check-failed",
+    "backup-operation-failed",
+    "gc-failed",
+]:
+    if (r / "state/status" / marker).exists():
+        issues.append(marker + ": inspect failed operation.")
+gc = r / "state/status/gc-success.json"
+try:
+    age = datetime.datetime.now(
+        datetime.timezone.utc
+    ) - datetime.datetime.fromisoformat(json.loads(gc.read_text())["time"])
+    if age.total_seconds() > 9 * 86400:
+        issues.append("Garbage collection older than nine days.")
+except Exception:
+    issues.append("No valid successful garbage collection record.")
+f = r / "state/status/monitor-failed"
+if issues:
+    f.write_text("\n".join(issues) + "\n")
+    if os.geteuid() == 0:
+        os.chown(f, 1000, 1000)
+    print(f.read_text())
+    sys.exit(1)
+f.unlink(missing_ok=True)
+print("Health and backup freshness passed.")

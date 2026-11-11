@@ -1,0 +1,8 @@
+[Unit]
+Description=Weekly Restic repository and 10 percent data integrity check
+[Timer]
+OnCalendar=Sun *-*-* 05:00:00
+RandomizedDelaySec=30m
+Persistent=true
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,5 @@
+node_modules
+*.lock
+.mise/locks/
+cliproxy/vendor
+cliproxy/docs/*.svg

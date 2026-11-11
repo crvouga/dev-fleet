@@ -1,0 +1,75 @@
+---
+- name: Converge native Tailscale without replacing its device identity
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  tasks:
+    - name: Require supported Ubuntu
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version == '26.04'
+    - name: Inspect installed packages before possible network interruption
+      ansible.builtin.package_facts:
+        manager: apt
+    - name: Require maintenance for an installed version change
+      ansible.builtin.assert:
+        that: "'tailscale' not in ansible_facts.packages or ansible_facts.packages.tailscale[0].version == '1.104.5'"
+        fail_msg: TAILSCALE_UPGRADE_PENDING; upgrading an active VPN can disconnect SSH. Review an explicit maintenance operation.
+    - name: Inspect existing package-source ownership before writing
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d
+        patterns: ['*.list', '*.sources']
+        contains: '.*pkgs.tailscale.com.*'
+        read_whole_file: true
+      register: existing_sources
+    - name: Refuse duplicate or custom sources instead of breaking APT
+      ansible.builtin.assert:
+        that:
+          - existing_sources.matched <= 1
+          - existing_sources.matched == 0 or existing_sources.files[0].path == '/etc/apt/sources.list.d/tailscale.list'
+        fail_msg: TAILSCALE_SOURCE_OWNER_CONFLICT; review the existing signed source and its migration before creating another repository entry.
+    - name: Install pinned upstream signing key
+      ansible.builtin.get_url:
+        url: https://pkgs.tailscale.com/stable/ubuntu/resolute.noarmor.gpg
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+        owner: root
+        group: root
+        mode: '0644'
+        timeout: 30
+    - name: Declare the signed upstream package source
+      ansible.builtin.apt_repository:
+        repo: deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu resolute main
+        filename: tailscale
+        state: present
+        update_cache: false
+      register: tailscale_source
+    - name: Install the approved version only when absent
+      ansible.builtin.apt:
+        name: tailscale=1.104.5
+        state: present
+        update_cache: true
+        cache_valid_time: 0
+        lock_timeout: 120
+        allow_downgrade: false
+        allow_unauthenticated: false
+      when: "'tailscale' not in ansible_facts.packages"
+    - name: Enable and start the native daemon, preserving existing identity
+      ansible.builtin.systemd_service:
+        name: tailscaled.service
+        enabled: true
+        state: started
+    - name: Inspect native authentication without prompting or opening a browser
+      ansible.builtin.command:
+        argv: [tailscale, status, '--json']
+      changed_when: false
+      failed_when: false
+      register: tailscale_status
+      no_log: true
+    - name: Require genuine device authentication before claiming connectivity
+      ansible.builtin.assert:
+        that: (tailscale_status.stdout | from_json).BackendState == 'Running'
+        fail_msg: TAILSCALE_LOGIN_REQUIRED; authorize this device through its native login. Existing state is never copied or reset.
+      no_log: true

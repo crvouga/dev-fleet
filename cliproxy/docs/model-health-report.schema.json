@@ -1,0 +1,364 @@
+{
+  "$comment": "Subset of JSON Schema checked by scripts/modelhealth/schema.py in tests/test_model_agent_report.py. Report format: cliproxy-model-health/1.",
+  "type": "object",
+  "required": [
+    "schema",
+    "generated_at",
+    "profile",
+    "suite",
+    "target",
+    "seed",
+    "levels",
+    "models",
+    "simulations",
+    "summary",
+    "findings",
+    "routing",
+    "cursor"
+  ],
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "cliproxy-model-health/1"
+    },
+    "generated_at": {
+      "type": "string"
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["liveness", "readiness", "light", "nightly", "manual"]
+    },
+    "suite": {
+      "type": "string",
+      "enum": ["core", "cursor", "all"]
+    },
+    "target": {
+      "type": "object",
+      "required": ["kind", "base_url"],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["live", "mock"]
+        },
+        "base_url": {
+          "type": "string"
+        }
+      }
+    },
+    "seed": {
+      "type": "integer"
+    },
+    "levels": {
+      "type": "object",
+      "required": ["liveness"],
+      "properties": {
+        "liveness": {
+          "type": "object",
+          "required": ["status", "category", "details"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["healthy", "degraded", "unhealthy", "unknown"]
+            },
+            "category": {
+              "type": ["string", "null"]
+            },
+            "details": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "readiness": {
+          "type": "object",
+          "required": ["status", "category", "details"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["healthy", "degraded", "unhealthy", "unknown"]
+            },
+            "category": {
+              "type": ["string", "null"]
+            },
+            "details": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "models": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider",
+          "status",
+          "reasons",
+          "coverage",
+          "capabilities",
+          "checks",
+          "metrics",
+          "rate_limited",
+          "paused",
+          "last_success"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["healthy", "degraded", "unhealthy", "unknown"]
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "coverage": {
+            "type": "object",
+            "required": ["capabilities", "exercised", "by_result"]
+          },
+          "capabilities": {
+            "type": "object"
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "id",
+                "capability",
+                "status",
+                "category",
+                "severity",
+                "endpoint",
+                "details",
+                "duration_ms"
+              ],
+              "properties": {
+                "status": {
+                  "type": "string",
+                  "enum": ["pass", "fail", "untested"]
+                },
+                "severity": {
+                  "type": "string",
+                  "enum": ["critical", "major", "minor"]
+                }
+              }
+            }
+          },
+          "metrics": {
+            "type": "object",
+            "required": [
+              "requests",
+              "availability",
+              "success_rate",
+              "ttft_ms",
+              "latency_ms",
+              "streaming_completion_rate",
+              "tool_call_success_rate",
+              "error_categories",
+              "upstream_failures",
+              "resolved_models"
+            ]
+          },
+          "rate_limited": {
+            "type": "boolean"
+          },
+          "paused": {
+            "type": "boolean"
+          },
+          "last_success": {
+            "type": "object"
+          },
+          "rate_limit_detail": {
+            "type": ["string", "null"]
+          }
+        }
+      }
+    },
+    "simulations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "capability", "status", "evidence", "details"],
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": ["pass", "fail"]
+          },
+          "evidence": {
+            "type": "string",
+            "const": "simulated"
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "status",
+        "levels",
+        "models",
+        "rate_limited",
+        "simulation_failures",
+        "findings"
+      ],
+      "properties": {
+        "rate_limited": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "status": {
+          "type": "string",
+          "enum": ["healthy", "degraded", "unhealthy", "unknown"]
+        },
+        "findings": {
+          "type": "object",
+          "required": ["total", "operator", "agent", "fingerprint"],
+          "properties": {
+            "total": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "operator": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "agent": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "fingerprint": {
+              "type": "string",
+              "minLength": 8
+            }
+          }
+        }
+      }
+    },
+    "findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "severity",
+          "category",
+          "model",
+          "check",
+          "endpoint",
+          "summary",
+          "owner",
+          "resolver",
+          "agent_fixable",
+          "evidence",
+          "reproduce",
+          "fix_hints"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 3
+          },
+          "status": {
+            "type": "string",
+            "enum": ["fail", "paused", "untested"]
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["critical", "major", "minor", "info"]
+          },
+          "category": {
+            "type": "string"
+          },
+          "model": {
+            "type": ["string", "null"]
+          },
+          "check": {
+            "type": ["string", "null"]
+          },
+          "endpoint": {
+            "type": ["string", "null"]
+          },
+          "summary": {
+            "type": "string",
+            "minLength": 1
+          },
+          "owner": {
+            "type": "string"
+          },
+          "resolver": {
+            "type": "string",
+            "enum": ["operator", "agent"]
+          },
+          "agent_fixable": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "object",
+            "required": ["details", "trace"],
+            "properties": {
+              "details": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "trace": {
+                "type": "array",
+                "items": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "reproduce": {
+            "type": "string",
+            "minLength": 10
+          },
+          "fix_hints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "required": ["declared", "live_verified"],
+      "properties": {
+        "live_verified": {
+          "type": "boolean"
+        }
+      }
+    },
+    "cursor": {
+      "type": "object",
+      "required": ["application_verified"],
+      "properties": {
+        "application_verified": {
+          "type": "boolean",
+          "const": false
+        }
+      }
+    }
+  }
+}

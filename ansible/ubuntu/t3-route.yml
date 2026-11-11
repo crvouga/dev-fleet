@@ -1,0 +1,28 @@
+---
+# The worker's T3 is reached over the tailnet only: Tailscale Serve terminates
+# HTTPS on port 443 and proxies to the loopback T3 server. Never Funnel. A
+# port 443 that already has any owner is left alone (reported, never reset).
+- name: Serve the worker T3 privately over the tailnet
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Require the declared loopback target
+      ansible.builtin.assert:
+        that: "t3_route_target is match('^http://127\\.0\\.0\\.1:[0-9]+$')"
+
+    - name: Read this node's Serve configuration
+      ansible.builtin.command:
+        argv: [tailscale, serve, status, --json]
+      register: t3_serve_status
+      changed_when: false
+    - name: Publish T3 on tailnet HTTPS port 443
+      ansible.builtin.command:
+        argv: [tailscale, serve, --bg, --https=443, '{{ t3_route_target }}']
+      vars:
+        serve: "{{ t3_serve_status.stdout | default('{}', true) | from_json }}"
+      when:
+        - "'443' not in (serve.TCP | default({}))"
+        - "(serve.Web | default({})) | select('search', ':443$') | list | length == 0"
+      changed_when: true

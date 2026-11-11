@@ -1,0 +1,252 @@
+---
+# Memory and disk safety: a runaway workload is stopped on its own before the
+# machine, SSH, Tailscale or the T3 server run out of memory or disk. These
+# tasks run before the capacity preflight because they matter most when a disk
+# is nearly full; they only write small files and never delete user data.
+- name: Inspect active swap
+  ansible.builtin.command:
+    argv: [swapon, --show=NAME, --noheadings]
+  changed_when: false
+  check_mode: false
+  register: active_swap
+- name: Measure root free space before creating swap
+  ansible.builtin.command:
+    argv: [df, --output=avail, -BM, /]
+  changed_when: false
+  check_mode: false
+  register: swap_capacity
+  when: active_swap.stdout | trim == ''
+- name: Refuse to create swap on a nearly full disk
+  ansible.builtin.assert:
+    that: (swap_capacity.stdout_lines | last | trim | regex_replace('M$', '') | int) >= resourceSafety.swapFileMiB + minimumFreeDiskMiB
+    fail_msg: SWAP_CAPACITY_REQUIRED; free disk space so a swap file can be created. No swap is active.
+  when: active_swap.stdout | trim == ''
+- name: Create a swap file when the node has no swap
+  ansible.builtin.command:
+    argv: [fallocate, -l, '{{ resourceSafety.swapFileMiB }}M', /swap.fleet]
+    creates: /swap.fleet
+  when: active_swap.stdout | trim == ''
+- name: Restrict the fleet swap file
+  ansible.builtin.file:
+    path: /swap.fleet
+    owner: root
+    group: root
+    mode: '0600'
+  when: active_swap.stdout | trim == ''
+- name: Format the fleet swap file
+  ansible.builtin.command:
+    argv: [mkswap, /swap.fleet]
+  when: active_swap.stdout | trim == ''
+- name: Activate the fleet swap file
+  ansible.builtin.command:
+    argv: [swapon, /swap.fleet]
+  when: active_swap.stdout | trim == ''
+- name: Activate the fleet swap file at boot
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    line: /swap.fleet none swap sw 0 0
+  when: active_swap.stdout | trim == ''
+
+- name: Install the systemd userspace OOM killer
+  ansible.builtin.apt:
+    name: systemd-oomd
+    state: present
+- name: Create memory and disk policy directories
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /etc/systemd/oomd.conf.d
+    - /etc/systemd/system/-.slice.d
+    - /etc/systemd/system/user.slice.d
+    - /etc/systemd/user/t3code-.scope.d
+    - /etc/systemd/journald.conf.d
+    - /etc/systemd/system/systemd-tmpfiles-clean.timer.d
+    - /etc/tmpfiles.d
+- name: Declare systemd-oomd limits
+  ansible.builtin.copy:
+    dest: /etc/systemd/oomd.conf.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync: kill one cgroup before swap or memory pressure stalls the node.
+      [OOM]
+      SwapUsedLimit=90%
+      DefaultMemoryPressureLimit=60%
+      DefaultMemoryPressureDurationSec=20s
+  register: oomd_config
+- name: Declare memory reserve and OOM policy for system and user slices
+  ansible.builtin.copy:
+    dest: '{{ item.dest }}'
+    owner: root
+    group: root
+    mode: '0644'
+    content: '{{ item.content }}'
+  loop:
+    - dest: /etc/systemd/system/-.slice.d/60-personal-fleet.conf
+      content: |
+        # Managed by personal fleet-sync: when swap is exhausted, oomd kills the largest swap user.
+        [Slice]
+        ManagedOOMSwap=kill
+    - dest: /etc/systemd/system/user.slice.d/60-personal-fleet.conf
+      content: |
+        # Managed by personal fleet-sync: user workloads can never take the memory SSH, Tailscale and system services need.
+        [Slice]
+        MemoryMax={{ resourceSafety.userMemoryMax }}
+  loop_control:
+    label: '{{ item.dest }}'
+  register: slice_policy
+- name: Bound each T3 agent so a runaway loses one process, not the session or the node
+  ansible.builtin.copy:
+    dest: /etc/systemd/user/t3code-.scope.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync. Applies to every t3code-*.scope T3 starts for an agent.
+      # OOMPolicy=continue: the kernel kills the largest process in the agent; the agent itself keeps running.
+      [Scope]
+      MemoryMax={{ resourceSafety.agentMemoryMax }}
+      MemorySwapMax={{ resourceSafety.agentSwapMax }}
+      OOMPolicy=continue
+  register: agent_policy
+- name: Apply slice limits without restarting services
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: slice_policy.changed
+- name: Load the agent limits into the running user manager for new agents
+  become: true
+  become_user: '{{ development_user }}'
+  environment:
+    XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+  when: agent_policy.changed
+  failed_when: false
+- name: Run systemd-oomd
+  ansible.builtin.systemd_service:
+    name: systemd-oomd.service
+    enabled: true
+    state: '{{ "restarted" if oomd_config.changed else "started" }}'
+
+- name: Cap the system journal
+  ansible.builtin.copy:
+    dest: /etc/systemd/journald.conf.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync.
+      [Journal]
+      SystemMaxUse={{ resourceSafety.journalMaxUse }}
+      SystemKeepFree={{ resourceSafety.journalKeepFree }}
+      RuntimeMaxUse=256M
+  register: journal_policy
+- name: Apply the journal cap
+  ansible.builtin.systemd_service:
+    name: systemd-journald.service
+    state: restarted
+  when: journal_policy.changed
+- name: Age out abandoned temporary files
+  ansible.builtin.copy:
+    dest: /etc/tmpfiles.d/tmp.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync; overrides /usr/lib/tmpfiles.d/tmp.conf.
+      q /tmp 1777 root root {{ resourceSafety.tmpAge }}
+      q /var/tmp 1777 root root {{ resourceSafety.varTmpAge }}
+- name: Clean temporary files hourly instead of daily
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/systemd-tmpfiles-clean.timer.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync.
+      [Timer]
+      OnUnitActiveSec=1h
+  register: tmpfiles_timer
+- name: Inspect the RAM-backed /tmp unit
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/tmp.mount
+  register: tmp_mount
+- name: Create the /tmp mount policy directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/tmp.mount.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: tmp_mount.stat.exists
+- name: Bound RAM-backed /tmp (effective after the next reboot)
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/tmp.mount.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync: /tmp is RAM; keep it from taking half of memory.
+      [Mount]
+      Options=mode=1777,strictatime,nosuid,nodev,size={{ resourceSafety.tmpMaxSize }},nr_inodes=1m,x-systemd.graceful-option=usrquota
+  when: tmp_mount.stat.exists
+  register: tmp_policy
+- name: Reload the cleanup timer and /tmp definitions
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: tmpfiles_timer.changed or tmp_policy.changed
+
+- name: Read the tracked disk guard
+  ansible.builtin.stat:
+    path: '{{ development_source }}/ansible/ubuntu/disk-guard.py'
+    checksum_algorithm: sha256
+  register: disk_guard_source
+  when: development_source is defined
+- name: Declare the disk guard service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/personal-fleet-disk-guard.service
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync: ansible/ubuntu/disk-guard.py
+      # Source sha256 {{ disk_guard_source.stat.checksum }}
+      [Unit]
+      Description=Personal Fleet disk guard (stops a runaway user writer before the disk fills)
+      StartLimitIntervalSec=0
+      [Service]
+      Type=simple
+      ExecStart=/usr/bin/python3 -I -B {{ disk_guard_source.stat.path }} --path / --path {{ development_home }} --floor-mib {{ resourceSafety.diskGuardFloorMiB }} --write-mib {{ resourceSafety.diskGuardWriteMiB }} --interval {{ resourceSafety.diskGuardIntervalSeconds }}
+      Restart=always
+      RestartSec=5
+      OOMScoreAdjust=-1000
+      MemoryMax=64M
+      MemorySwapMax=0
+      CPUQuota=10%
+      TasksMax=4
+      NoNewPrivileges=true
+      PrivateTmp=true
+      PrivateNetwork=true
+      ProtectSystem=strict
+      ProtectHome=read-only
+      ReadWritePaths=/sys/fs/cgroup
+      ProtectKernelModules=true
+      LogRateLimitIntervalSec=60
+      LogRateLimitBurst=20
+      [Install]
+      WantedBy=multi-user.target
+  when: development_source is defined and disk_guard_source.stat.exists
+  register: disk_guard_unit
+- name: Run the disk guard
+  ansible.builtin.systemd_service:
+    name: personal-fleet-disk-guard.service
+    daemon_reload: '{{ disk_guard_unit.changed }}'
+    enabled: true
+    state: '{{ "restarted" if disk_guard_unit.changed else "started" }}'
+  when: development_source is defined and disk_guard_source.stat.exists

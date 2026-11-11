@@ -1,0 +1,8 @@
+[Unit]
+Description=Renew CLIProxyAPI backup Vault token
+After=network-online.target
+[Service]
+Environment=PYTHONDONTWRITEBYTECODE=1
+Type=oneshot
+ExecStart=/opt/cliproxy-fleet/scripts/vault-renew
+UMask=0077

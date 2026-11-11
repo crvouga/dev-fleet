@@ -1,0 +1,76 @@
+---
+- name: Stage the native T3 policy and make the running app load it
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  tasks:
+    - name: Inspect existing administrator policy
+      ansible.builtin.stat:
+        path: /etc/t3code/policy.json
+      register: policy_file
+    - name: Inspect Fleet ownership marker
+      ansible.builtin.stat:
+        path: /etc/t3code/.personal-fleet-policy
+      register: policy_owner
+    - name: Refuse to overwrite an unrelated administrator policy
+      ansible.builtin.assert:
+        that: not policy_file.stat.exists or policy_owner.stat.exists
+        fail_msg: T3_POLICY_OWNER_CONFLICT; review and merge the existing administrator policy in Git before adoption.
+    - name: Create administrator-owned policy directory
+      ansible.builtin.file:
+        path: /etc/t3code
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+    - name: Record policy ownership before resumable installation
+      ansible.builtin.copy:
+        dest: /etc/t3code/.personal-fleet-policy
+        content: "ansible/ubuntu/t3/policy.json\n"
+        owner: root
+        group: root
+        mode: '0644'
+    - name: Stage validated policy with backup
+      ansible.builtin.copy:
+        content: "{{ t3_policy_document | default(lookup('ansible.builtin.file', 't3/policy.json') | from_json) | to_nice_json }}"
+        validate: '{{ t3_executable | quote }} policy check %s'
+        dest: /etc/t3code/policy.json
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+    # T3 reads its policy once, at startup. A running app that has not loaded
+    # the staged policy is restarted (this ends its running turns) so every
+    # node offers the same providers after every sync.
+    - name: Check whether the desktop app is running
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.command:
+        argv: [systemctl, --user, is-active, --quiet, t3code-desktop.service]
+      register: t3_desktop_active
+      changed_when: false
+      failed_when: false
+    - name: Ask the running T3 which policy it loaded
+      become: true
+      become_user: '{{ development_user }}'
+      ansible.builtin.command:
+        argv: ['{{ t3_executable }}', policy, show]
+      register: t3_policy_loaded
+      changed_when: false
+      failed_when: false
+      when: t3_desktop_active.rc == 0
+    - name: Restart T3 so it loads the staged policy
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.systemd_service:
+        scope: user
+        name: t3code-desktop.service
+        state: restarted
+      when:
+        - t3_desktop_active.rc == 0
+        - t3_policy_loaded.stdout is not search('loaded this policy\.\s*$')

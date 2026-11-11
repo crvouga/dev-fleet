@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+import fleet_config
+
+import getpass, importlib.util, os, pathlib, sys
+
+root = cliproxy_host.default_root().resolve()
+spec = importlib.util.spec_from_file_location(
+    "vault_access", root / "scripts/vault-access.py"
+)
+v = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(v)
+os.umask(0o077)
+for directory in [root / "state", root / "state/secrets", root / "state/status"]:
+    directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+    if os.geteuid() == 0:
+        os.chown(directory, 1000, 1000)
+try:
+    password = getpass.getpass("Vault password for " + fleet_config.vault()["user"] + " (hidden): ")
+    token = v.request("auth/userpass/login/" + fleet_config.vault()["user"], data={"password": password})[
+        "auth"
+    ]["client_token"]
+    password = None
+    data = v.request(fleet_config.vault()["shared"], token)["data"]["data"]
+    fields = [
+        "S3_ENDPOINT",
+        "S3_REGION",
+        "S3_BUCKET",
+        "S3_ACCESS_KEY_ID",
+        "S3_SECRET_ACCESS_KEY",
+    ]
+    if any(not data.get(k) for k in fields):
+        raise ValueError("Missing required S3 contract fields")
+    f = root / "state/secrets/vault-token"
+    new = f.with_suffix(".new")
+    new.write_text(token + "\n")
+    new.chmod(0o600)
+    os.replace(new, f)
+    if os.geteuid() == 0:
+        os.chown(f, 1000, 1000)
+    (root / "state/secrets/s3.json").unlink(missing_ok=True)
+    print(
+        "Saved Vault token securely. Each backup will fetch live S3 credentials; cached S3 credentials removed."
+    )
+except Exception:
+    sys.exit(
+        "Vault login/read failed. Check credentials and access to the shared document; response suppressed."
+    )

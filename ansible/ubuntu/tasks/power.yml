@@ -1,0 +1,51 @@
+---
+- name: Ensure systemd policy directories exist
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /etc/systemd/logind.conf.d
+    - /etc/systemd/sleep.conf.d
+- name: Declare idle and lid policy without restarting login sessions
+  ansible.builtin.copy:
+    dest: /etc/systemd/logind.conf.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    content: |
+      # Managed by personal fleet-sync. Effective after logind reload/reboot.
+      [Login]
+      HandleLidSwitch=ignore
+      HandleLidSwitchExternalPower=ignore
+      HandleLidSwitchDocked=ignore
+      IdleAction=ignore
+      KillUserProcesses=no
+      StopIdleSessionSec=infinity
+- name: Declare supported sleep policy
+  ansible.builtin.copy:
+    dest: /etc/systemd/sleep.conf.d/60-personal-fleet.conf
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    content: |
+      [Sleep]
+      AllowSuspend=no
+      AllowHibernation=no
+      AllowSuspendThenHibernate=no
+      AllowHybridSleep=no
+- name: Mask sleep transitions without stopping running user sessions
+  ansible.builtin.systemd_service:
+    name: '{{ item }}'
+    masked: true
+    daemon_reload: true
+  loop:
+    - sleep.target
+    - suspend.target
+    - hibernate.target
+    - hybrid-sleep.target
+    - suspend-then-hibernate.target

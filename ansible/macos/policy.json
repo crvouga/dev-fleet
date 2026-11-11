@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "minimumMajorVersion": 14,
+  "ansibleCore": "2.19.9",
+  "pmset": {
+    "sleep": "0",
+    "disksleep": "0",
+    "autorestart": "1",
+    "womp": "1",
+    "powernap": "0"
+  },
+  "autoLogOutDelay": 0,
+  "screensaverIdleTime": 0,
+  "tailscaleDaemon": "com.tailscale.tailscaled",
+  "beszelDaemon": "dev.devfleet.beszel-agent",
+  "credentialRenewalAgent": "dev.devfleet.worker-auth"
+}

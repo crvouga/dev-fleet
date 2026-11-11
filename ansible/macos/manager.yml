@@ -1,0 +1,30 @@
+---
+# Manager power policy. Workers depend on the manager's singleton services
+# (CLI proxy, Beszel hub), so the manager never sleeps on AC power. Sleep on
+# battery is left to the human. Run once with: ansible-playbook -K manager.yml
+- name: Keep the fleet manager awake on AC power
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  vars:
+    manager_pmset_ac:
+      sleep: '0'
+      womp: '1'
+  tasks:
+    - name: Inspect effective power management settings
+      ansible.builtin.command:
+        argv: [/usr/bin/pmset, -g, custom]
+      changed_when: false
+      register: pmset_custom
+    - name: Never sleep while on AC power
+      ansible.builtin.command:
+        argv: [/usr/bin/pmset, -c, '{{ item.key }}', '{{ item.value }}']
+      loop: '{{ manager_pmset_ac | dict2items }}'
+      loop_control:
+        label: '{{ item.key }}'
+      vars:
+        ac_section: "{{ pmset_custom.stdout.split('AC Power:') | last }}"
+        observed: "{{ ac_section | regex_findall('^\\s*' ~ item.key ~ '\\s+(\\S+)', multiline=True) | first | default('') }}"
+      when: observed != item.value
+      changed_when: true

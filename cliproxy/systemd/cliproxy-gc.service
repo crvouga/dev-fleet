@@ -1,0 +1,13 @@
+[Unit]
+Description=Collect expired CLIProxyAPI cloud and local history
+After=network-online.target
+[Service]
+Environment=PYTHONDONTWRITEBYTECODE=1
+Type=oneshot
+ExecStart=/opt/cliproxy-fleet/scripts/backup gc
+UMask=0077
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=4h
+Restart=on-failure
+RestartSec=30m

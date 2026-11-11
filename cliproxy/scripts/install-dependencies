@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ $(uname -s) == Darwin ]]; then
+  # Manager (macOS): per-user, never sudo, no Homebrew. Builds a private tools
+  # directory from the repository's pinned, checksum-locked toolchain:
+  #   tools/bin/python3  venv on mise's pinned Python with hash-locked PyYAML
+  #   tools/bin/restic   mise's pinned restic (mise.lock checksums)
+  # The LaunchAgents put tools/bin first on PATH, so jobs never depend on
+  # whatever python3/restic happens to be installed on the machine.
+  [[ $EUID != 0 ]] || { echo 'Do not use sudo on macOS; the manager installation is per-user.'; exit 1; }
+  here=$(cd "$(dirname "$0")/.." && pwd)
+  repo=$(cd "$here/../.." && pwd)
+  tools="$HOME/Library/Application Support/cliproxy-fleet/tools"
+  command -v mise >/dev/null || { echo 'mise is required: run the shared toolchain setup (bootstrap/README.md).'; exit 1; }
+  [[ -d /Applications/Docker.app ]] || { echo 'Docker Desktop (/Applications/Docker.app) is required.'; exit 1; }
+  cd "$repo"
+  mise install --quiet python uv restic
+  python=$(mise where python)/bin/python3
+  restic=$(mise where restic)/restic
+  [[ -x $restic ]] || restic=$(find "$(mise where restic)" -maxdepth 2 -type f -name 'restic*' -perm -u+x | head -1)
+  [[ -x $python && -x $restic ]] || { echo 'Pinned python/restic not found after mise install.'; exit 1; }
+  mkdir -p "$(dirname "$tools")"
+  chmod 700 "$(dirname "$tools")"
+  # Rebuild only when the pinned interpreter or lock changed.
+  stamp="$python $(shasum -a 256 "$here/requirements.lock" | cut -d' ' -f1)"
+  if [[ ! -x $tools/bin/python3 || $(cat "$tools/.pins" 2>/dev/null) != "$stamp" ]]; then
+    # A venv records its own path, so it is built where it runs.
+    rm -rf "$tools"
+    mise exec -- uv venv --quiet --python "$python" "$tools"
+    mise exec -- uv pip install --quiet --python "$tools/bin/python3" \
+      --require-hashes --no-deps -r "$here/requirements.lock"
+    printf '%s' "$stamp" > "$tools/.pins"
+  fi
+  ln -sfn "$restic" "$tools/bin/restic"
+  "$tools/bin/python3" -c 'import yaml' || { echo 'PyYAML is not importable from the tools venv.'; exit 1; }
+  "$tools/bin/restic" version >/dev/null || { echo 'restic does not run.'; exit 1; }
+  printf 'Manager prerequisites ready in %s. Start Docker Desktop (sign-in start) before installing.\n' "$tools"
+  exit 0
+fi
+# Legacy Linux owner (decommission-only): Ubuntu packages.
+[[ $EUID == 0 ]] || { echo 'Run with sudo.'; exit 1; }
+apt-get update
+apt-get install -y docker.io docker-compose-v2 restic python3-yaml curl openssl shellcheck
+systemctl enable --now docker
+if [[ -n ${SUDO_USER:-} && $SUDO_USER != root ]]; then
+  usermod -aG docker "$SUDO_USER"
+fi
+printf '\nDependencies installed. Return to Codex to continue deployment.\n'

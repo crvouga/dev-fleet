@@ -1,0 +1,5 @@
+#!/bin/sh
+# T3 binaryPath for Claude. The Claude Agent SDK runs any path ending in .ts
+# with node, so T3 needs an extension-less executable; this runs the tracked
+# Bun launcher beside it. No generated copy: this file lives in Git.
+exec bun "${0%/*}/claude-proxy.ts" "$@"

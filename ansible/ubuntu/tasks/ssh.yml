@@ -1,0 +1,71 @@
+---
+- name: Inspect effective SSH configuration before changes
+  ansible.builtin.command: /usr/sbin/sshd -T
+  changed_when: false
+  register: effective_ssh
+- name: Inspect any existing managed SSH fragment
+  ansible.builtin.stat:
+    path: /etc/ssh/sshd_config.d/60-personal-fleet.conf
+  register: ssh_owned_file
+- name: Read previous fragment for validation rollback
+  ansible.builtin.slurp:
+    src: /etc/ssh/sshd_config.d/60-personal-fleet.conf
+  when: ssh_owned_file.stat.exists
+  register: ssh_previous
+  no_log: true
+- name: Refuse to overwrite unmanaged SSH configuration
+  ansible.builtin.assert:
+    that:
+      - not ssh_owned_file.stat.exists or (ssh_previous.content | b64decode).startswith('# Managed by personal Fleet')
+    fail_msg: SSH_UNMANAGED_CONFIG_CONFLICT; review the existing fragment before adoption.
+- name: Stage and validate forwarding policy while preserving listeners and authentication
+  block:
+    - name: Write forwarding-only owned fragment
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/60-personal-fleet.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+        content: |
+          # Managed by personal Fleet; listeners and authentication remain explicit policy.
+          AllowTcpForwarding yes
+          ClientAliveInterval 30
+          ClientAliveCountMax 3
+      register: ssh_fragment
+    - name: Validate complete SSH configuration
+      ansible.builtin.command: /usr/sbin/sshd -t
+      changed_when: false
+  rescue:
+    - name: Restore previous fragment after validation failure
+      ansible.builtin.copy:
+        content: '{{ ssh_previous.content | b64decode }}'
+        dest: /etc/ssh/sshd_config.d/60-personal-fleet.conf
+        owner: root
+        group: root
+        mode: '0644'
+      when: ssh_owned_file.stat.exists
+      no_log: true
+    - name: Remove rejected new fragment
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/60-personal-fleet.conf
+        state: absent
+      when: not ssh_owned_file.stat.exists
+    - name: Report validation failure without reloading sshd
+      ansible.builtin.fail:
+        msg: SSH_CONFIG_REJECTED; previous configuration restored, active service untouched.
+- name: Enable existing SSH service at boot
+  ansible.builtin.systemd_service:
+    name: ssh.service
+    enabled: true
+    state: started
+- name: Reload validated forwarding policy without terminating sessions
+  ansible.builtin.systemd_service:
+    name: ssh.service
+    state: reloaded
+  when: ssh_fragment.changed
+- name: Verify effective forwarding after reload
+  ansible.builtin.command: /usr/sbin/sshd -T
+  changed_when: false
+  register: ssh_verified
+  failed_when: "'allowtcpforwarding yes' not in ssh_verified.stdout"

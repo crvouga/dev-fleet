@@ -1,0 +1,31 @@
+---
+# Always-on recovery for the system services every worker depends on. Drop-ins
+# change restart policy only; running services are never restarted here.
+- name: Create recovery drop-in directories for required system services
+  ansible.builtin.file:
+    path: '/etc/systemd/system/{{ item }}.service.d'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop: '{{ alwaysOnServices }}'
+- name: Declare unlimited automatic restart for required system services
+  ansible.builtin.copy:
+    dest: '/etc/systemd/system/{{ item }}.service.d/60-personal-fleet.conf'
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    content: |
+      # Managed by personal fleet-sync: keep this worker service always on.
+      [Unit]
+      StartLimitIntervalSec=0
+      [Service]
+      Restart=always
+      RestartSec=5
+  loop: '{{ alwaysOnServices }}'
+  register: recovery_dropins
+- name: Reload unit definitions without restarting running services
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: recovery_dropins.changed

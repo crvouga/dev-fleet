@@ -1,0 +1,1618 @@
+{
+  "schema": 1,
+  "endpoint": {
+    "key_env": "CLIPROXY_API_KEY",
+    "vault_field": "CLIPROXY_FLEET_CLIENT_API_KEY"
+  },
+  "runs": {
+    "liveness": {
+      "description": "Reachability and TLS only. No credentials, no inference.",
+      "levels": ["liveness"]
+    },
+    "readiness": {
+      "description": "Liveness plus authentication, model discovery and configured model ids. No inference.",
+      "levels": ["liveness", "readiness"]
+    },
+    "light": {
+      "description": "Readiness plus the cheapest real inference per model (frequent monitoring).",
+      "levels": ["liveness", "readiness", "e2e"],
+      "max_tier": "light",
+      "budget": {
+        "max_requests": 16,
+        "max_requests_per_model": 3,
+        "max_output_tokens": 2000,
+        "concurrency": 2
+      }
+    },
+    "nightly": {
+      "description": "Comprehensive protocol, tool-calling, streaming and agent workflows per model.",
+      "levels": ["liveness", "readiness", "e2e"],
+      "max_tier": "full",
+      "budget": {
+        "max_requests": 240,
+        "max_requests_per_model": 60,
+        "max_output_tokens": 24000,
+        "concurrency": 2
+      },
+      "simulations": true
+    },
+    "manual": {
+      "description": "Everything in nightly, plus wrong-key probes and the emulator fault-injection scenarios.",
+      "levels": ["liveness", "readiness", "e2e"],
+      "max_tier": "manual",
+      "simulations": true,
+      "budget": {
+        "max_requests": 300,
+        "max_requests_per_model": 75,
+        "max_output_tokens": 36000,
+        "concurrency": 2
+      }
+    }
+  },
+  "timeouts": {
+    "request_s": 60,
+    "stream_idle_s": 45,
+    "stream_deadline_s": 120,
+    "liveness_s": 15
+  },
+  "retry": {
+    "inference": 0,
+    "read_only": 1,
+    "backoff_s": 2,
+    "note": "Inference is never retried: a retry would multiply cost and hide a persistent failure."
+  },
+  "health": {
+    "abort_model_after_consecutive_failures": 4,
+    "unhealthy_if_failed_ratio": 0.5,
+    "latency_ms": {
+      "ttft_p50_warn": 20000,
+      "total_p95_warn": 90000
+    },
+    "required_model_fields": ["id"],
+    "model_consistency": true,
+    "rate_limit_backoff_s": 1800
+  },
+  "protocols": {
+    "chat": {
+      "path": "/chat/completions",
+      "token_limit_field": "max_tokens"
+    },
+    "responses": {
+      "path": "/responses",
+      "token_limit_field": "max_output_tokens"
+    }
+  },
+  "capability_profiles": {
+    "frontier-agent": {
+      "default": "required",
+      "optional": [
+        "*.developer",
+        "*.json_schema",
+        "*.parallel_tools",
+        "chat.finish_length",
+        "*.stream_long"
+      ],
+      "unsupported": {},
+      "extra": {
+        "chat": {},
+        "responses": {}
+      }
+    }
+  },
+  "models": [
+    {
+      "provider": "anthropic",
+      "profile": "frontier-agent",
+      "id": "claude-opus-5-5",
+      "capabilities": {}
+    },
+    {
+      "provider": "anthropic",
+      "profile": "frontier-agent",
+      "id": "claude-sonnet-5-5",
+      "capabilities": {}
+    },
+    {
+      "provider": "openai",
+      "profile": "frontier-agent",
+      "extra": {
+        "chat": {
+          "reasoning_effort": "low"
+        },
+        "responses": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
+      },
+      "id": "gpt-6-astra",
+      "capabilities": {}
+    },
+    {
+      "provider": "openai",
+      "profile": "frontier-agent",
+      "extra": {
+        "chat": {
+          "reasoning_effort": "low"
+        },
+        "responses": {
+          "reasoning": {
+            "effort": "low"
+          }
+        }
+      },
+      "id": "gpt-6.1-sol",
+      "capabilities": {}
+    }
+  ],
+  "simulated_capabilities": {
+    "routing.failover": "Request succeeds on another account after the first account's quota is exhausted.",
+    "routing.recovery": "A cooled-down account serves requests again after its cooldown elapses.",
+    "routing.model_consistency": "Every account behind a model returns the same response shape and model id.",
+    "routing.all_unavailable": "When every account is unavailable the client gets a prompt OpenAI-style error.",
+    "limits.rate_limit": "429 and Retry-After are classified and never retried by the harness.",
+    "limits.timeout": "A stalled upstream is cut off by the harness deadline.",
+    "limits.upstream_failure": "5xx and truncated streams are classified as upstream or protocol failures.",
+    "routing.affinity": "Requests in one session stay on one account while it is available.",
+    "routing.fill_first": "One account takes all traffic until its quota is exhausted; only then does the next account serve."
+  },
+  "tools": {
+    "get_weather": {
+      "description": "Get the current weather for a city.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "minLength": 2
+          },
+          "unit": {
+            "type": "string",
+            "enum": ["celsius", "fahrenheit"]
+          }
+        },
+        "required": ["city", "unit"],
+        "additionalProperties": false
+      }
+    },
+    "echo_token": {
+      "description": "Record a verification token exactly as given.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}-[0-9]{4}$"
+          }
+        },
+        "required": ["token"],
+        "additionalProperties": false
+      }
+    },
+    "read_file": {
+      "description": "Read a UTF-8 text file from the workspace.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    },
+    "write_file": {
+      "description": "Replace the full contents of a workspace file.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "content": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["path", "content"],
+        "additionalProperties": false
+      }
+    },
+    "run_tests": {
+      "description": "Run the test file and report the result.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["path"],
+        "additionalProperties": false
+      }
+    }
+  },
+  "checks": [
+    {
+      "id": "basic",
+      "title": "Non-streaming completion",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": {
+        "chat": "light",
+        "responses": "full"
+      },
+      "severity": "critical",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with the single word OK."
+          }
+        ],
+        "max_tokens": 256
+      },
+      "expect": {
+        "finish_reason": ["stop"],
+        "content": {
+          "non_empty": true
+        },
+        "usage": true
+      }
+    },
+    {
+      "id": "stream",
+      "title": "Streaming completion, SSE framing and termination",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": {
+        "chat": "full",
+        "responses": "light"
+      },
+      "severity": "critical",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with the single word OK."
+          }
+        ],
+        "max_tokens": 256,
+        "stream": true
+      },
+      "expect": {
+        "finish_reason": ["stop"],
+        "content": {
+          "non_empty": true
+        },
+        "stream": {
+          "min_events": 2
+        }
+      }
+    },
+    {
+      "id": "stream_usage",
+      "title": "Streaming usage metadata and finish reason",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with the single word OK."
+          }
+        ],
+        "max_tokens": 256,
+        "stream": true,
+        "include_usage": true
+      },
+      "expect": {
+        "finish_reason": ["stop"],
+        "usage": true,
+        "stream": {
+          "min_events": 2
+        }
+      }
+    },
+    {
+      "id": "multi_turn",
+      "title": "Multi-turn context preservation",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Remember this code word: {codeword}. Reply only with READY."
+          },
+          {
+            "role": "assistant",
+            "content": "READY"
+          },
+          {
+            "role": "user",
+            "content": "What was the code word? Reply with the code word only."
+          }
+        ],
+        "max_tokens": 256
+      },
+      "expect": {
+        "content": {
+          "contains": "{codeword}"
+        },
+        "finish_reason": ["stop"]
+      }
+    },
+    {
+      "id": "system",
+      "title": "System instruction is honored",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "request",
+      "turn": {
+        "system": "You are a terse assistant. Always end your reply with the exact marker {marker}.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Say hello."
+          }
+        ],
+        "max_tokens": 256
+      },
+      "expect": {
+        "content": {
+          "contains": "{marker}"
+        },
+        "finish_reason": ["stop"]
+      }
+    },
+    {
+      "id": "developer",
+      "title": "Developer instruction is honored",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "minor",
+      "kind": "request",
+      "turn": {
+        "developer": "Always end your reply with the exact marker {marker}.",
+        "messages": [
+          {
+            "role": "user",
+            "content": "Say hello."
+          }
+        ],
+        "max_tokens": 256
+      },
+      "expect": {
+        "content": {
+          "contains": "{marker}"
+        },
+        "finish_reason": ["stop"]
+      }
+    },
+    {
+      "id": "tools",
+      "title": "Forced tool call with structured arguments",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "critical",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the weather in [[Paris]]? Use the tool with celsius."
+          }
+        ],
+        "tools": ["get_weather"],
+        "tool_choice": {
+          "name": "get_weather"
+        },
+        "max_tokens": 256
+      },
+      "expect": {
+        "finish_reason": ["tool_calls", "stop"],
+        "tool_calls": {
+          "min": 1,
+          "max": 1,
+          "names": ["get_weather"],
+          "unique_ids": true,
+          "arguments_schema": "from_tools",
+          "arguments": {
+            "city": "Paris",
+            "unit": "celsius"
+          }
+        }
+      }
+    },
+    {
+      "id": "tools_stream",
+      "title": "Streaming tool call, incremental argument assembly",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "critical",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the weather in [[Tokyo]]? Use the tool with fahrenheit."
+          }
+        ],
+        "tools": ["get_weather"],
+        "tool_choice": {
+          "name": "get_weather"
+        },
+        "max_tokens": 256,
+        "stream": true,
+        "include_usage": true
+      },
+      "expect": {
+        "finish_reason": ["tool_calls", "stop"],
+        "stream": {
+          "min_events": 2
+        },
+        "tool_calls": {
+          "min": 1,
+          "max": 1,
+          "names": ["get_weather"],
+          "unique_ids": true,
+          "arguments_schema": "from_tools",
+          "arguments": {
+            "city": "Tokyo",
+            "unit": "fahrenheit"
+          }
+        }
+      }
+    },
+    {
+      "id": "tool_roundtrip",
+      "title": "Tool call, result and final answer",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "critical",
+      "kind": "roundtrip",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "What is the weather in [[Berlin]]? Use the tool with celsius, then report the temperature."
+          }
+        ],
+        "tools": ["get_weather"],
+        "tool_choice": {
+          "name": "get_weather"
+        },
+        "max_tokens": 256
+      },
+      "expect": {
+        "tool_calls": {
+          "min": 1,
+          "max": 1,
+          "names": ["get_weather"],
+          "arguments_schema": "from_tools",
+          "arguments": {
+            "city": "Berlin"
+          }
+        }
+      },
+      "results": {
+        "get_weather": "Berlin is {marker} degrees celsius and clear."
+      },
+      "followup": {
+        "tool_choice": "none",
+        "max_tokens": 256,
+        "expect": {
+          "finish_reason": ["stop"],
+          "content": {
+            "contains": "{marker}"
+          }
+        }
+      }
+    },
+    {
+      "id": "parallel_tools",
+      "title": "Multiple tool calls in one turn, with results",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "minor",
+      "kind": "roundtrip",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Call get_weather once for each city: [[Paris]] and [[Tokyo]]. Use celsius. Make both calls in the same turn."
+          }
+        ],
+        "tools": ["get_weather"],
+        "tool_choice": "required",
+        "parallel_tool_calls": true,
+        "max_tokens": 400
+      },
+      "expect": {
+        "tool_calls": {
+          "min": 2,
+          "names": ["get_weather"],
+          "unique_ids": true,
+          "arguments_schema": "from_tools",
+          "values": {
+            "field": "city",
+            "include": ["Paris", "Tokyo"]
+          }
+        }
+      },
+      "results": {
+        "get_weather": "Reading for the requested city: {marker} degrees."
+      },
+      "followup": {
+        "tool_choice": "none",
+        "max_tokens": 400,
+        "expect": {
+          "finish_reason": ["stop"],
+          "content": {
+            "non_empty": true
+          }
+        }
+      }
+    },
+    {
+      "id": "json_schema",
+      "title": "Structured JSON output",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "minor",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Return a JSON object with city set to Rome and population_millions set to a number."
+          }
+        ],
+        "json_schema": {
+          "name": "city_report",
+          "schema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string"
+              },
+              "population_millions": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": ["city", "population_millions"],
+            "additionalProperties": false
+          }
+        },
+        "max_tokens": 300
+      },
+      "expect": {
+        "finish_reason": ["stop"],
+        "json": {
+          "schema": {
+            "type": "object",
+            "properties": {
+              "city": {
+                "type": "string",
+                "const": "Rome"
+              },
+              "population_millions": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": ["city", "population_millions"]
+          }
+        }
+      }
+    },
+    {
+      "id": "finish_length",
+      "title": "Output limit reports finish_reason length",
+      "suites": ["core"],
+      "protocols": ["chat"],
+      "tier": "full",
+      "severity": "minor",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Write the numbers from 1 to 200 separated by spaces."
+          }
+        ],
+        "max_tokens": 16
+      },
+      "expect": {
+        "finish_reason": ["length"]
+      }
+    },
+    {
+      "id": "agent_workflow",
+      "title": "Multi-step coding-agent workflow (read, edit, test, report)",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "agent",
+      "system": "You are a coding agent. Use the provided tools. Make exactly one tool call per turn.",
+      "task": "The file calc.py has a bug: add(a, b) must return the sum. Read calc.py, fix it with write_file, run the tests in test_calc.py, then report the outcome in one sentence.",
+      "tools": ["read_file", "write_file", "run_tests"],
+      "files": {
+        "calc.py": "def add(a, b):\n    return a - b\n",
+        "test_calc.py": "from calc import add\nassert add(1, 2) == 3\n"
+      },
+      "steps": [
+        {
+          "force": "read_file",
+          "arguments": {
+            "path": "calc.py"
+          }
+        },
+        {
+          "force": "write_file",
+          "arguments": {
+            "path": "calc.py",
+            "content": {
+              "regex": "a\\s*\\+\\s*b"
+            }
+          }
+        },
+        {
+          "force": "run_tests",
+          "arguments": {
+            "path": "test_calc.py"
+          }
+        }
+      ],
+      "handlers": {
+        "read_file": {
+          "op": "read"
+        },
+        "write_file": {
+          "op": "write"
+        },
+        "run_tests": {
+          "op": "run",
+          "path": "calc.py",
+          "needle": "+",
+          "pass": "1 passed",
+          "fail": "FAILED: add(1, 2) returned -1"
+        }
+      },
+      "final": {
+        "tool_choice": "none",
+        "max_tokens": 300,
+        "expect": {
+          "finish_reason": ["stop"],
+          "content": {
+            "non_empty": true
+          }
+        }
+      },
+      "max_tokens": 400
+    },
+    {
+      "id": "stream_long",
+      "title": "Long-running stream stays live and terminates",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "minor",
+      "kind": "request",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Count from 1 to 40, one number per line, with no other text."
+          }
+        ],
+        "max_tokens": 300,
+        "stream": true,
+        "include_usage": true
+      },
+      "expect": {
+        "finish_reason": ["stop"],
+        "content": {
+          "non_empty": true
+        },
+        "stream": {
+          "min_events": 10,
+          "max_gap_s": 30
+        }
+      }
+    },
+    {
+      "id": "cancel_recover",
+      "title": "Client cancels a stream, then the next request succeeds",
+      "suites": ["core", "cursor"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "cancel_recover",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Count from 1 to 200, one number per line, with no other text."
+          }
+        ],
+        "max_tokens": 200,
+        "stream": true
+      },
+      "cancel_after_frames": 3,
+      "recover": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Reply with the single word OK."
+          }
+        ],
+        "max_tokens": 256
+      },
+      "expect": {
+        "finish_reason": ["stop"],
+        "content": {
+          "non_empty": true
+        }
+      }
+    },
+    {
+      "id": "concurrency_isolation",
+      "title": "Concurrent requests do not cross-contaminate",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "concurrent",
+      "parallel": 3,
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Record the verification token [[{nonce}]] with the tool."
+          }
+        ],
+        "tools": ["echo_token"],
+        "tool_choice": {
+          "name": "echo_token"
+        },
+        "max_tokens": 128
+      },
+      "expect": {
+        "tool_calls": {
+          "min": 1,
+          "max": 1,
+          "names": ["echo_token"],
+          "arguments_schema": "from_tools",
+          "arguments": {
+            "token": "{nonce}"
+          }
+        }
+      }
+    },
+    {
+      "id": "errors_unknown_model",
+      "title": "Unknown model returns an OpenAI-style error",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "error_probe",
+      "model": "model-health-nonexistent",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "x"
+          }
+        ],
+        "max_tokens": 16
+      },
+      "expect": {
+        "status": [400, 404, 422],
+        "error_envelope": true
+      },
+      "spends_inference": false
+    },
+    {
+      "id": "errors_malformed",
+      "title": "Malformed JSON body returns an OpenAI-style 400",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "major",
+      "kind": "error_probe",
+      "raw_body": "{\"model\": ",
+      "expect": {
+        "status": [400, 422],
+        "error_envelope": true
+      },
+      "spends_inference": false
+    },
+    {
+      "id": "errors_missing_input",
+      "title": "Missing messages/input returns an OpenAI-style 400",
+      "suites": ["core"],
+      "protocols": ["chat", "responses"],
+      "tier": "full",
+      "severity": "minor",
+      "kind": "error_probe",
+      "body": {},
+      "expect": {
+        "status": [400, 422],
+        "error_envelope": true
+      },
+      "spends_inference": false
+    },
+    {
+      "id": "invalid_key",
+      "title": "Wrong API key is rejected",
+      "suites": ["core"],
+      "protocols": ["chat"],
+      "tier": "manual",
+      "severity": "major",
+      "kind": "error_probe",
+      "key": "invalid-model-health-probe-key-0000000000",
+      "turn": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "x"
+          }
+        ],
+        "max_tokens": 16
+      },
+      "expect": {
+        "status": [401, 403]
+      },
+      "spends_inference": false
+    }
+  ],
+  "cursor": {
+    "note": "Protocol-level compatibility only. Requests follow the public OpenAI Chat Completions and Responses specifications, which Cursor documents for custom OpenAI-compatible endpoints. Cursor's private request shaping is not reproduced and the Cursor application is not driven by this suite.",
+    "application_verified": false,
+    "documentation": [
+      "https://platform.openai.com/docs/api-reference/chat",
+      "https://platform.openai.com/docs/api-reference/responses"
+    ]
+  },
+  "diagnostics": {
+    "credentials": "No client API key was available. Set CLIPROXY_API_KEY, provide an existing VAULT_TOKEN, or run on the host with an installed client key. Nothing was tested.",
+    "auth": "The client key was rejected. Confirm the fleet's proxy-client-key secret matches access.api-keys in the live config; never paste the key into logs.",
+    "not_found": "The model id is not served. Check `bun run cliproxy models` on the host and the provider account behind it.",
+    "rate_limit": "The provider account is rate limited or out of quota (HTTP 429 model_cooldown means every account for that model is cooling down). Inspect account usage in the dashboard; do not retry in a loop. Add an account or wait for the limit to reset.",
+    "timeout": "No response within the deadline. Check the host (`bun run cliproxy status`), the Cloudflare tunnel and provider status.",
+    "transport": "The connection failed (DNS, TLS, tunnel or host down). Run the liveness profile first.",
+    "upstream": "The proxy returned a 5xx or reported a provider failure. Check `bun run cliproxy logs` for the model's channel and the provider's status page.",
+    "protocol": "The response violates the wire contract. Compare the failing check's detail with the protocol validators; this can follow a CLIProxyAPI upgrade.",
+    "assertion": "The response was well-formed but did not satisfy the expected invariant. Re-run the single check manually; if it is stable, the model behavior changed.",
+    "request_rejected": "The proxy or provider rejected a valid request (HTTP 400/422). If the capability is genuinely unsupported, declare it optional or unsupported in models.json.",
+    "budget": "The request or token budget was exhausted before this check ran.",
+    "aborted": "Remaining checks were skipped after repeated consecutive failures to bound spend.",
+    "harness": "The test harness itself raised an error; this is a bug in the checks, not the endpoint.",
+    "model_missing": "The model id is not in /v1/models, so no inference was attempted for it. Compare `bun run cliproxy models` with models.json; the provider account may be unauthenticated or the model retired."
+  },
+  "simulations": [
+    {
+      "id": "failover_after_quota",
+      "capability": "routing.failover",
+      "title": "First account's quota is exhausted; the request fails over to the second",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 0
+        },
+        {
+          "id": "acct-b"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-b"]
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 3,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-b"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fill_first_drains_one_account_before_the_next",
+      "capability": "routing.fill_first",
+      "title": "Three accounts with limited quota are used strictly in order: all of the first, then the second, then the third",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 3
+        },
+        {
+          "id": "acct-b",
+          "quota": 3
+        },
+        {
+          "id": "acct-c"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 8,
+          "expect": {
+            "status": 200,
+            "served_sequence": [
+              "acct-a",
+              "acct-a",
+              "acct-a",
+              "acct-b",
+              "acct-b",
+              "acct-b",
+              "acct-c",
+              "acct-c"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fill_first_does_not_spread_load",
+      "capability": "routing.fill_first",
+      "title": "With capacity available, every new session goes to the first account and the others stay idle",
+      "accounts": [
+        {
+          "id": "acct-a"
+        },
+        {
+          "id": "acct-b"
+        },
+        {
+          "id": "acct-c"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 6,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-a"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "fill_first_returns_to_the_first_account_after_it_recovers",
+      "capability": "routing.fill_first",
+      "title": "After the first account's quota returns and its cooldown ends, new sessions fill it again before the second",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 1
+        },
+        {
+          "id": "acct-b"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 2,
+          "expect": {
+            "status": 200,
+            "served_sequence": ["acct-a", "acct-b"]
+          }
+        },
+        {
+          "action": "account",
+          "id": "acct-a",
+          "quota": null
+        },
+        {
+          "action": "advance",
+          "seconds": 31
+        },
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 3,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-a"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "transient_failure_cools_the_account_then_it_rejoins",
+      "capability": "routing.recovery",
+      "title": "A transient upstream error sends the request to the next account, keeps the failed one cooling for 60s, then it serves again",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "fail_next": 1
+        },
+        {
+          "id": "acct-b"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 2,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-b"]
+          }
+        },
+        {
+          "action": "advance",
+          "seconds": 61
+        },
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 1,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-a"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "session_binding_survives_recovery_and_rebinds_on_failover",
+      "capability": "routing.affinity",
+      "title": "A session stays on its account, moves when that account is exhausted, and keeps the new binding after the first account recovers",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 2
+        },
+        {
+          "id": "acct-b"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat",
+            "session": "same"
+          },
+          "count": 2,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-a"]
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "session": "same"
+          },
+          "count": 1,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-b"]
+          }
+        },
+        {
+          "action": "account",
+          "id": "acct-a",
+          "quota": null
+        },
+        {
+          "action": "advance",
+          "seconds": 31
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "session": "same"
+          },
+          "count": 2,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-b"]
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 1,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-a"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "recovery_after_quota_cooldown",
+      "capability": "routing.recovery",
+      "title": "A cooled-down account rejoins routing once its cooldown elapses and is filled first again",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 0
+        },
+        {
+          "id": "acct-b"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-b"]
+          }
+        },
+        {
+          "action": "account",
+          "id": "acct-a",
+          "quota": null
+        },
+        {
+          "action": "advance",
+          "seconds": 31
+        },
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 2,
+          "expect": {
+            "status": 200,
+            "served_by_all": ["acct-a"]
+          }
+        }
+      ]
+    },
+    {
+      "id": "model_consistent_across_accounts",
+      "capability": "routing.model_consistency",
+      "title": "Both accounts return the same model id and valid shapes on both protocols",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 2
+        },
+        {
+          "id": "acct-b"
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat"
+          },
+          "count": 4,
+          "expect": {
+            "status": 200,
+            "served_sequence": ["acct-a", "acct-a", "acct-b", "acct-b"],
+            "single_model": true
+          }
+        },
+        {
+          "action": "account",
+          "id": "acct-a",
+          "quota": 2
+        },
+        {
+          "action": "advance",
+          "seconds": 31
+        },
+        {
+          "request": {
+            "protocol": "responses"
+          },
+          "count": 4,
+          "expect": {
+            "status": 200,
+            "served_sequence": ["acct-a", "acct-a", "acct-b", "acct-b"],
+            "single_model": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "all_accounts_exhausted",
+      "capability": "routing.all_unavailable",
+      "title": "Every account is out of quota: a prompt 429 error envelope with Retry-After",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "quota": 0
+        },
+        {
+          "id": "acct-b",
+          "quota": 0
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 429,
+            "category": "rate_limit",
+            "retry_after": true,
+            "envelope": true,
+            "max_elapsed_s": 3,
+            "no_retry": true
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 429,
+            "category": "rate_limit",
+            "envelope": true,
+            "max_elapsed_s": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "all_accounts_failing",
+      "capability": "routing.all_unavailable",
+      "title": "Every account is failing upstream: a prompt 5xx error envelope",
+      "accounts": [
+        {
+          "id": "acct-a",
+          "fail_next": 9
+        },
+        {
+          "id": "acct-b",
+          "fail_next": 9
+        }
+      ],
+      "steps": [
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 503,
+            "category": "upstream",
+            "envelope": true,
+            "max_elapsed_s": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "rate_limit_is_classified_not_retried",
+      "capability": "limits.rate_limit",
+      "title": "A 429 with Retry-After is classified, never retried, and the next request succeeds",
+      "accounts": [
+        {
+          "id": "acct-a"
+        }
+      ],
+      "steps": [
+        {
+          "action": "fault",
+          "faults": {
+            "status": 429,
+            "status_remaining": 1,
+            "retry_after": 7
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 429,
+            "category": "rate_limit",
+            "retry_after": true,
+            "envelope": true,
+            "no_retry": true
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 200
+          }
+        }
+      ]
+    },
+    {
+      "id": "stalled_upstream_times_out",
+      "capability": "limits.timeout",
+      "title": "A stalled response is cut off at the harness deadline",
+      "accounts": [
+        {
+          "id": "acct-a"
+        }
+      ],
+      "timeouts": {
+        "request_s": 0.4,
+        "stream_idle_s": 0.4,
+        "stream_deadline_s": 1.0
+      },
+      "steps": [
+        {
+          "action": "fault",
+          "faults": {
+            "stall_s": 1.5
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "category": "timeout",
+            "max_elapsed_s": 1.2,
+            "no_retry": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "upstream_5xx_is_classified_not_retried",
+      "capability": "limits.upstream_failure",
+      "title": "A 502 is classified as an upstream failure and not retried",
+      "accounts": [
+        {
+          "id": "acct-a"
+        }
+      ],
+      "steps": [
+        {
+          "action": "fault",
+          "faults": {
+            "status": 502,
+            "status_remaining": 1
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64
+            }
+          },
+          "count": 1,
+          "expect": {
+            "status": 502,
+            "category": "upstream",
+            "envelope": true,
+            "no_retry": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "truncated_chat_stream_is_detected",
+      "capability": "limits.upstream_failure",
+      "title": "A chat stream cut off mid-response is reported as a protocol failure, not a success",
+      "accounts": [
+        {
+          "id": "acct-a"
+        }
+      ],
+      "steps": [
+        {
+          "action": "fault",
+          "faults": {
+            "truncate_after": 2
+          }
+        },
+        {
+          "request": {
+            "protocol": "chat",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64,
+              "stream": true
+            }
+          },
+          "count": 1,
+          "expect": {
+            "violation": "[DONE]",
+            "no_retry": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "truncated_responses_stream_is_detected",
+      "capability": "limits.upstream_failure",
+      "title": "A Responses stream with no terminal event is reported as a protocol failure",
+      "accounts": [
+        {
+          "id": "acct-a"
+        }
+      ],
+      "steps": [
+        {
+          "action": "fault",
+          "faults": {
+            "truncate_after": 3
+          }
+        },
+        {
+          "request": {
+            "protocol": "responses",
+            "turn": {
+              "messages": [
+                {
+                  "role": "user",
+                  "content": "Reply with the single word OK."
+                }
+              ],
+              "max_tokens": 64,
+              "stream": true
+            }
+          },
+          "count": 1,
+          "expect": {
+            "violation": "terminal response event",
+            "no_retry": true
+          }
+        }
+      ]
+    }
+  ],
+  "routing": {
+    "strategy": "fill-first",
+    "session_affinity": true,
+    "note": "Mirrors routing in config.template.yaml (a test enforces this). Fill-first drains one account before using the next; the live proxy config is applied separately and is not observable from outside."
+  }
+}

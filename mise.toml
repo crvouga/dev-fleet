@@ -1,0 +1,99 @@
+# Shared workstation toolchain. Bootstrap installs this globally; projects may override it.
+# See bootstrap/README.md. Commit mise.lock whenever changing these pins.
+min_version = "2026.10.24"
+
+[settings]
+lockfile = true
+lockfile_platforms = ["linux-x64", "linux-arm64", "macos-x64", "macos-arm64", "windows-x64"]
+
+[tools]
+gh = "2.103.3"
+shellcheck = "0.11.0"
+actionlint = "1.7.12"
+opentofu = "1.13.0"
+bun = "1.4.4"
+node = "26.13.0"
+atlas = { version = "1.3.0", os = ["linux", "macos"], lazy = true }
+azure-cli = { version = "2.91.0", lazy = true }
+# CLI proxy backups on the manager (cliproxy/scripts/install-dependencies).
+restic = { version = "0.19.1", os = ["linux", "macos"], lazy = true }
+pnpm = "12.16.1"
+"npm:@yarnpkg/cli-dist" = "4.18.1"
+deno = "2.9.8"
+python = "3.15.2"
+uv = "0.13.6"
+go = "1.27.3"
+jq = "1.8.2"
+yq = "4.54.1"
+ripgrep = "15.2.0"
+fd = "10.5.0"
+fzf = "0.74.5"
+bat = "0.26.1"
+delta = "0.18.2"
+git-lfs = "3.8.1"
+docker-cli = "29.9.2"
+"npm:vercel" = "65.8.0"
+"npm:wrangler" = "4.156.0"
+railway = "5.71.0"
+"aqua:anomalyco/opencode" = "1.19.5"
+vault = "2.2.1"
+claude = "2.1.314"
+codex = "0.166.0"
+gemini = { version = "0.66.0", allow_builds = ["@lydell/node-pty"] }
+copilot = "1.0.105"
+# Agent CLIs without a registry backend: exact vendor artifacts, checksums in mise.lock.
+"http:grok" = { version = "1.0.77", os = ["linux", "macos"], bin = "grok", platforms = { linux-x64 = { url = "https://x.ai/cli/grok-{{version}}-linux-x86_64" }, linux-arm64 = { url = "https://x.ai/cli/grok-{{version}}-linux-aarch64" }, macos-x64 = { url = "https://x.ai/cli/grok-{{version}}-macos-x86_64" }, macos-arm64 = { url = "https://x.ai/cli/grok-{{version}}-macos-aarch64" } } }
+"http:antigravity" = { version = "1.5.3", os = ["linux", "macos"], bin = "antigravity", platforms = { linux-x64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/linux-x64/cli_linux_x64.tar.gz" }, linux-arm64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/linux-arm/cli_linux_arm64.tar.gz" }, macos-x64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/darwin-x64/cli_mac_x64.tar.gz" }, macos-arm64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/darwin-arm/cli_mac_arm64.tar.gz" } } }
+
+"aws" = { version = "2.39.2", os = ["linux", "macos"] }
+"rust" = "1.99.1"
+"cmake" = "4.4.5"
+"ninja" = "1.13.2"
+"just" = "1.59.0"
+"gitleaks" = "8.30.1"
+"shfmt" = "3.14.1"
+"sops" = "3.13.3"
+"age" = "1.3.2"
+"kubectl" = "1.37.2"
+"helm" = "4.3.1"
+"xh" = "0.26.3"
+"usql" = "0.21.6"
+"java" = { version = "temurin-25.0.5+8.0.LTS", lazy = true }
+"dotnet" = { version = "10.0.403", lazy = true, lazy_bins = ["dotnet"] }
+"gcloud" = { version = "591.0.0", lazy = true }
+"npm:@devcontainers/cli" = "0.90.0"
+# pino's 9.x backport was manually published; integrity and all published JS
+# were checked against pinojs/pino v9.14.0. Keep the exception version-specific.
+"npm:@modelcontextprotocol/inspector" = { version = "2.13.0", lazy = true, lazy_bins = ["mcp-inspector", "inspector", "mcpdo"], trust_policy_excludes = ["pino@9.14.0"] }
+"aws-cdk" = { version = "2.1146.1", lazy = true }
+"aws-sam" = { version = "1.171.0", lazy = true, os = ["linux", "macos"] }
+
+# Keep self-updaters from bypassing the reviewed toolchain lock.
+[env]
+DISABLE_AUTOUPDATER = "1"
+COPILOT_AUTO_UPDATE = "false"
+GROK_DISABLE_AUTOUPDATER = "1"
+# Antigravity ignores "1"; only "true" stops its in-place self-updater.
+AGY_CLI_DISABLE_AUTO_UPDATE = "true"
+
+[vars]
+# Official native Ubuntu server distribution; bootstrap/native-t3.ts owns installation.
+t3_version = "0.1.8-nightly.20261106.4262"
+t3_linux_x64_sha256 = "5df94ca15c4f68f749fa5540fbb9d5ca879ca8750ac43dd2704f6a18899ed6d5"
+t3_linux_arm64_sha256 = "0649615c4a294eee40bc753c8668e4a83c5c3620794f2163758f8dc48a39b880"
+# Official T3 Code desktop .deb (same release). Workers run this GUI app as their
+# only T3 process; it embeds the server. Upstream SHA256SUMS omits .deb files,
+# so these digests were computed from the release assets.
+t3_desktop_amd64_sha256 = "952703bd48b87029a4f9a2b275aeeb79bc74eacf01867784ab6878adecaf03d7"
+t3_desktop_arm64_sha256 = "ae8a32a71a32760831af40a16cae9aabe8683b7021df6b899b57e8d559a7e777"
+# Official AWS v2 Windows MSI, same version as tools.aws; checked before execution.
+aws_windows_msi_sha256 = "c7857d5981e68396852e8b7eca0b1772f1c99b34d4938075857d45ec9c232113"
+# Docker Desktop supplies the macOS engine, Compose and Buildx as one vendor bundle.
+# Official release/checksums: https://docs.docker.com/desktop/release-notes/#4980
+docker_desktop_version = "4.98.0"
+docker_desktop_build = "245422"
+docker_desktop_arm64_sha256 = "9c6f13ce4edda2abf20d801552b6acb96acd3d64b3e91b50c4484353802758b5"
+docker_desktop_amd64_sha256 = "96b53f9a4a807b6be6207d18f360b9778ff481e1d94b5027bdf1ae2a22d837cb"
+
+# Minimal remote development baseline; versions are resolved exclusively by tools + mise.lock.
+worker_tools = "bun,node,gh,python,uv,docker-cli,vault,jq,codex,claude,aqua:anomalyco/opencode,gemini,copilot,http:grok,http:antigravity"

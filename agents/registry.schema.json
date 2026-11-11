@@ -1,0 +1,149 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Personal portable agent registry",
+  "type": "object",
+  "required": ["version", "defaults", "proxy", "nodes", "tools"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "defaults": {
+      "type": "object"
+    },
+    "proxy": {
+      "type": "object",
+      "required": ["models"],
+      "properties": {
+        "models": {
+          "type": "object"
+        },
+        "accounts": {
+          "description": "Tools T3 offers once per signed-in proxy account. Accounts are never listed here: they are discovered from the proxy's model list. provider is the proxy credential type that serves the tool; models are preferred defaults (Claude: opus, sonnet, haiku).",
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "required": ["provider", "models"],
+            "additionalProperties": false,
+            "properties": {
+              "provider": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9]{0,30}$"
+              },
+              "models": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9_.:+-]+$"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "nodes": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]{0,62}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "codex": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direct": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              },
+              "proxy": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              }
+            }
+          },
+          "claude": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direct": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              },
+              "proxy": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              }
+            }
+          },
+          "opencode": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direct": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              },
+              "proxy": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              }
+            }
+          },
+          "gemini": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direct": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              },
+              "proxy": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              }
+            }
+          },
+          "grok": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direct": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              },
+              "proxy": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              }
+            }
+          },
+          "antigravity": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "direct": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              },
+              "proxy": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9_./:+-]+$"
+              }
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object"
+    }
+  }
+}

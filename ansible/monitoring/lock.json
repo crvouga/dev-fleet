@@ -1,0 +1,11 @@
+{
+  "version": "0.21.1",
+  "image": "henrygd/beszel:0.21.1@sha256:8514a69d9bbbcb74f371a3205561ee231fc0289739cea64e8131f341d695b770",
+  "agents": {
+    "amd64": "3b6ee592632ec03b9a43312e99a40203a7b3d83fe40dd0c25acda1eb915ea7c0",
+    "arm64": "a6ea544976b9a74398ac88d5da5bb96813d9a2e353a37bbfdb6a903fa8ba1838",
+    "darwin-arm64": "9246065f680cdb0af2885b7bf5876dc45b754019f2c90eb28550cf45db978eb8",
+    "darwin-amd64": "21f4a03fd90ae46869cfcbb69e21e8312f0f05deff49669d4602a3dee4866981"
+  },
+  "source": "https://github.com/henrygd/beszel/releases/tag/v0.21.1"
+}

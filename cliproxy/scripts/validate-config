@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+
+import pathlib, sys, yaml, os
+
+arguments = [a for a in sys.argv[1:] if not a.startswith("--")]
+require_fill_first = "--require-fill-first" in sys.argv[1:]
+p = (
+    pathlib.Path(arguments[0])
+    if arguments
+    else cliproxy_host.default_root()
+    / "state/runtime/config.yaml"
+)
+try:
+    c = yaml.safe_load(p.read_text())
+
+    def require(condition):
+        if not condition:
+            raise ValueError("Unsafe configuration")
+
+    require(c["config-version"] == 8)
+    require(c["server"]["port"] == 8317)
+    require(c["oauth"]["auth-dir"] == "/state/auths")
+    management = c["management"]["secret-key"]
+    require(
+        isinstance(management, str)
+        and len(management) >= 32
+        and "REPLACE" not in management
+    )
+    keys = c["access"]["api-keys"]
+    require(
+        isinstance(keys, list)
+        and bool(keys)
+        and all(
+            isinstance(k, str) and len(k) >= 32 and "REPLACE" not in k for k in keys
+        )
+    )
+    require(management not in keys)
+    require(c["routing"]["strategy"] in ("round-robin", "weighted-round-robin", "fill-first"))
+    # Candidate configurations must keep the fill-first policy; the running config is only
+    # reported on drift (see scripts/monitor), so an older deployment still starts.
+    require(not require_fill_first or c["routing"]["strategy"] == "fill-first")
+    require(c.get("quota-exceeded", {}).get("switch-preview-model") is False)
+    require(c["observability"]["logs"]["debug"] is False)
+    require(c["observability"]["logs"]["request-log"] is False)
+    require(c["plugins"]["enabled"] is False)
+except Exception:
+    sys.exit("Configuration failed YAML/security validation; values suppressed.")
+print("YAML and deployment safety invariants passed (runtime staging still required).")

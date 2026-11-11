@@ -1,0 +1,7 @@
+#!/bin/sh
+# The devfleet command. ~/.local/bin/devfleet links here; nothing is copied.
+set -eu
+self=$(readlink -f "$0")
+root=$(cd "$(dirname "$self")/.." && pwd)
+export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+exec bun "$root/src/cli/cli.ts" "$@"

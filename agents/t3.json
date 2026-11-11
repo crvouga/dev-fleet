@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "instances": {
+    "personal_gateway_models": {
+      "driver": "opencode",
+      "displayName": "OpenCode CLI Proxy",
+      "enabled": true,
+      "config": {
+        "binaryPath": "${workspace}/agents/opencode-proxy.ts"
+      },
+      "environment": [
+        {
+          "name": "WS_AGENT_NODE",
+          "value": "${node}",
+          "sensitive": false
+        }
+      ]
+    },
+    "personal_grok_proxy": {
+      "driver": "grok",
+      "displayName": "Grok CLI Proxy",
+      "enabled": true,
+      "config": {
+        "binaryPath": "${workspace}/agents/grok-proxy.ts"
+      },
+      "environment": [
+        {
+          "name": "WS_AGENT_NODE",
+          "value": "${node}",
+          "sensitive": false
+        },
+        {
+          "name": "XAI_API_KEY",
+          "value": "fleet-cli-proxy",
+          "sensitive": false
+        }
+      ]
+    }
+  }
+}
