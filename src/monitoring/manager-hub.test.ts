@@ -51,9 +51,9 @@ function fixture(options: Fixture = {}) {
   };
   const status = (): CommandResult =>
     result(true, served && (options.routedAfterServe ?? true) ? routed : '{}');
-  const serve = (): CommandResult => {
+  const serve = (args: readonly string[]): CommandResult => {
     served = true;
-    return result(true);
+    return ansible(args);
   };
   const curl = (args: readonly string[]): CommandResult =>
     result(
@@ -72,7 +72,7 @@ function fixture(options: Fixture = {}) {
     [(args) => args[0] === 'vault', vault],
     [(args) => args.includes('hub-darwin.yml'), ansible],
     [(args) => args.join(' ').endsWith('serve status --json'), status],
-    [(args) => args.includes('--bg'), serve],
+    [(args) => args.includes('hub-route-darwin.yml'), serve],
     [(args) => args[0] === 'curl', curl],
   ];
   const run: Runner = async (args) => {
@@ -112,13 +112,14 @@ test('the manager hub converges locally with a per-user data dir and private rou
       '/Users/dev/Library/Application Support/personal-beszel-tunnel',
     beszel_tunnel_token: SECRET,
   });
-  expect(calls).toContainEqual([
-    CLI,
-    'serve',
-    '--bg',
-    '--https=8443',
-    'http://127.0.0.1:8090',
-  ]);
+  // The route is declared: its playbook publishes it, never this code.
+  expect(variables[1]).toEqual({
+    beszel_tailscale_cli: CLI,
+    beszel_route_port: '8443',
+    beszel_route_target: 'http://127.0.0.1:8090',
+  });
+  expect(calls.some((args) => args.includes('--bg'))).toBe(false);
+  expect(calls.some((args) => args[0] === 'sudo')).toBe(false);
   expect(calls.some((args) => args[0] === 'ssh')).toBe(false);
   expect(calls.flat().join(' ')).not.toContain(SECRET);
   expect(JSON.stringify(checks)).not.toContain(SECRET);

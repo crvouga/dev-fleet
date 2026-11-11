@@ -1,0 +1,44 @@
+---
+# The manager's hub is reached over the tailnet only: Tailscale Serve
+# terminates HTTPS on the declared port and proxies to the loopback hub. Never
+# Funnel. A port that already has any owner is left alone: fleet-sync refuses
+# a conflicting owner before this runs and reads the route back afterwards.
+- name: Serve the manager hub privately over the tailnet
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    beszel_serve: ['{{ beszel_tailscale_cli }}', serve, --bg, '--https={{ beszel_route_port }}', '{{ beszel_route_target }}']
+  tasks:
+    - name: Require the declared loopback target and port
+      ansible.builtin.assert:
+        that:
+          - "beszel_route_target is match('^http://127\\.0\\.0\\.1:[0-9]+$')"
+          - "beszel_route_port is match('^[0-9]+$')"
+          - "beszel_tailscale_cli is match('^/')"
+
+    - name: Read this node's Serve configuration
+      ansible.builtin.command:
+        argv: ['{{ beszel_tailscale_cli }}', serve, status, --json]
+      register: beszel_serve_status
+      changed_when: false
+    - name: Publish the hub on the tailnet HTTPS port as the signed-in user
+      ansible.builtin.command:
+        argv: '{{ beszel_serve }}'
+      vars:
+        serve: "{{ beszel_serve_status.stdout | default('{}', true) | from_json }}"
+      when:
+        - beszel_route_port not in (serve.TCP | default({}))
+        - "(serve.Web | default({})) | select('search', ':' ~ beszel_route_port ~ '$') | list | length == 0"
+      register: beszel_served
+      changed_when: beszel_served.rc == 0
+      failed_when: false
+    # The standalone daemon accepts Serve changes from an administrator only.
+    - name: Publish the hub with administrator rights where the daemon requires them
+      ansible.builtin.command:
+        argv: '{{ beszel_serve }}'
+      become: true
+      when:
+        - beszel_served is not skipped
+        - beszel_served.rc != 0
+      changed_when: true
