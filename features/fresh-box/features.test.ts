@@ -13,4 +13,5 @@ runFeatures({
   timeoutMs: 180_000,
 });
 
-afterAll(discardBox);
+// Removing the machine can take longer than a hook's default five seconds.
+afterAll(discardBox, 120_000);
