@@ -3,7 +3,11 @@ import type { Check, Runner } from '../types';
 
 const AGENT_DROP_IN =
   '/etc/systemd/user/t3code-.scope.d/60-personal-fleet.conf';
-const GUARDS = ['systemd-oomd.service', 'personal-fleet-disk-guard.service'];
+const GUARDS = [
+  'systemd-oomd.service',
+  'personal-fleet-disk-guard.service',
+  'personal-fleet-disk-gc.timer',
+];
 const MIB = 1024 * 1024;
 const FLOOR_MIB = policy.resourceSafety.diskGuardFloorMiB;
 
@@ -67,7 +71,7 @@ const diskAboveFloor =
     if (free >= FLOOR_MIB * MIB) return undefined;
     return [
       'DISK_FREE_BELOW_FLOOR',
-      `${path} has ${Math.floor(free / MIB)} MiB free, under the ${FLOOR_MIB} MiB floor. The guard stops runaway writers but never deletes files; remove stale worktrees or data.`,
+      `${path} has ${Math.floor(free / MIB)} MiB free, under the ${FLOOR_MIB} MiB floor. The disk GC already removed idle build output and caches; remove stale worktrees or data, or run "sudo systemctl start personal-fleet-disk-gc.service" and read its journal.`,
     ];
   };
 
@@ -90,7 +94,7 @@ const tmpWritable: Probe = async (run) =>
 
 /** Measured memory and disk safety on an Ubuntu worker: the running managers,
  * not the files Ansible wrote. Free space below the guard floor fails because
- * the guard only stops runaway writers; a person must recover space.
+ * what is left after the disk GC is work a person must decide about.
  */
 export async function verifyResourceSafety(
   home: string,
@@ -122,7 +126,7 @@ export async function verifyResourceSafety(
       id: 'ubuntu:resource-safety',
       status: 'pass',
       summary:
-        'systemd-oomd and the disk guard are running, user workloads are capped below physical memory, T3 agents have per-agent limits, swap is active, free disk is above the guard floor and /tmp is writable.',
+        'systemd-oomd, the disk guard and the disk GC timer are running, user workloads are capped below physical memory, T3 agents have per-agent limits, swap is active, free disk is above the guard floor and /tmp is writable.',
     },
   ];
 }

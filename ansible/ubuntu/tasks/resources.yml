@@ -2,7 +2,9 @@
 # Memory and disk safety: a runaway workload is stopped on its own before the
 # machine, SSH, Tailscale or the T3 server run out of memory or disk. These
 # tasks run before the capacity preflight because they matter most when a disk
-# is nearly full; they only write small files and never delete user data.
+# is nearly full; they only write small files and never delete user data. The
+# disk GC timer they install deletes only build output and caches a build or
+# install recreates (ansible/ubuntu/disk-gc.py).
 - name: Inspect active swap
   ansible.builtin.command:
     argv: [swapon, --show=NAME, --noheadings]
@@ -250,3 +252,61 @@
     enabled: true
     state: '{{ "restarted" if disk_guard_unit.changed else "started" }}'
   when: development_source is defined and disk_guard_source.stat.exists
+
+- name: Read the tracked disk GC
+  ansible.builtin.stat:
+    path: '{{ development_source }}/ansible/ubuntu/disk-gc.py'
+    checksum_algorithm: sha256
+  register: disk_gc_source
+  when: development_source is defined
+- name: Declare the disk GC service and its hourly timer
+  ansible.builtin.copy:
+    dest: '{{ item.dest }}'
+    owner: root
+    group: root
+    mode: '0644'
+    content: '{{ item.content }}'
+  loop:
+    - dest: /etc/systemd/system/personal-fleet-disk-gc.service
+      content: |
+        # Managed by personal fleet-sync: ansible/ubuntu/disk-gc.py
+        # Source sha256 {{ disk_gc_source.stat.checksum }}
+        [Unit]
+        Description=Personal Fleet disk GC (deletes build output and caches a build recreates)
+        After=docker.service
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ resourceSafety.diskGcPressureMiB }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}
+
+        TimeoutStartSec=2h
+        Nice=19
+        IOSchedulingClass=idle
+        CPUQuota=50%
+        MemoryMax=512M
+        NoNewPrivileges=true
+        PrivateTmp=true
+        LogRateLimitIntervalSec=60
+        LogRateLimitBurst=200
+    - dest: /etc/systemd/system/personal-fleet-disk-gc.timer
+      content: |
+        # Managed by personal fleet-sync: ansible/ubuntu/disk-gc.py
+        [Unit]
+        Description=Run the Personal Fleet disk GC hourly
+        [Timer]
+        OnBootSec=10min
+        OnCalendar=hourly
+        RandomizedDelaySec=5min
+        Persistent=true
+        [Install]
+        WantedBy=timers.target
+  loop_control:
+    label: '{{ item.dest }}'
+  when: development_source is defined and disk_gc_source.stat.exists
+  register: disk_gc_units
+- name: Schedule the disk GC
+  ansible.builtin.systemd_service:
+    name: personal-fleet-disk-gc.timer
+    daemon_reload: '{{ disk_gc_units.changed }}'
+    enabled: true
+    state: started
+  when: development_source is defined and disk_gc_source.stat.exists
