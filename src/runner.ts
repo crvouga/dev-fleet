@@ -24,7 +24,7 @@ export function runCommand(
     const child = spawn(command[0]!, command.slice(1), {
       cwd: options.cwd,
       env: {
-        ...process.env,
+        ...(options.isolatedEnv ? {} : process.env),
         ...options.env,
         GIT_TERMINAL_PROMPT: '0',
         CI: '1',

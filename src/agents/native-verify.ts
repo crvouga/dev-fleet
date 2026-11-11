@@ -23,6 +23,8 @@ export const NATIVE_AGENTS = [
     binary: 'claude',
     pin: 'claude',
     wrapper: 'claude-proxy.ts',
+    // T3's binaryPath: the Claude Agent SDK runs a `.ts` path with node.
+    launcher: 'claude-proxy',
     args: ['-p', PROMPT],
   },
   {
@@ -30,6 +32,7 @@ export const NATIVE_AGENTS = [
     binary: 'codex',
     pin: 'codex',
     wrapper: 'codex-proxy.ts',
+    launcher: 'codex-proxy.ts',
     args: ['exec', '--skip-git-repo-check', PROMPT],
   },
   {
@@ -37,6 +40,7 @@ export const NATIVE_AGENTS = [
     binary: 'grok',
     pin: 'http:grok',
     wrapper: 'grok-proxy.ts',
+    launcher: 'grok-proxy.ts',
     args: ['-p', PROMPT],
   },
   {
@@ -44,6 +48,7 @@ export const NATIVE_AGENTS = [
     binary: 'antigravity',
     pin: 'http:antigravity',
     wrapper: 'antigravity-proxy.ts',
+    launcher: 'antigravity-proxy.ts',
     args: [
       '-p',
       PROMPT,
@@ -58,14 +63,31 @@ export const NATIVE_AGENTS = [
     binary: 'opencode',
     pin: 'aqua:anomalyco/opencode',
     wrapper: 'opencode-proxy.ts',
+    launcher: 'opencode-proxy.ts',
     args: ['run', '--model', 'personal_proxy/devin/muse-wonder-1-0', PROMPT],
   },
 ] as const;
 
 type Agent = (typeof NATIVE_AGENTS)[number];
 
+/** The user service T3 runs as on a worker, and so the environment every
+ * agent it starts inherits.
+ */
+export const T3_SERVICE = 't3code-desktop.service';
+
+/** How a session is launched: by the sync, through Bun on the pinned PATH,
+ * or exactly as the T3 service starts it, with that service's environment
+ * and nothing of the sync's.
+ */
+type Launch =
+  | { kind: 'sync' }
+  | { kind: 'service'; env: Record<string, string> }
+  | { kind: 'incomplete' };
+
 /** Same versions everywhere (from the shared mise.lock) and a working signed-in
  * session through each T3 launcher. Agents run concurrently and are bounded.
+ * With `t3Service` (a Linux worker), sessions run in the environment of the
+ * T3 user service, where T3 itself starts them, not in the sync's.
  */
 export async function verifyNativeAgents(
   node: string,
@@ -75,10 +97,15 @@ export async function verifyNativeAgents(
     /** Proxy routes already found out of quota; their sessions are not run. */
     outOfQuota?: Set<string>;
     cache?: VerifyCache;
+    t3Service?: boolean;
   } = {}
 ): Promise<Check[]> {
   const { outOfQuota = new Set<string>(), cache = {} } = options;
   const pins = parsePins(await readFile(join(workspace, 'mise.toml'), 'utf8'));
+  const environment = options.t3Service
+    ? await serviceLaunch(run)
+    : { launch: { kind: 'sync' } as Launch, checks: [] };
+  const { launch } = environment;
   const cwd = await mkdtemp(join(tmpdir(), 'fleet-agents-'));
   try {
     const results = await Promise.all(
@@ -86,21 +113,24 @@ export async function verifyNativeAgents(
         await versionCheck(agent, pins[agent.pin], run),
         outOfQuota.has(agent.name)
           ? quotaPass(agent)
-          : await cachedCheck(
-              `agent-${node}-${agent.name}`,
-              cacheKey(
-                node,
-                agent,
-                pins[agent.pin] ?? '',
-                registry,
-                await sourceKey(launcherSources(workspace, agent))
+          : launch.kind === 'incomplete'
+            ? incompleteSession(agent)
+            : await cachedCheck(
+                `agent-${node}-${agent.name}`,
+                cacheKey(
+                  node,
+                  agent,
+                  pins[agent.pin] ?? '',
+                  registry,
+                  await sourceKey(launcherSources(workspace, agent))
+                ),
+                () =>
+                  sessionCheck(agent, { node, workspace, cwd, launch }, run),
+                cache
               ),
-              () => sessionCheck(agent, { node, workspace, cwd }, run),
-              cache
-            ),
       ])
     );
-    return results.flat();
+    return [...environment.checks, ...results.flat()];
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
@@ -168,19 +198,26 @@ function quotaPass(agent: Agent): Check {
 
 async function sessionCheck(
   agent: Agent,
-  context: { node: string; workspace: string; cwd: string },
+  context: { node: string; workspace: string; cwd: string; launch: Launch },
   run: Runner
 ): Promise<Check> {
+  const agents = join(context.workspace, 'agents');
+  const command =
+    context.launch.kind === 'service'
+      ? [join(agents, agent.launcher), ...agent.args]
+      : ['bun', join(agents, agent.wrapper), ...agent.args];
+  const env =
+    context.launch.kind === 'service'
+      ? { ...context.launch.env, WS_AGENT_NODE: context.node }
+      : { WS_AGENT_NODE: context.node, PATH: pinnedPath() };
   const launch = () =>
-    run(
-      ['bun', join(context.workspace, 'agents', agent.wrapper), ...agent.args],
-      {
-        cwd: context.cwd,
-        env: { WS_AGENT_NODE: context.node, PATH: pinnedPath() },
-        input: '',
-        timeoutMs: 150_000,
-      }
-    );
+    run(command, {
+      cwd: context.cwd,
+      env,
+      ...(context.launch.kind === 'service' ? { isolatedEnv: true } : {}),
+      input: '',
+      timeoutMs: 150_000,
+    });
   const expected = /\bOK\b/;
   let result = await launch();
   // One retry: a CLI's first launch on a node may still be initializing.
@@ -194,6 +231,114 @@ async function sessionCheck(
       : sessionFailure(result.stderr + result.stdout),
     ...(ok ? {} : { remedy: { action: sessionRemedy(agent) } }),
   };
+}
+
+/** The environment of the T3 user service: what its user manager holds
+ * (PATH included) and what the unit adds. Every launcher starts with
+ * `#!/usr/bin/env bun` or runs `bun`, so that PATH must find Bun.
+ */
+async function serviceLaunch(
+  run: Runner
+): Promise<{ launch: Launch; checks: Check[] }> {
+  const manager = await run(['systemctl', '--user', 'show-environment'], {
+    timeoutMs: 15_000,
+  });
+  const unit = await run(
+    [
+      'systemctl',
+      '--user',
+      'show',
+      T3_SERVICE,
+      '--property=Environment',
+      '--value',
+    ],
+    { timeoutMs: 15_000 }
+  );
+  if (!manager.ok || !unit.ok)
+    return {
+      launch: { kind: 'sync' },
+      checks: [
+        environmentCheck(
+          'warn',
+          'AGENT_SERVICE_ENVIRONMENT_UNVERIFIED',
+          'The environment of the T3 service could not be read, so sessions were launched from the sync instead. Inspect the user service manager of this worker: systemctl --user show-environment.'
+        ),
+      ],
+    };
+  const env = {
+    ...parseAssignments(manager.stdout.split('\n')),
+    ...parseAssignments(words(unit.stdout)),
+  };
+  const bun = await run(['/bin/sh', '-c', 'command -v bun'], {
+    env,
+    isolatedEnv: true,
+    timeoutMs: 15_000,
+  });
+  if (!bun.ok)
+    return {
+      launch: { kind: 'incomplete' },
+      checks: [
+        environmentCheck(
+          'fail',
+          'AGENT_SERVICE_ENVIRONMENT_INCOMPLETE',
+          INCOMPLETE_REMEDY
+        ),
+      ],
+    };
+  return {
+    launch: { kind: 'service', env },
+    checks: [
+      environmentCheck(
+        'pass',
+        'The T3 service environment finds Bun; every session was launched with it alone.'
+      ),
+    ],
+  };
+}
+
+const INCOMPLETE_REMEDY = `The PATH of ${T3_SERVICE} does not find Bun, so T3 cannot start any agent launcher even though they work from a shell. Put the pinned shims on the PATH of the user service manager through the baseline (never by hand), then run fleet-sync.`;
+
+function environmentCheck(
+  status: Check['status'],
+  summary: string,
+  remedy?: string
+): Check {
+  return {
+    id: 'agent:service-environment',
+    status,
+    summary,
+    ...(remedy ? { remedy: { action: remedy } } : {}),
+  };
+}
+
+function incompleteSession(agent: Agent): Check {
+  return {
+    id: `agent:${agent.name}:session`,
+    status: 'fail',
+    summary: 'AGENT_SERVICE_ENVIRONMENT_INCOMPLETE',
+    remedy: { action: INCOMPLETE_REMEDY },
+  };
+}
+
+/** `KEY=value` lines or words; a value systemd quoted loses its quotes. */
+function parseAssignments(entries: string[]): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const entry of entries) {
+    const match = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(entry.trim());
+    if (match) env[match[1]!] = unquote(match[2]!);
+  }
+  return env;
+}
+
+/** `systemctl show -p Environment` separates assignments with spaces and
+ * double-quotes one that holds a space.
+ */
+function words(line: string): string[] {
+  return line.trim().match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
+}
+
+function unquote(value: string): string {
+  return value.replace(/"([^"]*)"/g, '$1').replace(/^\$'(.*)'$/s, '$1');
 }
 
 /** A stable code only; raw CLI output is never reported. */

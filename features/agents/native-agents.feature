@@ -82,3 +82,56 @@ Feature: Native agents are verified on every machine
       When the agents of the machine "node-a" are verified
       Then the check "agent:grok:session" passes
       And the "grok-proxy.ts" launcher was run 2 times
+
+  Rule: On a worker, a session runs in the environment T3 starts it in
+
+    The sync runs over SSH with the pinned tools on its PATH; T3 runs as a
+    user service with only what its service manager gives it. A launcher
+    that works from the sync proves nothing about T3 unless it is started
+    the same way.
+
+    Background:
+      Given nothing verified earlier is remembered
+      And every agent reports the version mise.toml pins
+      And every launcher answers "OK"
+
+    Scenario: Launchers run with the service's environment alone, as T3 runs them
+      Given the agents run where T3 runs them, on a worker whose user service manager holds:
+        | PATH | /home/dev/.local/share/mise/shims:/usr/bin:/bin |
+        | HOME | /home/dev                                       |
+      And the T3 service adds "T3CODE_HOME=/home/dev/.t3 TMPDIR=/var/tmp"
+      And Bun is found on that PATH
+      When the agents of the machine "node-a" are verified
+      Then every check passes
+      And the check "agent:service-environment" passes
+      And every launcher ran with exactly this environment:
+        | PATH          | /home/dev/.local/share/mise/shims:/usr/bin:/bin |
+        | HOME          | /home/dev                                       |
+        | T3CODE_HOME   | /home/dev/.t3                                   |
+        | TMPDIR        | /var/tmp                                        |
+        | WS_AGENT_NODE | node-a                                          |
+      And every launcher was run directly, as T3 runs it, never through "bun"
+      And exactly these launchers were run:
+        | claude-proxy         |
+        | codex-proxy.ts       |
+        | grok-proxy.ts        |
+        | antigravity-proxy.ts |
+        | opencode-proxy.ts    |
+
+    Scenario: A service whose PATH cannot find Bun fails every session without launching one
+      Every launcher starts with Bun, so T3 could start none of them.
+      Given the agents run where T3 runs them, on a worker whose user service manager holds:
+        | PATH | /usr/bin:/bin |
+      And the T3 service adds "T3CODE_HOME=/home/dev/.t3"
+      And Bun is not found on that PATH
+      When the agents of the machine "node-a" are verified
+      Then the check "agent:service-environment" reports "AGENT_SERVICE_ENVIRONMENT_INCOMPLETE"
+      And every session check reports "AGENT_SERVICE_ENVIRONMENT_INCOMPLETE"
+      And no launcher was run
+
+    Scenario: A service environment that cannot be read is reported, and sessions run from the sync
+      Given the agents run where T3 runs them, on a worker whose service manager cannot be read
+      When the agents of the machine "node-a" are verified
+      Then the check "agent:service-environment" warns
+      And the check "agent:service-environment" reports "AGENT_SERVICE_ENVIRONMENT_UNVERIFIED"
+      And the check "agent:claude:session" passes

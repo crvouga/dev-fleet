@@ -60,6 +60,13 @@ tailnet or repository is written in this code. They live in your `fleet.json`.
 
 ## Quickstart
 
+Setting it up with a coding agent? Point it at
+[`llms.txt`](llms.txt) or straight at
+[Set up a fleet from your own project](docs/consumer-setup.md): the whole
+procedure in one pass, including what the agent must ask you for and the
+first sync only you can run. Both ship in the package, under
+`node_modules/@crvouga/dev-fleet/`.
+
 On the manager you need macOS with Git, Node 22 or newer, Docker Desktop and
 Tailscale signed in. You also need an empty private bucket on any
 S3-compatible service (AWS S3, Cloudflare R2, Backblaze B2, MinIO) and an

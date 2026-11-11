@@ -1,7 +1,7 @@
 import { expect } from 'bun:test';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { inferenceFailure } from '../../../src/agents/fleet-verify';
 import {
   providerFailureCode,
@@ -58,6 +58,20 @@ When(
 Then('the check has the status {string}', (world, status: string) => {
   expect(failure(world).check!.status).toBe(status as Check['status']);
 });
+
+Then(
+  'the remedy of the check names {string} in {string}',
+  async (world, heading: string, document: string) => {
+    expect(failure(world).check!.remedy?.action).toContain(`"${heading}"`);
+    expect(failure(world).check!.remedy?.action).toContain(document);
+    // The section it points to exists.
+    const text = await readFile(
+      resolve(import.meta.dir, '../../..', document),
+      'utf8'
+    );
+    expect(text).toMatch(new RegExp(`^#+ ${heading}$`, 'm'));
+  }
+);
 
 // ── Inference requests ───────────────────────────────────────────────────
 

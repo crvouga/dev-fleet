@@ -65,6 +65,27 @@ Feature: fleet-sync converges every worker on one approved revision
     And the last check of "second" says "FLEET_PROMOTION_BLOCKED"
     And "secret detail" appears nowhere in what is reported
 
+  Scenario: A run that does not select the declared canary proves the revision on the first worker it selects
+    Narrowing a run to some workers never promotes a new revision without a
+    canary.
+    Given deploying a worker reports these checks:
+      | id              | status | summary                    |
+      | ubuntu:baseline | fail   | UBUNTU_BASELINE_INCOMPLETE |
+    When fleet-sync applies the approved revision with "retired" as its canary
+    Then the revision was deployed to these workers, in order:
+      | first |
+    And the last check of "second" says "FLEET_PROMOTION_BLOCKED"
+
+  Scenario: An offline canary stops promotion
+    Given "first" is offline in the tailnet
+    And deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision with "first" as its canary
+    Then the revision was deployed to no worker
+    And the last check of "second" says "FLEET_PROMOTION_BLOCKED"
+    And the checks of "second" include "ssh:fresh-session"
+
   Scenario: A preview deploys nothing, and a worker the manager has not registered is still accounted for
     Given the manager has no registration for "second"
     And deploying a worker fails with the error "must not deploy"

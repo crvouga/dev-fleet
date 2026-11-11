@@ -5,7 +5,7 @@
 # Fleet topology: one manager, many workers
 
 The fleet has exactly two roles, declared in
-[`definition.json`](../definition.json) (version 3) and validated by
+your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.schema.json)) and validated by
 [`src/definition.ts`](../src/definition.ts):
 
 | Role        | How many    | Machine                               | Holds state | Runs                                                                                     |
@@ -27,9 +27,9 @@ The fleet has exactly two roles, declared in
   fixes in the revision reach the manager without touching the human's
   checkout. The revision must be on the manager or on `origin`.
 - It hosts every singleton service. Today that is the CLI proxy
-  (`services.proxy`, [`cliproxy`](../../cliproxy-fleet/README.md))
+  (`services.proxy`, [`cliproxy`](../cliproxy/README.md))
   and the Beszel hub (`services.monitoring`,
-  [`ansible/monitoring`](../../fleet/monitoring/README.md)).
+  [`ansible/monitoring`](../ansible/monitoring/README.md)).
   The manager also runs its own Beszel agent, so it is always a system on that
   hub.
   A new singleton service is declared under `services` and placed on the
@@ -63,5 +63,5 @@ The fleet has exactly two roles, declared in
   `fleet-sync`, done. Remove it by deleting the entry.
 - **Replace the manager:** edit `manager`, then move each singleton service with
   its documented fence-and-restore runbook (never two copies at once):
-  [CLI proxy](../../cliproxy-fleet/docs/migration.md),
-  [Beszel hub](../../fleet/monitoring/README.md).
+  [CLI proxy](../cliproxy/docs/migration.md),
+  [Beszel hub](../ansible/monitoring/README.md).

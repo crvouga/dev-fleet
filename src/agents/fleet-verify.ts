@@ -135,6 +135,14 @@ const UPSTREAM: Record<string, string> = {
     'The provider did not answer within the bounded verification deadline. Retry later.',
 };
 
+/** The declared route cannot work as it is: it fails, and stays failed,
+ * until the route is changed. Retrying or signing in again changes nothing.
+ */
+const INCOMPATIBLE: Record<string, string> = {
+  PROVIDER_PROTOCOL_INCOMPATIBLE:
+    'The gateway does not serve the protocol this route uses (no such endpoint, method or media type). Nothing on this machine can fix it: change the route in agents/registry.json to one listed under "Supported alternatives" in agents/setup.md, then run fleet-sync.',
+};
+
 export function inferenceFailure(provider: string, code: string): Check {
   if (QUOTA.has(code))
     return {
@@ -150,6 +158,7 @@ export function inferenceFailure(provider: string, code: string): Check {
     remedy: {
       action:
         upstream ??
+        INCOMPATIBLE[code] ??
         `Verify unattended Vault access and the declared ${provider} model on the singleton gateway. Preserve OAuth state; do not log native auth on proxy clients.`,
     },
   };

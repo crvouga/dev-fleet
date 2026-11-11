@@ -41,6 +41,7 @@ export class MonitoringWorld extends CommandWorld {
   tailscale: string | null = null;
   account: HubLogin | null = null;
   viewer: Check | undefined;
+  backups: Check | undefined;
   workerHome = '';
 }
 

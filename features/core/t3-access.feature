@@ -37,6 +37,46 @@ Feature: The manager's access to a worker's T3
       Then the check "t3:paired-access" passes
       And only "t3" commands were run
 
+    Scenario: A link that fails to an environment the worker no longer runs is told apart
+      Its T3 data was replaced: the remedy is a new pairing, not waiting for
+      a reconnect. Only a failed link is explained, so a passing one still
+      needs nothing from the worker.
+      Given the worker is enrolled with the T3 environment "enrolled"
+      And the worker reports the T3 environment "replaced" over SSH
+      And the T3 of the manager lists these links:
+        | environment | status      | expires    |
+        | enrolled    | unreachable | in 30 days |
+      When the link from the manager to the T3 of the worker is checked
+      Then the check "t3:paired-access" fails
+      And the summary of the check "t3:paired-access" mentions "T3_ENVIRONMENT_IDENTITY_CHANGED"
+      And the remedy of the check "t3:paired-access" mentions "pair the new environment"
+
+    Scenario: A link that fails to the environment the worker still runs is only unverified
+      Given the worker is enrolled with the T3 environment "enrolled"
+      And the worker reports the T3 environment "enrolled" over SSH
+      And the T3 of the manager lists these links:
+        | environment | status      | expires    |
+        | enrolled    | unreachable | in 30 days |
+      When the link from the manager to the T3 of the worker is checked
+      Then the check "t3:paired-access" fails
+      And the summary of the check "t3:paired-access" mentions "MANAGER_T3_LINK_UNVERIFIED"
+
+    Scenario Outline: The credential of a link never reaches the report, whether the link <outcome>
+      The listing of links can carry what the manager's T3 authenticates
+      with. Only the environment, status and expiry are read.
+      Given the worker is enrolled with the T3 environment "env"
+      And the T3 of the manager lists these links:
+        | environment | status   | expires    | credential       |
+        | env         | <status> | in 30 days | PRIVATE_SENTINEL |
+      When the link from the manager to the T3 of the worker is checked
+      Then the check "t3:paired-access" <outcome>
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | status      | outcome |
+        | reachable   | passes  |
+        | unreachable | fails   |
+
     Scenario: After a restart in this sync, the check waits for the link to reconnect
       Given the worker is enrolled with the T3 environment "env"
       And the T3 of the worker was restarted in this sync: its link has 60 seconds to reconnect, looked at every 10 seconds
@@ -69,10 +109,38 @@ Feature: The manager's access to a worker's T3
       And the summary of the check "t3:manager-endpoint" mentions "tool execution remain unverified"
       And every request went to "https://dev.fixture.ts.net" and followed no redirect
 
+    Scenario: A route that does not open the worker to other sites passes
+      A page from another site must not be able to read the worker's T3 in
+      the browser of someone on the tailnet.
+      Given the address of the worker answers 200 with the body "fixture"
+      And the address of the worker answers a request from another origin with these headers:
+        | vary | Origin |
+      When the manager requests the T3 endpoint of the worker
+      Then the check "t3:manager-origin" passes
+      And the request from another origin named the origin "https://origin-check.invalid"
+      And every request went to "https://dev.fixture.ts.net" and followed no redirect
+
+    Scenario Outline: A route that grants another site access fails: <grant>
+      Given the address of the worker answers 200 with the body "PRIVATE_SENTINEL"
+      And the address of the worker answers a request from another origin with these headers:
+        | access-control-allow-origin      | <origin>      |
+        | access-control-allow-credentials | <credentials> |
+      When the manager requests the T3 endpoint of the worker
+      Then the check "t3:manager-endpoint" passes
+      And the check "t3:manager-origin" fails
+      And the summary of the check "t3:manager-origin" mentions "T3_MANAGER_ORIGIN_UNRESTRICTED"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | grant                                    | origin                       | credentials |
+        | it echoes the foreign origin             | https://origin-check.invalid | false       |
+        | it allows any origin, with credentials   | *                            | true        |
+
     Scenario Outline: The endpoint fails, and nothing it sent is repeated, when <situation>
       Given <answer>
       When the manager requests the T3 endpoint of the worker
       Then the check "t3:manager-endpoint" fails
+      And there is no check "t3:manager-origin"
       And nothing reported contains "PRIVATE_SENTINEL"
 
       Examples:

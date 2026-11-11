@@ -30,7 +30,10 @@ const COLUMNS: { title: string; matches: (id: string) => boolean }[] = [
   },
   {
     title: 'LINK',
-    matches: (id) => ['t3:manager-endpoint', 't3:paired-access'].includes(id),
+    matches: (id) =>
+      ['t3:manager-endpoint', 't3:manager-origin', 't3:paired-access'].includes(
+        id
+      ),
   },
   {
     title: 'PROXY',

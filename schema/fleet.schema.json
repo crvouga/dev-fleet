@@ -27,7 +27,8 @@
       "properties": {
         "id": {
           "type": "string",
-          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          "pattern": "^[a-z][a-z0-9-]{0,62}$",
+          "description": "A short stable id for the manager, used in reports."
         },
         "os": {
           "const": "macOS"
@@ -39,11 +40,13 @@
           "properties": {
             "tailscaleName": {
               "type": "string",
-              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$",
+              "description": "The manager's Tailscale MagicDNS name, without the trailing dot (tailscale status --json: .Self.DNSName)."
             },
             "user": {
               "type": "string",
-              "pattern": "^[a-z_][a-z0-9_.-]{0,31}$"
+              "pattern": "^[a-z_][a-z0-9_.-]{0,31}$",
+              "description": "The manager's login name (id -un)."
             }
           }
         },
@@ -64,11 +67,13 @@
         "properties": {
           "id": {
             "type": "string",
-            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "A short stable id for the worker. The first worker listed is the canary: a revision new to the fleet must pass there before the others receive it."
           },
           "ssh": {
             "type": "string",
-            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$",
+            "description": "The worker's Host alias in the manager's ~/.ssh/config. It must work with BatchMode=yes and a host key already in known_hosts."
           },
           "os": {
             "const": "linux",
@@ -81,21 +86,25 @@
             "properties": {
               "tailscaleName": {
                 "type": "string",
-                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$",
+                "description": "The worker's Tailscale MagicDNS name, without the trailing dot."
               },
               "user": {
                 "type": "string",
-                "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+                "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+                "description": "The non-root worker account that can use sudo."
               },
               "sshPort": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 65535
+                "maximum": 65535,
+                "description": "The port sshd listens on, normally 22."
               },
               "t3Port": {
                 "type": "integer",
                 "minimum": 1,
-                "maximum": 65535
+                "maximum": 65535,
+                "description": "The port the worker T3 server listens on, normally 3773."
               }
             }
           }
@@ -163,7 +172,8 @@
         "architectures": {
           "const": ["amd64", "arm64"]
         }
-      }
+      },
+      "description": "The supported worker release and architectures (fixed)."
     },
     "worker": {
       "type": "object",
@@ -191,15 +201,18 @@
               "workstation",
               "worker"
             ]
-          }
+          },
+          "description": "Readiness checks every worker must pass; normally all six."
         },
         "githubLogin": {
           "type": "string",
-          "pattern": "^[a-zA-Z0-9-]{1,39}$"
+          "pattern": "^[a-zA-Z0-9-]{1,39}$",
+          "description": "The GitHub login every worker must be signed in as."
         },
         "vaultUser": {
           "type": "string",
-          "pattern": "^[a-zA-Z0-9_.-]{1,64}$"
+          "pattern": "^[a-zA-Z0-9_.-]{1,64}$",
+          "description": "The Vault user each worker's own token is issued for."
         },
         "toolchain": {
           "const": "mise.lock"
@@ -216,7 +229,8 @@
         "neverSleep": {
           "const": true
         }
-      }
+      },
+      "description": "Policy every worker must meet. All but the two logins and the capabilities are fixed."
     },
     "source": {
       "type": "object",

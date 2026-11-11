@@ -22,11 +22,19 @@ const pinned = async (): Promise<Record<string, string>> =>
 
 const isVersion = (command: string[]): boolean => command[1] === '--version';
 const isReinstall = (command: string[]): boolean => command[0] === 'mise';
-const isLaunch = (command: string[]): boolean => command[0] === 'bun';
+/** The launcher a command starts: through Bun, or run directly as T3 runs
+ * its binaryPath.
+ */
+const launcherOf = (command: string[]): string | undefined => {
+  const path = command[0] === 'bun' ? command[1] : command[0];
+  return path?.includes('/agents/') ? path.split('/').pop() : undefined;
+};
+const isLaunch = (command: string[]): boolean =>
+  launcherOf(command) !== undefined;
 const launches =
   (launcher: string) =>
   (command: string[]): boolean =>
-    isLaunch(command) && Boolean(command[1]?.endsWith(launcher));
+    launcherOf(command) === launcher;
 const agentOf = (binary: string | undefined) => {
   const agent = NATIVE_AGENTS.find((entry) => entry.binary === binary);
   if (!agent) throw new Error(`T3 offers no agent run as ${binary}.`);
@@ -39,6 +47,8 @@ const machine = part(() => ({
   // by the scenario.
   commands: new Commands().answer(isReinstall, succeeded()),
   cache: undefined as VerifyCache | undefined,
+  /** Whether sessions run where T3 runs them, in its service's environment. */
+  service: false,
   outOfQuota: new Set<string>(),
   checks: [] as Check[],
 }));
@@ -139,10 +149,95 @@ When(
       id,
       checkout,
       commands.run,
-      { outOfQuota, cache }
+      { outOfQuota, cache, t3Service: machine(world).service }
     );
   }
 );
+
+// ── The environment of the T3 service ────────────────────────────────────
+
+const isShow = (command: string[]): boolean =>
+  command[0] === 'systemctl' && command[2] === 'show';
+const isManagerEnvironment = (command: string[]): boolean =>
+  command[0] === 'systemctl' && command[2] === 'show-environment';
+const isBunLookup = (command: string[]): boolean =>
+  command[0] === '/bin/sh' && command.at(-1) === 'command -v bun';
+
+Given(
+  'the agents run where T3 runs them, on a worker whose user service manager holds:',
+  (world, table: DataTable) => {
+    machine(world).service = true;
+    machine(world).commands.answer(
+      isManagerEnvironment,
+      succeeded(
+        Object.entries(table.rowsHash())
+          .map(([name, value]) => `${name}=${value}\n`)
+          .join('')
+      )
+    );
+  }
+);
+
+Given('the T3 service adds {string}', (world, environment: string) => {
+  machine(world).commands.answer(isShow, succeeded(`${environment}\n`));
+});
+
+Given(/^Bun is (found|not found) on that PATH$/, (world, found: string) => {
+  machine(world).commands.answer(
+    isBunLookup,
+    found === 'found' ? succeeded('/somewhere/bun\n') : failed()
+  );
+});
+
+Given(
+  'the agents run where T3 runs them, on a worker whose service manager cannot be read',
+  (world) => {
+    machine(world).service = true;
+    machine(world).commands.answer(isManagerEnvironment, failed());
+  }
+);
+
+Then(
+  'every launcher ran with exactly this environment:',
+  (world, table: DataTable) => {
+    const launched = machine(world).commands.calls.filter((call) =>
+      isLaunch(call.command)
+    );
+    expect(launched.length).toBeGreaterThan(0);
+    for (const call of launched) {
+      expect(call.options?.isolatedEnv).toBe(true);
+      expect(call.options?.env).toEqual(table.rowsHash());
+    }
+  }
+);
+
+Then(
+  'every launcher was run directly, as T3 runs it, never through {string}',
+  (world, runner: string) => {
+    const launched = machine(world).commands.ran(isLaunch);
+    expect(launched.length).toBeGreaterThan(0);
+    for (const command of launched) expect(command[0]).not.toBe(runner);
+  }
+);
+
+Then('no launcher was run', (world) => {
+  expect(machine(world).commands.ran(isLaunch)).toEqual([]);
+});
+
+Then(
+  /^the check "([^"]+)" (fails|warns)$/,
+  (world, id: string, verdict: string) => {
+    expect(check(world, id).status).toBe(verdict === 'fails' ? 'fail' : 'warn');
+  }
+);
+
+Then('every session check reports {string}', (world, summary: string) => {
+  const sessions = machine(world).checks.filter((entry) =>
+    entry.id.endsWith(':session')
+  );
+  expect(sessions).toHaveLength(NATIVE_AGENTS.length);
+  for (const entry of sessions) expect(entry.summary).toBe(summary);
+});
 
 const check = (world: AgentsWorld, id: string): Check => {
   const found = machine(world).checks.find((entry) => entry.id === id);
@@ -152,7 +247,7 @@ const check = (world: AgentsWorld, id: string): Check => {
 const launchers = (world: AgentsWorld): string[] =>
   machine(world)
     .commands.ran(isLaunch)
-    .map((command) => String(command[1]?.split('/').pop()))
+    .map((command) => String(launcherOf(command)))
     .sort();
 
 Then(
@@ -171,8 +266,11 @@ Then('every check passes', (world) => {
 
 Then('exactly these launchers were run:', (world, table: DataTable) => {
   expect(launchers(world)).toEqual(table.list().sort());
+  // One launcher for every agent: T3's binaryPath on a worker's service.
   expect(launchers(world)).toEqual(
-    NATIVE_AGENTS.map((agent) => agent.wrapper).sort()
+    NATIVE_AGENTS.map((agent) =>
+      machine(world).service ? agent.launcher : agent.wrapper
+    ).sort()
   );
 });
 

@@ -1,6 +1,8 @@
 #!/bin/sh
-# Executed over strict SSH from the selected verified Git revision. stdin is a
-# base64 Git bundle. All executable content remains in this tracked source.
+# Executed over strict SSH from the selected verified Git revision. stdin is
+# one line holding the base64 fleet configuration (empty when there is none),
+# then the base64 Git bundle (nothing in cached mode). All executable content
+# remains in this tracked source.
 set -eu
 umask 077
 revision=$1
@@ -16,12 +18,47 @@ case "$node" in *[!a-z0-9-]*|'') exit 2;; esac
 phase=bootstrap
 bundle=''
 code=0
+apt_log=''
 failure_code=REMOTE_BOOTSTRAP_INCOMPLETE
 die() { failure_code=$1; exit 1; }
-fail() {
-  printf '{"version":1,"checks":[{"id":"bootstrap:%s","status":"fail","summary":"%s","remedy":{"action":"Inspect prerequisites and the remote operation lock, then retry the approved revision. No success receipt advanced."}}]}\n' "$phase" "$failure_code"
+# One remedy per failure: what the operator does next. Never raw output.
+remedy() {
+  case "$1" in
+    FLEET_REMOTE_LOCKED) echo 'Another fleet operation holds this machine. Wait for it to finish; rerun fleet-sync afterwards. Never remove the lock while its holder runs.';;
+    ROOT_DEVELOPMENT_USER_REJECTED) echo 'Connect as the non-root developer account the fleet configuration names.';;
+    UBUNTU_BASELINE_MISMATCH|UBUNTU_ARCHITECTURE_UNSUPPORTED|MACOS_BASELINE_MISMATCH|MACOS_ARCHITECTURE_UNSUPPORTED|PLATFORM_UNSUPPORTED) echo 'Workers run Ubuntu 26.04 on x86_64 or aarch64. Reinstall the machine; fleet-sync never upgrades an operating system.';;
+    FLEET_STATE_PATH_UNSAFE) echo 'A fleet state directory under ~/.local/share/personal is a symbolic link. Replace it with a real directory.';;
+    BOOTSTRAP_CAPACITY_UNVERIFIED|BOOTSTRAP_DISK_CAPACITY_REQUIRED) echo 'Free at least 2 GiB and 50000 inodes on the home file system, then rerun fleet-sync.';;
+    SOURCE_DIGEST_MISMATCH) echo 'The bundle changed in transit. Rerun fleet-sync; if it repeats, check the SSH route.';;
+    SUDO_AUTHORIZATION_REQUIRED) echo 'Grant the developer account passwordless sudo, or run fleet-sync interactively once to authorize it.';;
+    APT_LOCK_CONTENDED) echo 'Another package operation held the APT lock past the bounded wait. Let it finish (it is never killed), then rerun fleet-sync.';;
+    APT_DNS_UNAVAILABLE) echo 'The worker cannot resolve the Ubuntu archive. Restore its DNS, then rerun fleet-sync.';;
+    APT_REPOSITORY_UNAVAILABLE) echo 'The Ubuntu archive could not be reached. Check the network or archive status, then rerun fleet-sync.';;
+    APT_DISK_FULL) echo 'Package installation ran out of disk space. Free space under /var and /usr, then rerun fleet-sync.';;
+    DPKG_INTERRUPTED) echo 'An earlier package installation that fleet-sync did not start was interrupted. Run sudo dpkg --configure -a once no package process is running, then rerun fleet-sync.';;
+    APT_UPDATE_FAILED|APT_INSTALL_FAILED) echo 'Run sudo apt-get update and install the bootstrap packages by hand to see the error, then rerun fleet-sync.';;
+    XCODE_COMMAND_LINE_TOOLS_REQUIRED) echo 'Install the Xcode Command Line Tools (xcode-select --install), then rerun fleet-sync.';;
+    BOOTSTRAP_LOCK_TOOL_REQUIRED) echo 'Install python3 so the operation lock can be taken, then rerun fleet-sync.';;
+    SOURCE_CACHE_CHANGED|SOURCE_STATUS_FAILED|SOURCE_CHECKOUT_CONFLICT) echo 'The fleet-owned checkout of this revision holds changes fleet-sync did not make. Inspect and remove that revisions directory, then rerun fleet-sync.';;
+    CONFIGURATION_INSTALL_FAILED) echo 'The fleet configuration could not be written under ~/.config/dev-fleet. Check that directory, then rerun fleet-sync.';;
+    TOOLCHAIN_*) echo 'The pinned toolchain did not converge. Rerun fleet-sync; it resumes where it stopped. If it repeats, run devfleet doctor on the worker.';;
+    *) echo 'Inspect the remote operation lock and rerun the approved revision. No success receipt advanced.';;
+  esac
 }
-trap 'code=$?; [ -z "$bundle" ] || rm -f -- "$bundle"; if [ "$code" != 0 ]; then fail; fi' EXIT
+# Names an APT failure by the fixed messages of the pinned Ubuntu release.
+apt_failure() {
+  if grep -q 'Could not get lock' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
+  elif grep -q 'No space left on device' "$apt_log" 2>/dev/null; then die APT_DISK_FULL
+  elif grep -qE 'Temporary failure resolving|Could not resolve' "$apt_log" 2>/dev/null; then die APT_DNS_UNAVAILABLE
+  elif grep -qE 'Failed to fetch|Unable to connect|Connection failed|Unable to locate package' "$apt_log" 2>/dev/null; then die APT_REPOSITORY_UNAVAILABLE
+  elif grep -q 'dpkg was interrupted' "$apt_log" 2>/dev/null; then die DPKG_INTERRUPTED
+  else die "$1"
+  fi
+}
+fail() {
+  printf '{"version":1,"checks":[{"id":"bootstrap:%s","status":"fail","summary":"%s","remedy":{"action":"%s"}}]}\n' "$phase" "$failure_code" "$(remedy "$failure_code")"
+}
+trap 'code=$?; [ -z "$bundle" ] || rm -f -- "$bundle"; [ -z "$apt_log" ] || rm -f -- "$apt_log"; if [ "$code" != 0 ]; then fail; fi' EXIT
 # Preserve the lock holder if its SSH channel disappears mid-install.
 trap '' HUP
 trap 'exit 1' INT TERM
@@ -61,6 +98,16 @@ else
   python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 9>&9 || die FLEET_REMOTE_LOCKED
 fi
 printf '{"version":1,"pid":%s,"revision":"%s","node":"%s"}\n' "$$" "$revision" "$node" >"$root/remote-operation.json"
+# The fleet configuration is installed under the lock, so two overlapping
+# runs never write it at once. It holds no secret.
+phase='configuration-install'
+IFS= read -r configuration || configuration=''
+if [ -n "$configuration" ]; then
+  config_dir="$HOME/.config/dev-fleet"
+  mkdir -p "$config_dir" || die CONFIGURATION_INSTALL_FAILED
+  printf '%s' "$configuration" | base64 -d >"$config_dir/fleet.json.new" || die CONFIGURATION_INSTALL_FAILED
+  mv "$config_dir/fleet.json.new" "$config_dir/fleet.json" || die CONFIGURATION_INSTALL_FAILED
+fi
 phase=resources
 # A bootstrap floor protects source transfer and minimal prerequisites. The
 # Workstation baseline subsequently enforces its stricter declared capacity.
@@ -87,11 +134,29 @@ for package in git curl ca-certificates unzip xz-utils build-essential python3 a
 done
 if [ -n "$missing" ]; then
   sudo -n true >/dev/null 2>&1 || die SUDO_AUTHORIZATION_REQUIRED
+  # APT's own messages, in a private file read only for fixed patterns and
+  # removed on exit: they tell a held lock, DNS, an unreachable archive and a
+  # full disk apart. Nothing of them is reported.
+  apt_log=$(mktemp "$root/apt.XXXXXX")
+  pending="$root/prerequisites-pending"
+  # An installation this script started and that was interrupted (the shell
+  # killed, the machine powered off) leaves dpkg half-configured. Finishing
+  # our own transaction is safe; one fleet-sync did not start is reported.
+  if [ -n "$(dpkg --audit 2>/dev/null)" ]; then
+    [ -f "$pending" ] || die DPKG_INTERRUPTED
+    # shellcheck disable=SC2024
+    sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C dpkg --configure -a >"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
+  fi
+  : >"$pending"
+  # The log belongs to the developer account; sudo only runs the command.
+  # shellcheck disable=SC2024
   # Never remove APT locks or kill package processes. Timeout keeps genuine
   # transactions bounded; Ubuntu archive signatures/TLS remain enabled.
-  sudo -n timeout 300 apt-get -o DPkg::Lock::Timeout=120 update >/dev/null 2>&1 || die APT_UPDATE_FAILED
-  # shellcheck disable=SC2086
-  sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >/dev/null 2>&1 || die APT_INSTALL_FAILED
+  sudo -n timeout 300 env LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 update >"$apt_log" 2>&1 || apt_failure APT_UPDATE_FAILED
+  # shellcheck disable=SC2086,SC2024
+  sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >>"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
+  rm -f -- "$pending" "$apt_log"
+  apt_log=''
 fi
 else
   # Apple Command Line Tools provide git and python3; Ansible runs through the
@@ -107,18 +172,25 @@ if [ ! -e "$deployment/.git" ]; then
   [ -z "$(ls -A "$deployment")" ] || exit 1
   git -C "$deployment" init -q >/dev/null 2>&1 || exit 1
 fi
-# An interrupted initial fetch/checkout can leave an empty initialized repository.
-# Resume only that state; an existing commit or untracked work is never reset.
+# An interrupted initial fetch or checkout leaves a repository without a
+# commit, possibly with some of the revision's files written. Resume only
+# that state: every file present must be a file of the revision, so the
+# checkout may write over it. An existing commit or other work is never reset.
 if ! git -C "$deployment" rev-parse --verify HEAD >/dev/null 2>&1; then
   [ "$source_mode" = transfer ] || die SOURCE_CACHE_CHANGED
   [ "$(git -C "$deployment" rev-parse --show-toplevel)" = "$deployment" ] || exit 1
-  clean=$(git -C "$deployment" status --porcelain) || die SOURCE_STATUS_FAILED
-  [ -z "$clean" ] || die SOURCE_CHECKOUT_CONFLICT
   # The bundle holds this commit without its history: declare the checkout
   # shallow at it so Git accepts a commit whose parents are absent.
   printf '%s\n' "$revision" >"$deployment/.git/shallow"
   git -C "$deployment" fetch --no-tags "$bundle" "$revision" >/dev/null 2>&1 || exit 1
-  git -C "$deployment" checkout --detach "$revision" >/dev/null 2>&1 || exit 1
+  present=$(mktemp "$root/present.XXXXXX")
+  expected=$(mktemp "$root/expected.XXXXXX")
+  git -C "$deployment" -c core.quotePath=false ls-files --others | LC_ALL=C sort >"$present" || { rm -f -- "$present" "$expected"; die SOURCE_STATUS_FAILED; }
+  git -C "$deployment" -c core.quotePath=false ls-tree -r --name-only "$revision" | LC_ALL=C sort >"$expected" || { rm -f -- "$present" "$expected"; die SOURCE_STATUS_FAILED; }
+  foreign=$(LC_ALL=C comm -23 "$present" "$expected")
+  rm -f -- "$present" "$expected"
+  [ -z "$foreign" ] || die SOURCE_CHECKOUT_CONFLICT
+  git -C "$deployment" checkout --force --detach "$revision" >/dev/null 2>&1 || exit 1
 fi
 [ -z "$bundle" ] || rm -f "$bundle"
 bundle=''

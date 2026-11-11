@@ -133,13 +133,13 @@ Then('no command line contains {string}', (world, text: string) => {
 });
 
 Then(
-  'every command other than {string} and {string} was given {string} on standard input',
-  (world, first: string, second: string, input: string) => {
-    const others = world.commands.calls.filter(
-      (call) => ![first, second].includes(call.command[0]!)
+  'every {string} command was given {string} on standard input',
+  (world, name: string, input: string) => {
+    const named = world.commands.calls.filter(
+      (call) => call.command[0] === name
     );
-    expect(others.length).toBeGreaterThan(0);
-    for (const call of others) expect(call.options?.input).toBe(control(input));
+    expect(named.length).toBeGreaterThan(0);
+    for (const call of named) expect(call.options?.input).toBe(control(input));
   }
 );
 
@@ -192,6 +192,10 @@ Then(
     ).toHaveLength(Number(count));
   }
 );
+
+Then('there is no check {string}', (world, id: string) => {
+  expect(checks(world).map((check) => check.id)).not.toContain(id);
+});
 
 Then('every check passes', (world) => {
   expect(checks(world).length).toBeGreaterThan(0);

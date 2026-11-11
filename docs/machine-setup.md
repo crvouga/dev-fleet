@@ -286,7 +286,7 @@ existing workstation convergence. `personal workstation tools sync` reapplies to
 without pulling or touching project dependencies; `personal workstation tools check --json` verifies
 them. Sync is explicit; Git commits do not silently update other machines.
 
-For multiple development computers, use [the fleet package](../../docs/operations.md):
+For multiple development computers, use [the fleet package](operations.md):
 `devfleet fleet-node-add` registers an existing SSH alias in a local roster,
 `devfleet fleet-nodes --onboard` generates per-node connection/auth/editor steps,
 and `devfleet fleet-status --json` diagnoses SSH, authentication, T3 Connect
@@ -360,7 +360,7 @@ require separate evidence.
 
 Normal Ubuntu fleet setup is controller-led:
 `devfleet fleet-sync`. See the
-[Fleet runbook](../../docs/ubuntu-sync.md). A controller without
+[Fleet runbook](ubuntu-sync.md). A controller without
 Node/npm must first run this tracked bootstrap (or install the documented Node
 prerequisite); `npx` cannot execute before Node/npm exist. Reachable remote targets
 are bootstrapped over verified SSH by the same shared owner.

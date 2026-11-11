@@ -199,6 +199,52 @@ class FleetSingleton(unittest.TestCase):
         self.assertTrue(all(call[:2] == ['launchctl', 'print'] or self.declared_check(call)
                             for call in self.calls))
 
+    # Programs a fleet sync of the proxy may start: the service managers it
+    # inspects and enables units with, and the installation's own scripts.
+    ALLOWED_PROGRAMS = {'launchctl', 'systemctl'}
+    # Words that would mean it reached past its boundary: DNS, cloud
+    # resources, tunnels it does not own, or a provider sign-in.
+    FORBIDDEN_WORDS = ('tofu', 'terraform', 'cloudflared', 'dig', 'nslookup', 'route53',
+                       'dns', 'login', 'oauth', 'auth-login', 'tailscale')
+
+    def assert_within_boundary(self):
+        for call in self.calls:
+            program = pathlib.Path(call[0]).name
+            self.assertTrue(program in self.ALLOWED_PROGRAMS or program.startswith('python'),
+                            'unexpected program ' + program)
+            for argument in call:
+                self.assertFalse(any(word == part for word in self.FORBIDDEN_WORDS
+                                     for part in pathlib.Path(argument).name.lower().replace('-', ' ').split()),
+                                 'forbidden argument ' + argument)
+
+    def test_no_sync_reaches_dns_cloud_or_a_provider_sign_in(self):
+        situations = [
+            lambda: fleet.reconcile(self.root, WORKER, MANAGER, SHA, True, run=self.command,
+                                    backend=host.Systemd()),
+            lambda: self.owner(run=self.command),
+            lambda: (self.runtime(), self.link_agents(),
+                     self.owner(run=self.command, audit_fn=lambda root: (True, 'b' * 40),
+                                compatible_fn=lambda installed, desired: False,
+                                endpoint_check=lambda root: False, sleep=lambda delay: None)),
+        ]
+        for situation in situations:
+            situation()
+        self.assertTrue(self.calls)
+        self.assert_within_boundary()
+
+    def test_unavailable_gateway_is_reported_and_nothing_is_restarted(self):
+        self.runtime()
+        self.link_agents()
+        result = self.owner(run=self.active, audit_fn=lambda root: (True, SHA),
+                            endpoint_check=lambda root: False, sleep=lambda delay: None)
+        self.assertFalse(result['ok'])
+        self.assertFalse(result['changed'])
+        self.assertEqual(result['phases'][-1]['code'], 'PROXY_ENDPOINT_AUTH')
+        self.assertEqual(result['phases'][-1]['status'], 'action-required')
+        restarts = ('kickstart', 'restart', 'stop', 'bootout', 'unload', 'kill')
+        self.assertFalse([call for call in self.calls if any(word in call for word in restarts)])
+        self.assert_within_boundary()
+
     def test_proxy_claims_the_claude_code_version_the_fleet_runs(self):
         repository = self.root / 'repo'
         repository.mkdir()

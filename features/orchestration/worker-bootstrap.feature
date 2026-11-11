@@ -36,7 +36,7 @@ Feature: A worker is bootstrapped over SSH with one verified revision
       And every SSH session was opened with "StrictHostKeyChecking=yes"
       And every SSH session was opened with "-a"
       And the bootstrap ran in "cached" mode
-      And the bootstrap was fed ""
+      And the bootstrap was fed no bundle
 
     Scenario: A worker without the revision is sent the bundle, and the failure it reports is kept without what else it sent
       Given the worker answers that it does not hold the revision
@@ -56,9 +56,54 @@ Feature: A worker is bootstrapped over SSH with one verified revision
         """
       When the worker is bootstrapped
       Then the bootstrap ran in "transfer" mode
-      And the bootstrap was fed "ZmFrZS1idW5kbGU="
+      And the bootstrap was fed the bundle "ZmFrZS1idW5kbGU="
       And the first check says "SUDO_AUTHORIZATION_REQUIRED"
       And "PRIVATE_SENTINEL" appears nowhere in what is reported
+
+    Scenario: The fleet configuration travels with the bootstrap, so it is written under the remote lock
+      Two overlapping runs must never both write it: the bootstrap installs it
+      only once it holds the lock, and no separate session writes it first.
+      Given the payload carries the fleet configuration:
+        """
+        {"manager":{"id":"manager"}}
+        """
+      And the worker answers that it holds the revision
+      And the bootstrap on the worker succeeds, printing:
+        """
+        {
+          "version": 1,
+          "checks": [
+            { "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" }
+          ]
+        }
+        """
+      When the worker is bootstrapped
+      Then 2 SSH sessions were opened, and nothing else was run
+      And the bootstrap was fed, before anything else, the fleet configuration:
+        """
+        {"manager":{"id":"manager"}}
+        """
+      And the bootstrap was fed no bundle
+
+    Scenario: A worker held by another fleet operation reports the lock, and nothing else is claimed
+      Given the worker answers that it does not hold the revision
+      And the bootstrap on the worker fails, printing:
+        """
+        {
+          "version": 1,
+          "checks": [
+            {
+              "id": "bootstrap:lock",
+              "status": "fail",
+              "summary": "FLEET_REMOTE_LOCKED",
+              "remedy": { "action": "Another fleet operation holds this machine." }
+            }
+          ]
+        }
+        """
+      When the worker is bootstrapped
+      Then the first check says "FLEET_REMOTE_LOCKED"
+      And a check says "FLEET_REMOTE_LOCKED"
 
     Scenario: An unknown host key stops the bootstrap before anything is sent
       Given every SSH session fails with the error output "Host key verification failed. PRIVATE_SENTINEL"

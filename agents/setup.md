@@ -113,6 +113,34 @@ T3's installed server source at revision
 external settings watch/reload, and optimistic CLI writes. Future T3 schema changes
 require adapter verification. A disk-level success is not a live inference test.
 
+## Supported alternatives
+
+`PROVIDER_PROTOCOL_INCOMPATIBLE` means the gateway answered that it has no
+endpoint, method or media type for the protocol a route speaks (HTTP 404, 405,
+415 or 501). The route as declared cannot work, so the check fails and the
+sync exits nonzero; signing in again or retrying changes nothing. Nothing on
+the machine is changed to work around it.
+
+The protocol a tool speaks to the proxy is its `proxy` field in
+`agents/registry.json` (`responses`, `messages`, `generateContent` or
+`chat_completions`). The supported alternatives, in this order:
+
+1. A model the proxy lists at `/v1/models` for the same protocol: change the
+   tool's model in `agents/registry.json`.
+2. Another protocol the tool's own CLI speaks and the pinned proxy serves.
+   `chat_completions` is served for OpenAI-compatible clients such as
+   OpenCode and Grok.
+3. The tool's direct profile, signed in natively on that machine, instead of
+   the shared proxy.
+
+Each is a reviewed change to a tracked file, followed by `devfleet
+fleet-sync`. A newer CLIProxyAPI is a reviewed change to
+`cliproxy/image.lock.json`; a sync never upgrades it to get around a failure.
+
+A model that is merely missing from the catalog is `PROVIDER_MODEL_UNAVAILABLE`
+instead: a warning, because it is usually the provider account's (billing or
+access), not the route's.
+
 ## Other local operations
 
 All former workstation operations are available through `dev-fleet`:

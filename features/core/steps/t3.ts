@@ -87,6 +87,8 @@ Given('the T3 of the manager lists these links:', (world, table: DataTable) => {
             environmentId: row['environment'],
             status: row['status'],
             expiresAt: expiry(world, row['expires'] ?? ''),
+            // Whatever else T3 keeps about a link, such as its credential.
+            ...(row['credential'] ? { credential: row['credential'] } : {}),
           }))
       )
     );
@@ -135,6 +137,17 @@ Given(
   }
 );
 
+Given(
+  'the address of the worker answers a request from another origin with these headers:',
+  (world, table: DataTable) => {
+    const headers = table.rowsHash();
+    world.respondForeign = () => new Response('', { status: 200, headers });
+  }
+);
+
+const foreign = (options: RequestInit): boolean =>
+  new Headers(options.headers).has('origin');
+
 When('the manager requests the T3 endpoint of the worker', async (world) => {
   const respond = need(world, world.respond, 'an answer from the worker');
   world.checks = await verifyT3Endpoint(
@@ -142,11 +155,22 @@ When('the manager requests the T3 endpoint of the worker', async (world) => {
     world.commands.run,
     async (url, options) => {
       world.requests.push({ url, options });
-      return respond();
+      return foreign(options) && world.respondForeign
+        ? world.respondForeign()
+        : respond();
     }
   );
   world.outcome = world.checks;
 });
+
+Then(
+  'the request from another origin named the origin {string}',
+  (world, origin: string) => {
+    const sent = world.requests.filter((request) => foreign(request.options));
+    expect(sent).toHaveLength(1);
+    expect(new Headers(sent[0]!.options.headers).get('origin')).toBe(origin);
+  }
+);
 
 Then(
   'every request went to {string} and followed no redirect',

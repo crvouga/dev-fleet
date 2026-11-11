@@ -18,6 +18,16 @@ Feature: The published package is the whole CLI and nothing else
       | mise.toml                      |
       | mise.lock                      |
 
+  Scenario: The package carries the documents an agent sets a fleet up from
+    An agent in a project that uses dev-fleet reads them from node_modules,
+    at the version the project pins, without fetching anything.
+    When the package is packed
+    Then it contains:
+      | llms.txt               |
+      | README.md              |
+      | docs/consumer-setup.md |
+      | docs/state.md          |
+
   Scenario: The package carries no tests
     When the package is packed
     Then it contains no test file, no test directory and no feature

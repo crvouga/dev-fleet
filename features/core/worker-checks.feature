@@ -19,8 +19,56 @@ Feature: What is measured on a worker
       When the access of the worker is checked
       Then every check passes
       And no command line contains "PRIVATE_SENTINEL_TOKEN"
-      And every command other than "gh" and "vault" was given "Authorization: Bearer PRIVATE_SENTINEL_TOKEN␊" on standard input
+      And every "curl" command was given "Authorization: Bearer PRIVATE_SENTINEL_TOKEN␊" on standard input
       And nothing reported contains "PRIVATE_SENTINEL_TOKEN"
+
+  Rule: Unattended Vault access counts only when the worker's last renewal succeeded and its policy allows the read
+
+    Background:
+      Given these commands print:
+        | command                                            | prints                                                 |
+        | gh                                                 | example-user                                           |
+        | vault token lookup                                 | {"data":{"renewable":true,"period":86400,"ttl":80000}} |
+        | vault                                              | PRIVATE_SENTINEL_TOKEN                                 |
+        | systemctl --user show personal-worker-auth.service | Result=success␊ExecMainStatus=0                        |
+      And every other command prints '{"data":[{"id":"model"}]}'
+
+    Scenario Outline: A renewal job whose last run <outcome> leaves "worker:vault-renewal" <verdict>
+      An active timer says when renewal runs, not that it works.
+      Given these commands print:
+        | command                                            | prints    |
+        | systemctl --user show personal-worker-auth.service | <renewal> |
+      When the access of the worker is checked
+      Then the check "worker:vault-renewal" <verdict>
+      And the summary of the check "worker:vault-renewal" mentions "<summary>"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | outcome           | renewal                           | verdict | summary                 |
+        | succeeded         | Result=success␊ExecMainStatus=0   | passes  | last renewal succeeded  |
+        | failed            | Result=exit-code␊ExecMainStatus=1 | fails   | VAULT_RENEWAL_FAILING   |
+        | has not run yet   | ExecMainStatus=0                  | passes  | last renewal succeeded  |
+
+    Scenario: A Vault policy that refuses the proxy key is told apart from a missing login
+      The token is valid, so the remedy is the policy, never a new secret.
+      Given the command "vault kv get" fails with the error "Code: 403. Errors: * permission denied PRIVATE_SENTINEL"
+      When the access of the worker is checked
+      Then the check "worker:proxy-authentication" fails
+      And the summary of the check "worker:proxy-authentication" mentions "VAULT_POLICY_PERMISSION_REQUIRED"
+      And the remedy of the check "worker:proxy-authentication" mentions "seeds no secret"
+      And the check "worker:vault-renewal" passes
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+    Scenario Outline: A worker whose Vault token <situation> needs its own unattended identity
+      Given the command "vault token lookup" <answer>
+      When the access of the worker is checked
+      Then the check "worker:vault-renewal" fails
+      And the summary of the check "worker:vault-renewal" mentions "UNATTENDED_VAULT_IDENTITY_REQUIRED"
+
+      Examples:
+        | situation           | answer                                                          |
+        | is missing          | fails                                                           |
+        | cannot be renewed   | prints '{"data":{"renewable":false,"period":0,"ttl":3000}}'     |
 
   Rule: Recovery after a power loss never passes without a firmware setting that was read
 

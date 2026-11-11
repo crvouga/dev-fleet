@@ -13,6 +13,7 @@
         that:
           - ansible_facts.distribution == 'Ubuntu'
           - beszel_arch in beszel_lock.agents
+          - beszel_arch in beszel_lock.agentBinaries
           - beszel_node is match('^[a-z][a-z0-9-]{0,62}$')
           - beszel_hub_url is match('^https://[a-z0-9.-]+\.ts\.net:8443$')
     - name: Inspect existing native service ownership
@@ -88,12 +89,49 @@
         checksum: 'sha256:{{ beszel_lock.agents[beszel_arch] }}'
         mode: '0644'
         timeout: 60
-    - name: Extract the pinned executable and repair file drift
+    # The executable is compared with the digest of the pinned build, so an
+    # unchanged agent is left alone (no restart) and one that an interrupted
+    # upgrade or an edit left behind is replaced.
+    - name: Inspect the installed executable
+      ansible.builtin.stat:
+        path: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/beszel-agent'
+        checksum_algorithm: sha256
+        follow: false
+      register: agent_binary
+    - name: Remove an executable that is not the pinned build
+      ansible.builtin.file:
+        path: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/beszel-agent'
+        state: absent
+      when: >-
+        agent_binary.stat.exists and (not agent_binary.stat.isreg
+        or agent_binary.stat.checksum != beszel_lock.agentBinaries[beszel_arch])
+    - name: Extract the pinned executable when it is missing
       ansible.builtin.unarchive:
         src: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/agent.tar.gz'
         dest: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}'
         remote_src: true
+        include: [beszel-agent]
+        creates: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/beszel-agent'
       notify: Restart agent
+    - name: Inspect the extracted executable
+      ansible.builtin.stat:
+        path: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/beszel-agent'
+        checksum_algorithm: sha256
+        follow: false
+      register: agent_extracted
+    - name: Require the pinned build before the service may start it
+      ansible.builtin.assert:
+        that:
+          - agent_extracted.stat.exists
+          - agent_extracted.stat.isreg
+          - agent_extracted.stat.checksum == beszel_lock.agentBinaries[beszel_arch]
+        fail_msg: The extracted Beszel agent does not match the pinned build.
+    - name: Keep the executable owned by root and not writable by the agent
+      ansible.builtin.file:
+        path: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/beszel-agent'
+        owner: root
+        group: root
+        mode: '0755'
     - name: Install nonsecret node connection settings
       ansible.builtin.copy:
         dest: /etc/personal-beszel/agent.env

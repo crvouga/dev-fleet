@@ -8,5 +8,9 @@
     "darwin-arm64": "9246065f680cdb0af2885b7bf5876dc45b754019f2c90eb28550cf45db978eb8",
     "darwin-amd64": "21f4a03fd90ae46869cfcbb69e21e8312f0f05deff49669d4602a3dee4866981"
   },
+  "agentBinaries": {
+    "amd64": "5c84416b63028f7ad86ebafa4c8a7a27977d485a838de357216ded3ab844b2b5",
+    "arm64": "eb4e7ac9340d380b19ab18261301b18813c1e46ebab5f0e4bf8cb6c86b4d5c20"
+  },
   "source": "https://github.com/henrygd/beszel/releases/tag/v0.21.1"
 }

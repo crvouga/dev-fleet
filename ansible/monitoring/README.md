@@ -1,19 +1,20 @@
 # Beszel owner and recovery
 
-Fleet's [manager guide](../../fleet/docs/ubuntu-sync.md) is the normal entry
-point: `devfleet fleet-sync`, run on the manager. Workstation owns the
-pinned Compose hub, native agent units and local Ansible tasks here. Fleet owns
-membership, registration and freshness evidence. `lock.json` pins Beszel 0.21.1
-and the native agent checksums. Never run an unpinned upstream installer
-alongside these services.
+The [README](../../README.md) and the [manager guide](../../docs/ubuntu-sync.md)
+are the normal entry points: `devfleet fleet-sync`, run on the manager. This
+directory holds the pinned Compose hub, the native agent unit and their
+playbooks. `src/monitoring/` enrolls machines and measures registration,
+connection, freshness and backups. `lock.json` pins the Beszel release, the
+agent archives and the agent executables by digest. Never run an unpinned
+upstream installer alongside these services.
 
 ## Manager and workers
 
-The fleet has exactly two roles (Fleet `definition.json`, version 3):
+The fleet has exactly two roles (`fleet.json`):
 
 - **Manager** — the human's macOS machine. It runs fleet-sync locally and hosts the
-  singleton hub (`cli/lib/monitoring/manager-hub.ts`, `convergeManagerHub`). Fleet
-  keeps it awake on AC power. Nothing is installed on it over SSH.
+  singleton hub (`src/monitoring/manager-hub.ts`, `convergeManagerHub`).
+  dev-fleet keeps it awake on AC power. Nothing is installed on it over SSH.
 - **Workers** — the stateless Linux boxes. They only run the native agent
   (`agent.yml`, a hardened systemd unit) and connect to the manager's private hub
   URL. A worker refuses hub mode (`BESZEL_NOT_HUB`: the hub runs only on the
@@ -77,13 +78,42 @@ unavailable the step warns and the hub shows its normal login page; create the
 user by hand (Settings > Users, role **Read-only**) as a fallback. Never point
 `AUTO_LOGIN` at an admin account. The fleet admin login is still needed to change anything.
 
+## The agent on a worker
+
 Native agents use outbound authenticated WebSockets, per-node tokens and
 persistent identity. They do not need inbound SSH monitoring ports, Docker socket
 access or journals.
-`SKIP_SYSTEMD_LOGS=true` deliberately excludes potentially sensitive service logs.
-System services may be visible; user T3 service information is not certified by
-that fact. Missing sensors, SMART privileges, Docker stats and user-service metrics
-remain unavailable until their specific supported permissions are reviewed.
+
+- **Unprivileged.** The unit runs as the `beszel` system account with no other
+  group, no capability, no journal and no Docker socket
+  (`features/monitoring/agent-privileges.feature`).
+  `SKIP_SYSTEMD_LOGS=true` deliberately excludes potentially sensitive service
+  logs. System services may be visible; user T3 service information is not
+  certified by that fact. Sensors, SMART, Docker stats and user-service metrics
+  stay unavailable until their specific permissions are reviewed: nothing grants
+  them by default.
+- **Repeatable.** `agent.yml` compares the installed executable with the digest
+  of the pinned build (`agentBinaries` in `lock.json`). An unchanged agent is left
+  running; one an interrupted upgrade or an edit left behind is removed,
+  extracted again from the checksummed archive and restarted once. Edited unit
+  or connection settings are restored the same way.
+- **Boots without a login.** It is a system unit (`WantedBy=multi-user.target`),
+  so it starts at boot with nobody signed in.
+- **Measured from the worker's side** (`src/monitoring/agent-evidence.ts`):
+
+  | Check                   | Summary                                                       | Meaning                                                              |
+  | ----------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------- |
+  | `beszel:disk`           | `BESZEL_DISK_FULL`, `BESZEL_DISK_UNVERIFIED`                  | Less than 256 MiB free where the agent installs; nothing was changed |
+  | `beszel:service`        | `BESZEL_SERVICE_STOPPED`                                      | The unit is not enabled and active                                   |
+  | `beszel:hub-connection` | `BESZEL_AGENT_TOKEN_REJECTED`                                 | The hub answered the agent's token with 401                          |
+  |                         | `BESZEL_AGENT_KEY_REJECTED`                                   | The hub did not prove the key the agent was given                    |
+  |                         | `BESZEL_HUB_UNAVAILABLE_TO_AGENT` (warn)                      | The private route answered 502–504: the hub behind it is down        |
+  |                         | `BESZEL_AGENT_CONNECTION_PENDING`, `…_LOG_UNAVAILABLE` (skip) | No outcome yet, or the log could not be read                         |
+
+  The outcome is the newest of a few fixed texts the pinned agent logs, taken
+  from its source; nothing of the log is reported. The hub's own view
+  (registration, `BESZEL_AGENT_DISCONNECTED`, `BESZEL_METRICS_STALE`) is
+  measured separately by `fleet-status --workers`.
 
 Accounts need no manual step. On a hub's first start (empty data directory),
 `hub-darwin.yml` passes Beszel's `USER_EMAIL`/`USER_PASSWORD` once, so the hub
@@ -97,20 +127,32 @@ A legacy JSON `identity`/`password` value is still accepted. The manager's exist
 Vault credential must renew unattended. Superuser credentials are not distributed
 to nodes or needed for enrollment. Revocation produces action-required results.
 
-Configure network monitors and alert thresholds once in the stock UI; these
-settings are runtime application data, preserved in backups. Select explicit probe
-origins rather than an all-to-all mesh. Use sustained resource-pressure alerts,
-disk capacity, offline nodes and supported temperatures. Do not send notifications
-until an authorized destination exists. Service-failure alert delivery has not
-been accepted against this pinned release.
+## Settings kept only in the hub's UI
+
+Beszel keeps network monitors, alert rules and backup settings in its own data,
+set in its UI. dev-fleet does not write them: there is no reconciler and no
+endpoint beyond the stock API (`features/monitoring/stock-api.feature`). They
+are preserved by the hub's backups. Set them once, as the fleet account:
+
+- **Network monitors.** Add them per system from that system's page. Probe from
+  a few chosen origins (for example the manager to each worker) rather than an
+  all-to-all mesh, so a failed check names a path you can reason about.
+- **Alerts.** Prefer sustained thresholds over instant ones: CPU, memory and
+  disk above a level for several minutes, disk capacity, a system going offline,
+  and temperatures where the sensor is actually reported. Do not add a
+  notification destination until one you are allowed to use exists.
+- **Service alerts are not promised.** Alerting on a failed systemd service has
+  not been verified against the pinned release; the agent watches only the
+  services in `SERVICE_PATTERNS`, and none of them is relied on for alerting.
 
 ## Stock backup and restore
 
 1. Open the hub's private PocketBase administration route `/_/` and authenticate
    as its superuser. Keep that credential separate from fleet enrollment access.
 2. Open **Settings → Backups**. Create and download a backup before maintenance.
-   Set scheduled backups and retention there using existing authorized storage.
-   Do not provision a bucket or reuse unrelated credentials to bypass access gates.
+   Set a schedule, how many to keep, and S3-compatible storage there, using
+   storage you already approved. Do not provision a bucket or reuse unrelated
+   credentials to bypass access gates.
 3. Protect downloaded archives as secrets: they contain registrations, tokens,
    account data, alert configuration and history. Use the existing approved
    encrypted backup destination; a backup on the same disk is not disaster recovery.
@@ -121,6 +163,17 @@ been accepted against this pinned release.
    before production recovery; never operate two copies of its identity.
 5. Run the manager command and require new metric timestamps after recovery.
    Old historical samples do not prove agent connectivity.
+
+Every hub converge in `fleet-sync` reads these settings back as the hub's
+superuser (`GET /api/settings`, `GET /api/backups`; `src/monitoring/hub-backup.ts`)
+and reports `beszel:backup`. It only warns, and never names the storage:
+
+| Summary                          | Meaning                                                  |
+| -------------------------------- | -------------------------------------------------------- |
+| `BESZEL_BACKUP_UNSCHEDULED`      | No backup schedule is set                                |
+| `BESZEL_BACKUP_OFFHOST_REQUIRED` | Backups stay on the manager's disk                       |
+| `BESZEL_BACKUP_STALE`            | A schedule is set but no backup is newer than 48 hours   |
+| `BESZEL_BACKUP_UNVERIFIED`       | The settings could not be read (no fleet login, refused) |
 
 ## Moving the hub to the manager
 
@@ -143,10 +196,18 @@ never run two copies of its identity or two tunnel connectors:
    Vault grant (OpenTofu).
 
 `tests/upstream.py` exercises real pinned binaries with disposable loopback data:
-authenticated registration, fresh metrics, restart identity preservation, no duplicate
-record, and the supported PocketBase backup/restore API. It does not contact live
-nodes, prove Tailscale routing, verify systemd reboot, or test an off-host encrypted
-backup destination. Those remain explicit release/operational gates.
+authenticated registration, fresh metrics, restart identity preservation, no
+duplicate record, the supported PocketBase backup/restore API, and the recovery
+drill above: a downloaded backup restored into a second, isolated hub after the
+first is fenced, keeping node IDs, fingerprints, history and settings. It does
+not contact live nodes, prove Tailscale routing, verify systemd reboot, or use an
+off-host storage service. Those remain operational checks:
+
+- From a second tailnet machine, `devfleet fleet-status --workers` reports
+  `beszel:registration`, `beszel:connection` and `beszel:freshness` passing for
+  every worker.
+- `beszel:backup` passes on the manager once off-host storage is configured.
+- After a worker reboots, the same checks pass again without anyone signing in.
 
 References: [agent](https://beszel.dev/guide/agent-installation),
 [systemd](https://beszel.dev/guide/systemd),

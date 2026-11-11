@@ -74,7 +74,7 @@ function createProgram(
       '',
       `Release: ${releaseLabel(release)}`,
       'Groups: fleet-* developer computers · t3-* T3 provider instances · cliproxy the CLI proxy service.',
-      'Apply on invocation (--dry-run previews): fleet-node-sync, t3-apply, t3-cleanup. fleet-sync confirms interactively or with --apply --yes.',
+      'Apply on invocation (--dry-run previews): fleet-node-sync, t3-apply, t3-cleanup. fleet-sync applies on invocation too; --apply --yes is still accepted.',
       'Preview until --apply --yes: fleet-repair, fleet-node-add. --json does not make a command read-only.',
       'Agents: devfleet commands --json. Menu: devfleet --interactive.',
       ...(release.issues

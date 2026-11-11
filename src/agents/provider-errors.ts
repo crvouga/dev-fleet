@@ -8,9 +8,15 @@ export class ProviderVerificationError extends AgentConfigurationError {
     super(message);
   }
 }
+/** The gateway has no such route, method or media type for this protocol:
+ * the route as declared cannot work, whatever the account.
+ */
+const INCOMPATIBLE = new Set([404, 405, 415, 501]);
+
 export function providerHttpFailure(status: number): ProviderVerificationError {
-  const code =
-    status === 401 || status === 403
+  const code = INCOMPATIBLE.has(status)
+    ? 'PROVIDER_PROTOCOL_INCOMPATIBLE'
+    : status === 401 || status === 403
       ? 'PROVIDER_AUTH_REJECTED'
       : status === 429
         ? 'PROVIDER_RATE_LIMITED'
@@ -27,6 +33,7 @@ const SAFE_CODES = new Set([
   'PROVIDER_RATE_LIMITED',
   'PROVIDER_UPSTREAM_UNAVAILABLE',
   'PROVIDER_PROTOCOL_REJECTED',
+  'PROVIDER_PROTOCOL_INCOMPATIBLE',
   'PROVIDER_MODEL_UNAVAILABLE',
   'PROVIDER_OUTPUT_UNVERIFIED',
   'PROVIDER_TOOL_RESULT_UNVERIFIED',

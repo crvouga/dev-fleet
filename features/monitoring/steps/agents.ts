@@ -2,6 +2,7 @@ import { expect } from 'bun:test';
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { parse } from 'yaml';
 import { loadDefinition } from '../../../src/definition';
 import { fleet } from '../../../src/fleet-config';
 import { applyAgent, refusal } from '../../../src/monitoring/apply';
@@ -167,12 +168,21 @@ Given('the viewer of the dashboard is in place', (world) => {
   };
 });
 
+Given("the hub's backups are in place", (world) => {
+  world.backups = {
+    id: 'beszel:backup',
+    status: 'pass',
+    summary: 'backups',
+  };
+});
+
 When('the hub is converged on the manager', async (world) => {
   world.checks = await convergeManagerHub(root, world.definition!, world.run, {
     home: world.home,
     tailscale: world.tailscale,
     account: async () => world.account,
     viewer: async () => world.viewer!,
+    backups: async () => world.backups!,
     ...(world.receipts ? { receipts: world.receipts } : {}),
   });
 });
@@ -315,10 +325,46 @@ When(
   'the machine is asked, in the checkout {string}, to apply:',
   async (world, checkout: string, request: string) => {
     await world.attempt(async () => {
-      world.checks = await applyAgent(JSON.parse(request), checkout, world.run);
+      world.checks = await applyAgent(
+        JSON.parse(request),
+        checkout,
+        world.run,
+        world.receipts ? { receipts: world.receipts } : {}
+      );
     });
   }
 );
+
+When(
+  'the worker {string} installs its agent for the hub {string}',
+  async (world, worker: string, hub: string) => {
+    world.checks = await applyAgent(
+      {
+        node: worker,
+        revision: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+        hubUrl: hub,
+        publicKey: 'ssh-ed25519 fixture',
+        token: 'disposable-fixture-token',
+      },
+      '/fleet/checkout',
+      world.run,
+      { receipts: world.receipts ?? '/dev/null/receipts' }
+    );
+  }
+);
+
+const third = (world: MonitoringWorld) => {
+  expect(world.checks.length).toBeGreaterThan(2);
+  return world.checks[2]!;
+};
+
+Then('the summary of the third check is {string}', (world, summary) => {
+  expect(third(world).summary).toBe(String(summary));
+});
+
+Then('the third check is skipped', (world) => {
+  expect(third(world).status).toBe('skip');
+});
 
 When('an installation fails with the error {string}', (world, message) => {
   world.failure = new Error(String(message));
@@ -344,4 +390,88 @@ Then('the remedy of the refusal contains {string}', (world, text: string) => {
 
 Then('the reported refusal does not contain {string}', (world, text) => {
   expect(JSON.stringify(reported(world))).not.toContain(String(text));
+});
+
+// ── What the agent may see ───────────────────────────────────────────────
+
+let unit = '';
+When("the agent's systemd unit {string} is read", async (_world, path) => {
+  unit = await readFile(resolve(root, String(path)), 'utf8');
+});
+
+const settings = (): string[] =>
+  unit
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'));
+
+Then(
+  'it runs as the user {string} in the group {string}',
+  (_world, user: string, group: string) => {
+    expect(settings()).toContain(`User=${user}`);
+    expect(settings()).toContain(`Group=${group}`);
+  }
+);
+
+Then('it sets each of these:', (_world, table: DataTable) => {
+  for (const setting of table.list()) expect(settings()).toContain(setting);
+});
+
+Then('it names none of these:', (_world, table: DataTable) => {
+  for (const text of table.list())
+    expect(settings().join('\n')).not.toContain(text);
+});
+
+let task: Record<string, unknown> = {};
+When(
+  'the task {string} of {string} is read',
+  async (_world, name: string, path: string) => {
+    const plays = parse(await readFile(resolve(root, path), 'utf8')) as {
+      tasks: Record<string, unknown>[];
+    }[];
+    const found = plays
+      .flatMap((play) => play.tasks)
+      .find((t) => t['name'] === name);
+    expect(found).toBeDefined();
+    task = found!;
+  }
+);
+
+const userModule = (): Record<string, unknown> =>
+  task['ansible.builtin.user'] as Record<string, unknown>;
+
+Then('it creates a system account without a login shell', () => {
+  expect(userModule()['system']).toBe(true);
+  expect(userModule()['shell']).toBe('/usr/sbin/nologin');
+});
+
+Then('it adds the account to no other group', () => {
+  expect(userModule()).not.toHaveProperty('groups');
+  expect(userModule()).not.toHaveProperty('append');
+});
+
+// ── The stock API ────────────────────────────────────────────────────────
+
+let paths: string[] = [];
+When(
+  'the hub API paths named under {string} and in {string} are listed',
+  async (_world, directory: string, file: string) => {
+    const sources = [
+      ...[...new Bun.Glob(`${directory}/*.ts`).scanSync({ cwd: root })],
+      file,
+    ];
+    const found = new Set<string>();
+    for (const source of sources) {
+      const text = await readFile(resolve(root, source), 'utf8');
+      for (const match of text.matchAll(/\/api\/[A-Za-z0-9_/.-]*/g))
+        found.add(match[0].replace(/[/.]+$/, ''));
+    }
+    // The guard every reader applies ("a path under /api/") names no endpoint.
+    found.delete('/api');
+    paths = [...found].sort();
+  }
+);
+
+Then('they are exactly:', (_world, table: DataTable) => {
+  expect(paths).toEqual(table.list().sort());
 });

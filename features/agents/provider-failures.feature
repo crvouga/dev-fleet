@@ -12,8 +12,12 @@ Feature: A provider failure is reported as a stable code
         | status | code                          |
         | 401    | PROVIDER_AUTH_REJECTED        |
         | 429    | PROVIDER_RATE_LIMITED         |
-        | 503    | PROVIDER_UPSTREAM_UNAVAILABLE |
-        | 404    | PROVIDER_PROTOCOL_REJECTED    |
+        | 503    | PROVIDER_UPSTREAM_UNAVAILABLE  |
+        | 400    | PROVIDER_PROTOCOL_REJECTED     |
+        | 404    | PROVIDER_PROTOCOL_INCOMPATIBLE |
+        | 405    | PROVIDER_PROTOCOL_INCOMPATIBLE |
+        | 415    | PROVIDER_PROTOCOL_INCOMPATIBLE |
+        | 501    | PROVIDER_PROTOCOL_INCOMPATIBLE |
 
   Rule: An unexpected private error never becomes a diagnostic code
 
@@ -45,3 +49,11 @@ Feature: A provider failure is reported as a stable code
         | PROVIDER_TIMEOUT              | warn   |
         | PROVIDER_AUTH_REJECTED        | fail   |
         | PROVIDER_NETWORK_UNVERIFIED   | fail   |
+        | PROVIDER_PROTOCOL_INCOMPATIBLE | fail  |
+
+    Scenario: A route the gateway cannot serve fails and names the supported alternative
+      Nothing on the machine can fix it, so it is never a warning that a
+      sync could pass with.
+      When the inference check of "codex" fails with "PROVIDER_PROTOCOL_INCOMPATIBLE"
+      Then the check has the status "fail"
+      And the remedy of the check names "Supported alternatives" in "agents/setup.md"

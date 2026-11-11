@@ -34,6 +34,7 @@ Feature: The hub runs on the manager, and only there
       And the manager's Tailscale CLI is "/opt/homebrew/bin/tailscale"
       And the manager holds no fleet login for the hub
       And the viewer of the dashboard is in place
+      And the hub's backups are in place
       And no apply leaves a receipt
 
     Scenario: The hub converges on the manager, with its data in the user's home and a private route
@@ -44,6 +45,7 @@ Feature: The hub runs on the manager, and only there
         | beszel:hub             | pass   |
         | beszel:public-endpoint | pass   |
         | beszel:public-viewer   | pass   |
+        | beszel:backup          | pass   |
       And the first playbook run, "hub-darwin.yml", was given exactly these variables:
         | beszel_hub_url      | https://manager-mac-1.tail0a1b2c.ts.net:8443                  |
         | beszel_public_url   | https://beszel.example.com                                    |

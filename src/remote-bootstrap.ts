@@ -52,12 +52,6 @@ export async function prepareBootstrap(
     : payload;
 }
 
-/** Installs the approved fleet configuration where every launcher and job on
- * the node reads it. It holds no secret.
- */
-const INSTALL_CONFIG =
-  'umask 077; d="$HOME/.config/dev-fleet"; mkdir -p "$d" && cat >"$d/fleet.json.new" && mv "$d/fleet.json.new" "$d/fleet.json"';
-
 /** Workers run one revision and never need history: the bundle holds only the
  * approved commit and its files (about a quarter of the full history), and the
  * receiving checkout is marked shallow at that commit. `git bundle create`
@@ -104,17 +98,9 @@ export async function bootstrapRemote(
 ): Promise<NodeReport> {
   const cached = await cachedRevision(node, payload.revision, run);
   if (typeof cached !== 'boolean') return { node: node.id, checks: [cached] };
-  if (payload.config) {
-    const installed = await run([...sshArgs(node), INSTALL_CONFIG], {
-      input: payload.config,
-      timeoutMs: 20_000,
-    });
-    if (!installed.ok)
-      return { node: node.id, checks: [sshFailure(installed)] };
-  }
   const transfer = cached
-    ? { mode: 'cached', input: '' }
-    : { mode: 'transfer', input: payload.bundle };
+    ? { mode: 'cached', bundle: '' }
+    : { mode: 'transfer', bundle: payload.bundle };
   const command = [
     'sh',
     '-c',
@@ -128,7 +114,7 @@ export async function bootstrapRemote(
     .map(shellQuote)
     .join(' ');
   const result = await run([...sshArgs(node), command], {
-    input: transfer.input,
+    input: bootstrapInput(payload.config, transfer.bundle),
     timeoutMs: 5_400_000,
   });
   const evidence = parseEvidence(result);
@@ -148,6 +134,18 @@ export async function bootstrapRemote(
       },
     ],
   };
+}
+
+/** What the bootstrap reads on stdin: one line with the fleet configuration
+ * (installed under the remote lock, so overlapping runs never both write it),
+ * then the bundle when the worker lacks the revision.
+ */
+export function bootstrapInput(
+  config: string | undefined,
+  bundle: string
+): string {
+  const line = config ? Buffer.from(config).toString('base64') : '';
+  return `${line}\n${bundle}`;
 }
 
 async function cachedRevision(
