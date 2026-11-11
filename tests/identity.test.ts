@@ -33,7 +33,7 @@ test('the tree names no real account, tailnet or foreign repository', async () =
     offenders(
       files,
       /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g,
-      /@(example\.(com|org|test|invalid)|b\.c|home\.ts\.net|github\.com|127\.0\.0\.1|users\.noreply\.github\.com|\d[\d.]*)$/
+      /@(example\.(com|org|test|invalid)|b\.c|home\.ts\.net|github\.com|127\.0\.0\.1|users\.noreply\.github\.com|\d[\d.]*|X\.Y\.Z)$/
     )
   ).toEqual([]);
   expect(
