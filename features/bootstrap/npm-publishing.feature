@@ -33,6 +33,17 @@ Feature: The one-time npm setup for publishing
       And it runs nothing
       And the last thing it says contains "Nothing to do"
 
+    Scenario: A seed npm recorded no commit for is not tagged
+      There is no commit to tag. The Release workflow counts from the newest
+      version on npm instead, so the setup is finished.
+      Given "someone" is signed in to npm
+      And the seed version is published, and npm recorded no commit for it
+      And the Release workflow is trusted to publish the package
+      When the setup is run with "--yes --skip-check"
+      Then it exits with 0
+      And it runs nothing
+      And the last thing it says contains "Nothing to do"
+
     Scenario: An interrupted run resumes at the first step that is not done
       Given "someone" is signed in to npm
       And the seed version is published

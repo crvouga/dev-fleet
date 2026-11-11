@@ -64,12 +64,35 @@ Feature: The version a release publishes
 
   Rule: Every merge after the last release releases the next version
 
-    Scenario: No tag means the one-time npm setup has not run
+    Scenario: No tag and nothing on npm means the one-time npm setup has not run
+      The Release workflow fails then: a skipped release is not a success.
       Given git lists no tags
       And the commits since the last tag are "feat: a"
       When the release is decided
       Then nothing is released
+      And the run fails, because publishing was never set up
       And the reason given mentions "bootstrap"
+
+    Scenario: Without a tag, the newest version on npm is the last release
+      The seed version was published by hand and npm recorded no commit for
+      it, so nothing could be tagged. Every commit up to HEAD then counts.
+      Given git lists no tags
+      And npm holds the versions "0.0.0-stage", "0.1.0"
+      And the commits since the last tag are "fix: a", "feat: b"
+      When the release is decided
+      Then the version "0.2.0" is released, after "v0.1.0"
+
+    Scenario Outline: Of the versions <versions> on npm, the newest release is <newest>
+      Given git lists no tags
+      And npm holds the versions <versions>
+      And the commits since the last tag are "fix: a"
+      When the release is decided
+      Then the version "<next>" is released, after "v<newest>"
+
+      Examples:
+        | versions                      | newest | next   |
+        | "0.9.0", "0.10.0", "0.1.0"    | 0.10.0 | 0.10.1 |
+        | "1.0.0-rc.1", "0.3.0"         | 0.3.0  | 0.3.1  |
 
     Scenario: A commit that is already in a release is not released again
       Given git lists the tags "v0.2.0", newest first

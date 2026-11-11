@@ -52,9 +52,11 @@ jobs:
             version=$(bun bootstrap/release-version.ts)
           fi
           name=$(node -p "require('./package.json').name")
+          # A release that cannot be published fails the run: a skipped
+          # release must never be reported as a success.
           if [ -n "$version" ] && ! npm view "$name" name >/dev/null 2>&1; then
-            echo "::warning::$name is not on npm yet: run \`bun run bootstrap\` once."
-            version=""
+            echo "::error::$name is not on npm yet: run \`bun run bootstrap\` once."
+            exit 1
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "name=$name" >> "$GITHUB_OUTPUT"

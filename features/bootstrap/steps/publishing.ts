@@ -14,6 +14,7 @@ import {
   bumpFor,
   bumpVersion,
   decide,
+  newestPublished,
   latestTag,
   type Bump,
   type Decision,
@@ -48,6 +49,8 @@ const setup = part(() => {
     npm: '',
     user: null as string | null,
     published: false,
+    /** Whether npm recorded the commit the seed was published from. */
+    recorded: true,
     trusted: false,
     tagLocal: false,
     tagRemote: false,
@@ -70,7 +73,7 @@ const setup = part(() => {
       if (line === 'npm whoami')
         return state.user ? ok(state.user) : no('ENEEDAUTH');
       if (line.endsWith('gitHead'))
-        return state.published ? ok(state.main) : no();
+        return state.published ? ok(state.recorded ? state.main : '') : no();
       if (line.startsWith('npm view'))
         return state.published
           ? ok(state.target.name)
@@ -144,6 +147,13 @@ Given('{string} is signed in to npm', (world, user: string) => {
 Given('the seed version is published', (world) => {
   setup(world).state.published = true;
 });
+
+Given(
+  'the seed version is published, and npm recorded no commit for it',
+  (world) => {
+    Object.assign(setup(world).state, { published: true, recorded: false });
+  }
+);
 
 Given('the Release workflow is trusted to publish the package', (world) => {
   setup(world).state.trusted = true;
@@ -238,6 +248,7 @@ const release = part(() => ({
   tags: [] as string[],
   released: false,
   messages: [] as string[],
+  npm: [] as string[],
   bump: undefined as Bump | undefined,
   version: undefined as string | undefined,
   latest: undefined as string | null | undefined,
@@ -312,8 +323,20 @@ Then('there is no last release', (world) => {
   expect(release(world).latest).toBeNull();
 });
 
+Given(/^npm holds the versions (.+)$/, (world, versions: string) => {
+  release(world).npm = quoted(versions);
+});
+
 When('the release is decided', (world) => {
-  release(world).decision = decide(git(world));
+  release(world).decision = decide(
+    git(world),
+    newestPublished(release(world).npm)
+  );
+});
+
+Then('the run fails, because publishing was never set up', (world) => {
+  const decision = release(world).decision!;
+  expect(decision.release ? undefined : decision.setup).toBe(true);
 });
 
 Then('nothing is released', (world) => {
