@@ -79,3 +79,52 @@ Feature: The doctor checks a machine's toolchain
       Given mise cannot say which configuration paths it trusts
       When the doctor checks that agent worktrees are trusted, for the home "/home/dev"
       Then the check "agent-worktree-trust" fails
+
+  Rule: The global mise configuration must be the one this revision publishes
+    On a fleet machine it belongs to dev-fleet. A project that publishes its
+    own takes away the pins and the trusted agent worktree roots until the
+    next fleet-sync, and the doctor says so.
+
+    Background:
+      Given a toolchain whose "mise.toml" reads:
+        """
+        [tools]
+        bun = "1.4.4"
+        """
+      And the toolchain's "mise.lock" holds "fixture lock"
+
+    Scenario: The configuration fleet-sync published passes
+      Given the global configuration has been published
+      When the doctor checks the global mise configuration
+      Then the check "global-mise-config" passes
+
+    Scenario: No global configuration fails
+      When the doctor checks the global mise configuration
+      Then the check "global-mise-config" fails
+      And the check says "There is no global mise configuration"
+
+    Scenario: A configuration another project published fails, and says to run fleet-sync
+      Given the global configuration has been published
+      And the published "config.toml" has since been replaced with:
+        """
+        # Managed by my-project scripts/setup.ts
+        [tools]
+        node = "22"
+        """
+      When the doctor checks the global mise configuration
+      Then the check "global-mise-config" fails
+      And the check says "Another project or tool replaced"
+      And the check says "Run fleet-sync"
+
+    Scenario: dev-fleet's configuration from another revision fails
+      Given the global configuration has been published
+      And the toolchain's "mise.lock" holds "a newer lock"
+      When the doctor checks the global mise configuration
+      Then the check "global-mise-config" fails
+      And the check says "not the one this revision publishes"
+
+    Scenario: A path trusted on the machine is not a change
+      Given the global configuration has been published
+      And "/srv/local" has been added to the trusted paths of the published configuration
+      When the doctor checks the global mise configuration
+      Then the check "global-mise-config" passes

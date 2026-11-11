@@ -4,7 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { AGENT_WORKTREE_ROOTS, workspaceRoot } from './global-config';
+import {
+  AGENT_WORKTREE_ROOTS,
+  globalConfigDir,
+  globalConfigStanding,
+  workspaceRoot,
+  type GlobalConfigStanding,
+} from './global-config';
 
 type Tool = string | { version: string; lazy?: boolean; os?: string[] };
 type Config = {
@@ -151,6 +157,44 @@ export function worktreeTrustCheck(
   };
 }
 
+const STANDING: Record<GlobalConfigStanding, string> = {
+  published: 'Published by dev-fleet from this revision.',
+  missing: 'There is no global mise configuration.',
+  replaced:
+    'Another project or tool replaced the global mise configuration dev-fleet publishes.',
+  changed:
+    'The global mise configuration is not the one this revision publishes.',
+};
+
+/** On a fleet machine the global mise configuration belongs to dev-fleet.
+ * When anything else replaced it, its pins and the trusted agent worktree
+ * roots are gone until the next fleet-sync.
+ */
+export function globalConfigCheck(
+  dir?: string,
+  root: string = workspaceRoot
+): Check {
+  let standing: GlobalConfigStanding;
+  try {
+    standing = globalConfigStanding(dir ?? globalConfigDir(), root);
+  } catch {
+    return {
+      id: 'global-mise-config',
+      status: 'fail',
+      detail:
+        'MISE_GLOBAL_CONFIG_FILE moves the global mise configuration away from the one dev-fleet publishes; unset it.',
+    };
+  }
+  return {
+    id: 'global-mise-config',
+    status: standing === 'published' ? 'pass' : 'fail',
+    detail:
+      standing === 'published'
+        ? STANDING[standing]
+        : `${STANDING[standing]} Run fleet-sync; projects pin their own tools in a project mise.toml and never publish a global one.`,
+  };
+}
+
 export function checkMachine(requireDocker = false, worker = false): Check[] {
   const config = Bun.TOML.parse(
     readFileSync(join(workspaceRoot, 'mise.toml'), 'utf8')
@@ -164,6 +208,7 @@ export function checkMachine(requireDocker = false, worker = false): Check[] {
     ),
     ...dockerChecks(requireDocker),
     worktreeTrustCheck(),
+    globalConfigCheck(),
     {
       id: 'github-auth',
       status: auth.ok ? 'pass' : 'warn',
