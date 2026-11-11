@@ -89,15 +89,17 @@ async function register(
   options: CliOptions
 ): Promise<CommandOutcome> {
   const node = nodeFromOptions(options);
-  const config = await addNode(settings.config, node, options.apply === true);
+  const added = await addNode(settings.config, node, options.apply === true);
   return result({
     version: 1,
     command: 'add',
     ok: true,
     applied: options.apply === true,
     path: settings.config,
+    // How the fleet state stands with the bucket after this change.
+    ...(added.standing ? { state: added.standing } : {}),
     node,
-    nodes: config.nodes,
+    nodes: added.roster.nodes,
     next: options.apply
       ? 'Run fleet-nodes --onboard, then fleet-status --json.'
       : 'Review this preview, then repeat with --apply --yes.',

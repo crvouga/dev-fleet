@@ -1,0 +1,4 @@
+#!/bin/sh
+# The devfleet command, run from the clone: ./devfleet <command>.
+# bootstrap/install-launcher.sh puts the same command on PATH.
+exec "$(dirname "$0")/bootstrap/devfleet" "$@"

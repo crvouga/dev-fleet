@@ -53,8 +53,9 @@ Status never opens a login flow.
 
 ## Roster
 
-`.fleet.local.json` is gitignored and resolved from the current working directory.
-Use `--config PATH` for another file (keep it out of Git yourself). This describes
+The roster is kept in the [fleet state](state.md) and replicated to its bucket.
+A `.fleet.local.json` found from the current working directory (gitignored), or
+`--config PATH`, names a roster file instead (keep it out of Git yourself). This describes
 **existing developer computers**, not desired cloud infrastructure. OpenTofu
 remains the sole cloud resource owner; fleet creates no networks, hosts or secrets.
 

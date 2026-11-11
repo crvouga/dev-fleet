@@ -3,11 +3,11 @@ import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
 import { runAnsibleWithReceipt } from '../platform/ansible-receipt';
 import { failure, inspectRoute, publicEndpointCheck, tunnelToken } from './hub';
-import { BESZEL_PUBLIC_VIEWER_IDENTITY, fleetAccount } from './hub-access';
+import { publicViewerIdentity, fleetAccount } from './hub-access';
 import { ensurePublicViewer, type HubLogin } from './hub-viewer';
 import type { FleetDefinition } from '../definition';
 import { hostId, hubUrl } from '../topology';
-import { PUBLIC_HUB_URL, privateHub } from './beszel';
+import { publicHubUrl, privateHub } from './beszel';
 import type { Check, Runner } from '../types';
 
 /** Bundled CLI of the Tailscale macOS app when no `tailscale` is on PATH. */
@@ -131,8 +131,8 @@ function hubVariables(
 ): Record<string, string> {
   return {
     beszel_hub_url: hub,
-    beszel_public_url: PUBLIC_HUB_URL,
-    beszel_auto_login: BESZEL_PUBLIC_VIEWER_IDENTITY,
+    beszel_public_url: publicHubUrl(),
+    beszel_auto_login: publicViewerIdentity(),
     beszel_data_dir: paths.data,
     beszel_tunnel_dir: paths.tunnel,
     ...(tunnel ? { beszel_tunnel_token: tunnel } : {}),

@@ -2,7 +2,7 @@ import type { FleetNode, Runner, Check } from '../types';
 import type { FleetDefinition } from '../definition';
 import { hubUrl, roleOf } from '../topology';
 import { discoverTailnet } from '../tailscale';
-import { BESZEL_FLEET_IDENTITY, hubAccess } from '../monitoring/hub-access';
+import { fleetIdentity, hubAccess } from '../monitoring/hub-access';
 import { enrollBeszel } from '../monitoring/enroll';
 import { verifyBeszel } from '../monitoring/beszel';
 import { installRemoteAgent } from '../monitoring/remote';
@@ -142,15 +142,15 @@ async function hubReachable(hub: string, run: Runner): Promise<boolean> {
   return probe.ok;
 }
 
-const REMEDIES: Record<string, string> = {
-  BESZEL_ACCOUNT_REQUIRED: `The hub rejected the fleet login ${BESZEL_FLEET_IDENTITY}. A new hub on the manager creates it on first start from BESZEL_FLEET_AUTH; an older hub needs it once, by its superuser, as a verified users record with that Vault password. Never paste the password on a command line.`,
+const remedies = (): Record<string, string> => ({
+  BESZEL_ACCOUNT_REQUIRED: `The hub rejected the fleet login ${fleetIdentity()}. A new hub on the manager creates it on first start from BESZEL_FLEET_AUTH; an older hub needs it once, by its superuser, as a verified users record with that Vault password. Never paste the password on a command line.`,
   BESZEL_HUB_UNREACHABLE:
     'The hub runs on the manager; keep it awake and Docker Desktop running, then rerun fleet-sync from the manager so it converges the hub first.',
   BESZEL_NODE_TAILNET_REQUIRED:
     'The worker is not visible on the tailnet. Sign it in to Tailscale and record its tailscaleId in the local roster, then rerun fleet-sync.',
   BESZEL_NOT_ENROLLED:
     'Only workers declared in fleet.json run the agent over SSH; fleet-sync installs the manager’s own agent locally after its hub.',
-};
+});
 function unavailable(code: string): Check[] {
   return [
     {
@@ -159,7 +159,7 @@ function unavailable(code: string): Check[] {
       summary: code,
       remedy: {
         action:
-          REMEDIES[code] ??
+          remedies()[code] ??
           "Verify the manager's private hub is running and the manager has BESZEL_FLEET_AUTH through existing Vault authorization. The normal hub account must access these systems. Inspect duplicate registration/host conflicts before retry; no token or raw response is printed.",
       },
     },

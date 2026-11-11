@@ -14,7 +14,13 @@ export type Selection = {
 /** The tracked registry plus the proxy endpoint from this fleet's config. */
 export const registry = {
   ...source,
-  proxy: { endpoint: fleet.services.proxy.endpoint, ...source.proxy },
+  proxy: {
+    // Read on use: a command that reaches no proxy needs no configuration.
+    get endpoint(): string {
+      return fleet.services.proxy.endpoint;
+    },
+    ...source.proxy,
+  },
 };
 
 export function select(node: string, tool: string, profile: string): Selection {

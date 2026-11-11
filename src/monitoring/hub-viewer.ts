@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { record } from '../config';
 import type { Check } from '../types';
-import { BESZEL_PUBLIC_VIEWER_IDENTITY } from './hub-access';
+import { publicViewerIdentity } from './hub-access';
 
 /** Loopback address of the hub container on the manager. */
 export const LOCAL_HUB = 'http://127.0.0.1:8090';
@@ -70,7 +70,7 @@ async function superuserToken(
 async function findViewer(
   session: Session
 ): Promise<{ id: string; role: unknown } | null> {
-  const filter = encodeURIComponent(`email="${BESZEL_PUBLIC_VIEWER_IDENTITY}"`);
+  const filter = encodeURIComponent(`email="${publicViewerIdentity()}"`);
   const list = await api(
     session,
     'GET',
@@ -86,7 +86,7 @@ async function findViewer(
 async function createViewer(session: Session): Promise<void> {
   const password = randomBytes(24).toString('base64url');
   await api(session, 'POST', '/api/collections/users/records', {
-    email: BESZEL_PUBLIC_VIEWER_IDENTITY,
+    email: publicViewerIdentity(),
     username: 'public-viewer',
     password,
     passwordConfirm: password,
@@ -130,13 +130,13 @@ export async function ensurePublicViewer(
     if (verified?.role !== 'readonly') throw new Error('BESZEL_VIEWER_ROLE');
     return viewerCheck(
       'pass',
-      `Visitors are signed in automatically as ${BESZEL_PUBLIC_VIEWER_IDENTITY} (read-only).`
+      `Visitors are signed in automatically as ${publicViewerIdentity()} (read-only).`
     );
   } catch {
     return viewerCheck(
       'warn',
       'BESZEL_VIEWER_UNVERIFIED',
-      `Could not create or verify the read-only ${BESZEL_PUBLIC_VIEWER_IDENTITY} user with the fleet admin login. Create it in the hub (Settings > Users, role Read-only); never make it an admin. Details are withheld.`
+      `Could not create or verify the read-only ${publicViewerIdentity()} user with the fleet admin login. Create it in the hub (Settings > Users, role Read-only); never make it an admin. Details are withheld.`
     );
   }
 }

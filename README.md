@@ -30,34 +30,53 @@ tailnet or repository is written in this code. They live in your `fleet.json`.
 
 ## Quickstart
 
-On the manager (macOS, with Git, Docker Desktop and Tailscale signed in):
+On the manager (macOS, with Git, Docker Desktop and Tailscale signed in), clone
+this repository and run everything from the clone:
 
 ```sh
-git clone https://github.com/crvouga/dev-fleet.git ~/.local/share/dev-fleet/source
-cd ~/.local/share/dev-fleet/source
+git clone https://github.com/crvouga/dev-fleet.git
+cd dev-fleet
 bash bootstrap/bootstrap.sh          # installs the pinned toolchain with mise
 
-mkdir -p ~/.config/dev-fleet
-cp examples/fleet.json ~/.config/dev-fleet/fleet.json
-$EDITOR ~/.config/dev-fleet/fleet.json   # your machines, endpoints and secrets
+# Connect the bucket that holds your fleet's state (asks for its access key).
+./devfleet fleet-state --init --bucket my-fleet-state \
+  --endpoint https://ACCOUNT.r2.cloudflarestorage.com --region auto
 
-export DEVFLEET_REPO=$PWD
-sh bootstrap/fleet-manager-run.sh "$(git rev-parse HEAD)" --dry-run   # preview
-sh bootstrap/fleet-manager-run.sh "$(git rev-parse HEAD)"             # apply
+# A new fleet: describe your machines once. An existing fleet skips this;
+# --init already restored its configuration from the bucket.
+cp examples/fleet.json /tmp/fleet.json && $EDITOR /tmp/fleet.json
+./devfleet fleet-state --import /tmp/fleet.json && rm /tmp/fleet.json
+
+./devfleet fleet-sync --dry-run      # preview
+./devfleet fleet-sync                # apply
 ```
 
 `fleet-sync` converges the manager first, then every worker over SSH: it sends
-the pinned revision and your configuration, installs the toolchain, applies
-the Ansible policy and verifies the result. It prints one table and writes a
-full JSON report.
+the revision the clone is at and your configuration, installs the toolchain,
+applies the Ansible policy and verifies the result. It prints one table and
+writes a full JSON report. The commit the clone is at is your version; check
+out another one to move the fleet to it.
 
-Most people keep `fleet.json` in their own repository and point at it:
+## State
+
+The fleet's own state is not kept only on the manager. The fleet
+configuration, the roster of enrolled workers and the approved revision live in
+one SQLite database, which [Litestream](https://litestream.io) replicates to a
+storage bucket you own (any S3-compatible service). The bucket is the source of
+truth and the local copy is disposable:
 
 ```sh
-DEVFLEET_CONFIG=/path/to/your/fleet.json sh bootstrap/fleet-manager-run.sh REVISION
+./devfleet fleet-state               # where the state is, and how it stands with the bucket
 ```
 
-Pin `REVISION` to a full commit SHA of this repository; that is your version.
+To replace the manager, clone this repository on the new machine and run the
+same `fleet-state --init`: the fleet comes back from the bucket. The bucket's
+location and credentials (`~/.config/dev-fleet/bucket.json`) are the only thing
+you bring. [docs/state.md](docs/state.md) explains how it works, how to change
+the configuration, and which state is not in the bucket yet.
+
+Without a bucket everything still works from the local copy, and `fleet-sync`
+warns that the manager holds the only one.
 
 ## Run it from npm
 
@@ -76,7 +95,8 @@ npx @crvouga/dev-fleet fleet-status --local
 
 1. Set up SSH from the manager to the new Ubuntu box (a non-root user with
    sudo) and join it to your tailnet.
-2. Add it under `workers` in `fleet.json`:
+2. Add it under `workers` in the fleet configuration
+   (`fleet-state --export`, edit, `fleet-state --import`):
 
    ```json
    {
@@ -100,8 +120,12 @@ Remove a machine by deleting its entry.
 
 ## Configuration
 
-`fleet.json` is validated by [`schema/fleet.schema.json`](schema/fleet.schema.json);
-[`examples/fleet.json`](examples/fleet.json) is a complete example.
+The fleet configuration (`fleet.json`) is validated by
+[`schema/fleet.schema.json`](schema/fleet.schema.json);
+[`examples/fleet.json`](examples/fleet.json) is a complete example. It is kept
+in the [fleet state](#state): `fleet-state --export` prints it and
+`fleet-state --import PATH` stores an edited copy. To keep it in a repository
+of your own instead, name the file with `DEVFLEET_CONFIG`.
 
 | Block      | What it declares                                                    |
 | ---------- | ------------------------------------------------------------------- |
@@ -122,7 +146,12 @@ Secrets are asked for by purpose (`proxy-client-key`,
   are implemented for the **`vault`** secrets provider only. With `env`, `file`
   or `sops` the fleet's three shared secrets are read, but those two features
   are not available yet.
-- State on machines still uses the historical `personal` prefix
+- The bucket holds the fleet's own state. The CLI proxy keeps its separate
+  encrypted backup (`vault` only), and the monitoring hub's database is not
+  replicated: `fleet-sync` recreates its accounts and systems, but metric
+  history is lost with the manager. See
+  [what is not in the bucket yet](docs/state.md#what-is-not-in-the-bucket-yet).
+- Caches and units on machines still use the historical `personal` prefix
   (`~/.local/share/personal/fleet`, `/etc/personal-fleet`, unit names). It
   works, and renaming it needs a migration.
 - The manager is a Mac host. There is no container image of the manager.
@@ -134,6 +163,7 @@ Secrets are asked for by purpose (`proxy-client-key`,
 | Path         | What                                                              |
 | ------------ | ----------------------------------------------------------------- |
 | `src/`       | Inventory, orchestration, verification, the report; `src/cli` CLI |
+| `src/state/` | The fleet state database and its replication to the bucket        |
 | `ansible/`   | Machine policy: `ubuntu/`, `macos/`, `monitoring/`                |
 | `agents/`    | Agent launchers T3 runs, and their registry                       |
 | `cliproxy/`  | The CLIProxyAPI service: install, audit, backup, model health     |

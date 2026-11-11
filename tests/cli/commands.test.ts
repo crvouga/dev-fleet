@@ -50,6 +50,9 @@ test('discovery, agent guide, schema and help need no roster or credentials', as
     COMMANDS.filter((entry) => entry.mutation).map((entry) => entry.id)
   ).toEqual([
     'fleet-sync',
+    'fleet-state --init',
+    'fleet-state --push',
+    'fleet-state --restore',
     'fleet-node-sync',
     'fleet-repair',
     'fleet-node-add',

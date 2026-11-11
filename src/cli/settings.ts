@@ -1,10 +1,11 @@
 import { access } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { STATE_ROSTER } from '../state/roster';
 
 export interface Settings {
   workspace: string;
+  /** A roster file, or `state:roster` for the roster in the fleet state. */
   config: string;
 }
 
@@ -54,11 +55,12 @@ export async function resolveSettings(
       env['PERSONAL_WORKSPACE'] ??
       (await findCheckout(cwd))
   );
-  const config = resolve(
+  // A roster file is named explicitly; otherwise it is kept in the fleet state.
+  const named =
     overrides.config ??
-      env['PERSONAL_FLEET_CONFIG'] ??
-      (await findUp(cwd, '.fleet.local.json')) ??
-      join(homedir(), '.config/personal/fleet.json')
-  );
+    env['PERSONAL_FLEET_CONFIG'] ??
+    (await findUp(cwd, '.fleet.local.json'));
+  const config =
+    !named || named === STATE_ROSTER ? STATE_ROSTER : resolve(named);
   return { workspace, config };
 }

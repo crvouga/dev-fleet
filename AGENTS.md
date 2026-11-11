@@ -15,6 +15,12 @@
   names, launchd labels, state paths and ownership markers already exist on
   running machines. Changing one is a migration, never a rename. An ownership
   check compares the marker text only, never a path or repository name.
+- **The bucket is the source of truth; local data is disposable.** State the
+  manager cannot rebuild from Git is a document in the fleet state
+  (`src/state/`, see `docs/state.md`), changed through `mutateState` or
+  `refresh` then `push`, never a new file under the home directory. Only the
+  devfleet CLI reads it; launchers and the worker probe run under Node and use
+  the copy fleet-sync installs, so nothing they import may load `bun:sqlite`.
 - Secrets are read by purpose through `src/secrets.ts`. Never put a secret in
   argv, a report, a log or the fleet configuration.
 - Diagnostics are read-only. Use stable check IDs and structured remedies;

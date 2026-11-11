@@ -6,6 +6,7 @@ import { resolveSettings } from './settings';
 import { executeFleet } from './fleet';
 import { fleetSync, type FleetSyncOptions } from './fleet-sync';
 import { syncNode, type NodeSyncOptions } from './node-sync';
+import { fleetState, type FleetStateOptions } from './fleet-state';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -228,6 +229,47 @@ function registerSync({ program, defaults, complete }: Registration) {
     });
 }
 
+function registerState({ program, complete }: Registration) {
+  program
+    .command('fleet-state')
+    .description(
+      'Show where the fleet state is kept and whether the bucket holds it; flags connect, upload and restore'
+    )
+    .option(
+      '--init',
+      'Connect the bucket: restore the fleet state from it, or seed it from this machine'
+    )
+    .option('--bucket <name>', 'With --init: S3-compatible bucket name')
+    .option(
+      '--endpoint <url>',
+      'With --init: https origin of the S3 service; omit for AWS S3'
+    )
+    .option('--region <name>', 'With --init: bucket region, such as auto')
+    .option('--prefix <prefix>', 'With --init: key prefix; default dev-fleet')
+    .option(
+      '--directory <path>',
+      'With --init: replicate to a directory instead of a bucket'
+    )
+    .option(
+      '--import <path>',
+      'Store a fleet configuration (an edited examples/fleet.json)'
+    )
+    .option('--export', 'Print the stored fleet configuration')
+    .option('--push', 'Upload this machine’s changes to the bucket')
+    .option(
+      '--restore',
+      'Replace this machine’s copy with the bucket’s version'
+    )
+    .option('--yes', 'With --restore: discard changes the bucket does not hold')
+    .addHelpText(
+      'after',
+      '\nRead-only without a flag. Bucket credentials are read from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY or asked for on the terminal, never taken from arguments.'
+    )
+    .action(async (_options, command: Command) => {
+      complete(await fleetState(command.optsWithGlobals<FleetStateOptions>()));
+    });
+}
+
 export function registerFleet(
   program: Command,
   defaults: Settings,
@@ -241,6 +283,7 @@ export function registerFleet(
     'List computers visible through Tailscale, including offline devices'
   );
   registerSync(registration);
+  registerState(registration);
   registerRepair(registration);
   registerNodes(registration);
 }

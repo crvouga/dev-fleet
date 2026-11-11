@@ -31,7 +31,7 @@ function check(
 /** Public dashboard hostname served through the Cloudflare
  * tunnel `beszel`. Agents and the manager keep using the private hub URL.
  */
-export const PUBLIC_HUB_URL = fleet.services.monitoring.publicUrl;
+export const publicHubUrl = (): string => fleet.services.monitoring.publicUrl;
 
 export function privateHub(value: string): string {
   const url = new URL(value);
