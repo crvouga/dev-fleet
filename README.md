@@ -183,6 +183,22 @@ bun run check
 proxy package's Python tests. Tests run against `examples/fleet.json` and
 never contact a real machine.
 
+Every pull request runs three checks ([`ci.yml`](.github/workflows/ci.yml)):
+
+| Check       | What it proves                                                                                                     |
+| ----------- | ------------------------------------------------------------------------------------------------------------------ |
+| Check       | `bun run check`                                                                                                    |
+| Fleet state | The pinned Litestream replicates the fleet state to a directory and to an S3 API, and a second manager restores it |
+| Workflows   | The workflow files pass `actionlint`                                                                               |
+
+The fleet state tests that need Litestream skip where it is not installed. To
+run them all locally, start any S3-compatible service and name it:
+
+```sh
+mise install litestream
+DEVFLEET_TEST_S3=http://127.0.0.1:5000 bun test tests/state/litestream.test.ts
+```
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
