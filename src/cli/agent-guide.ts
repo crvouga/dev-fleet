@@ -30,6 +30,23 @@ const EXAMPLES = [
   'devfleet fleet-repair --local --repair workspace --plan-hash <reviewed-sha256> --apply --yes --json',
 ];
 
+/** For an agent working in another project, which is every project that uses
+ * dev-fleet: a change to dev-fleet is asked for, never made in place.
+ */
+function support(release: Release) {
+  return {
+    issues: release.issues ?? null,
+    report:
+      'A defect in dev-fleet, or something it cannot do yet, is raised as an issue in the dev-fleet repository: one issue per bug or feature request, after searching the open ones. From any other project that is the only way to change dev-fleet. Tell the operator what is blocked and link the issue.',
+    never:
+      'Do not edit the installed package, a checkout fleet-sync owns or a file dev-fleet manages on a machine: the next install or fleet-sync replaces each of them. Do not clone dev-fleet to patch it, vendor a modified copy, or hide the defect behind a workaround in the project that holds fleet.json.',
+    include:
+      'devfleet --version, the command and its flags, the error code or the failing check IDs from --json, what happened and what was expected.',
+    withhold:
+      'The issue tracker is public. Leave out credentials, the fleet configuration, hostnames, accounts, domains, tailnet names, paths under a home directory and raw subprocess output.',
+  };
+}
+
 export function agentGuide(release: Release) {
   return {
     version: 1,
@@ -50,13 +67,15 @@ export function agentGuide(release: Release) {
     },
     configuration: {
       workspace:
-        '--workspace PATH, PERSONAL_WORKSPACE, closest ancestor mise.toml, then current directory',
+        'The published package itself. Run from a checkout (development): --workspace PATH, PERSONAL_WORKSPACE, then the dev-fleet checkout the command is started in',
       roster:
         '--config PATH, PERSONAL_FLEET_CONFIG, closest ancestor .fleet.local.json, then the roster in the fleet state',
       definition:
-        'DEVFLEET_CONFIG, then the fleet state (the devfleet CLI on the manager), then the copy fleet-sync installed at ~/.config/dev-fleet/fleet.json',
+        'DEVFLEET_CONFIG, then the closest fleet.json in the working directory or above it (the operator’s project), then the configuration fleet-sync last applied from the fleet state (the devfleet CLI on the manager), then the copy fleet-sync installed at ~/.config/dev-fleet/fleet.json',
       state:
-        'DEVFLEET_STATE or ~/.local/share/dev-fleet/state: a local copy of the fleet configuration, roster and approved revision. The bucket in DEVFLEET_BUCKET or ~/.config/dev-fleet/bucket.json is the source of truth; devfleet fleet-state --json compares them',
+        'DEVFLEET_STATE or ~/.local/share/dev-fleet/state: a local copy of the roster, the approved revision and the configuration last applied. The bucket named under "state" in the fleet configuration is the source of truth; its credentials are passed in DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY, or saved by devfleet fleet-state --init in ~/.config/dev-fleet/bucket.json for unattended runs. devfleet fleet-state --json compares the copies',
+      revision:
+        'The commit the published package names (devfleet --version). fleet-sync converges every machine to it; --revision SHA selects another',
     },
     output: {
       stdout:
@@ -76,6 +95,7 @@ export function agentGuide(release: Release) {
         'Default fleet-status tests the manager and all configured nodes. --local tests only this manager; --tailnet and --workers cover Tailscale computers. A missing roster fails explicitly. T3/VS Code end-to-end checks remain manual.',
     },
     safety: SAFETY,
+    support: support(release),
     fleetSync: {
       command: 'devfleet fleet-sync',
       preview: 'devfleet fleet-sync --dry-run --json',

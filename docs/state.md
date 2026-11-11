@@ -1,93 +1,143 @@
 # Fleet state
 
-The manager keeps three things it cannot rebuild from Git:
+A fleet is described in two places you own. Your project in Git holds
+`fleet.json` and pins the dev-fleet version. Everything else the manager
+cannot rebuild from Git is the **fleet state**:
 
 | Document     | What it is                                                           |
 | ------------ | -------------------------------------------------------------------- |
-| `definition` | The fleet configuration: your `fleet.json`                           |
 | `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device) |
 | `enrollment` | The revision `fleet-sync` approved and the one it last applied       |
+| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json` |
 
-They live in one SQLite database, the **fleet state**, and
-[Litestream](https://litestream.io) replicates that database to a storage
-bucket you own. The bucket is the source of truth. The copy on the manager is
-disposable: delete it, or replace the whole machine, and one command brings the
-fleet back.
+They live in one SQLite database, and [Litestream](https://litestream.io)
+replicates that database to a storage bucket you own. The bucket is the source
+of truth. The copy on the manager is disposable: delete it, or replace the
+whole machine, and the next command brings the fleet back.
 
 ```
-~/.config/dev-fleet/bucket.json         where the bucket is, and its credentials
-~/.local/share/dev-fleet/state/         the local copy; safe to delete
+your project (Git)
+    fleet.json                          the configuration; says where the bucket is
+    package.json                        the dev-fleet version
+~/.local/share/dev-fleet/state/         the local copy of the state; safe to delete
     fleet.db                            the database Litestream replicates
-    definition.json                     the configuration as a file, rewritten from fleet.db
+    definition.json                     the stored configuration as a file, rewritten from fleet.db
     replicated.json, litestream.yml     bookkeeping
+~/.config/dev-fleet/bucket.json         optional: credentials saved for unattended runs
 ```
-
-`bucket.json` is the one file you bring to a machine. Everything else comes
-from the bucket or from Git.
 
 ## Set it up
 
 Any S3-compatible bucket works: AWS S3, Cloudflare R2, Backblaze B2, MinIO.
 Create an empty private bucket and an access key that can read and write it.
+Name the bucket in `fleet.json`:
 
-**A new fleet.** From the clone on the manager:
-
-```sh
-./devfleet fleet-state --init --bucket my-fleet-state \
-  --endpoint https://ACCOUNT.r2.cloudflarestorage.com --region auto
-cp examples/fleet.json /tmp/fleet.json && $EDITOR /tmp/fleet.json
-./devfleet fleet-state --import /tmp/fleet.json && rm /tmp/fleet.json
+```json
+"state": {
+  "bucket": "my-fleet-state",
+  "endpoint": "https://ACCOUNT.r2.cloudflarestorage.com",
+  "region": "auto",
+  "prefix": "dev-fleet"
+}
 ```
 
-`--init` asks for the access key ID and its secret on the terminal. Without a
-terminal it reads `DEVFLEET_BUCKET_ACCESS_KEY_ID` and
-`DEVFLEET_BUCKET_SECRET_ACCESS_KEY`. Credentials are never taken from
-arguments. Omit `--endpoint` for AWS S3. Leave the access key empty to use the
-standard AWS environment or profile instead of storing keys.
+Omit `endpoint` for AWS S3. `prefix` defaults to `dev-fleet`; one bucket can
+hold several fleets under different prefixes. The block never holds
+credentials, and a `fleet.json` that does is refused.
 
-**A manager that already runs a fleet.** Run `--init` with your bucket. It
-copies the configuration, the roster and the approved revision from the files
-that held them into the state and uploads them. The roster and enrollment files
-are left in place and no longer read; `~/.config/dev-fleet/fleet.json` stays
-what it was, the copy `fleet-sync` installs for launchers. Without `--init`
-the first `fleet-sync` makes the same move, and warns until a bucket is
-connected. If the `fleet-sync` schedule was enabled before, enable it again
-(`fleet-sync --schedule enable --apply --yes`) so that it stops naming the old
-roster file.
+Every devfleet command reads the credentials from its environment:
 
-**A replacement manager, or a second clone.** Run the same `--init`. The
-bucket already holds the fleet, so it is downloaded and nothing on the machine
-is uploaded. Then run `fleet-sync`.
+```sh
+export DEVFLEET_BUCKET_ACCESS_KEY_ID=…
+export DEVFLEET_BUCKET_SECRET_ACCESS_KEY=…
+npx devfleet fleet-sync
+```
 
-`--init --directory /Volumes/backup/fleet` replicates to a directory instead of
-a bucket (an attached disk, a mounted share). It behaves the same way and is
-the quickest way to try this out.
+Set both or neither. With neither, and nothing saved on the machine, the
+standard AWS environment or profile is used. Credentials are never taken from
+arguments and never written to a report or a log.
+
+**A new fleet.** Nothing more: the first `fleet-sync` seeds the bucket.
+
+**A replacement manager, or a second machine.** Clone your project, `npm ci`,
+and run `fleet-sync` with the credentials. The bucket already holds the fleet,
+so its state is downloaded before anything is changed.
+
+**Runs the manager starts by itself.** A worker that hands `fleet-sync` to the
+manager starts a command there that gets no environment and no project. Save
+the credentials on the manager once:
+
+```sh
+npx devfleet fleet-state --init
+```
+
+It takes the bucket from `fleet.json` and the credentials from the environment,
+or asks for them on the terminal, and writes both to
+`~/.config/dev-fleet/bucket.json` (readable by you alone). Such a run then
+uses the configuration last applied and the saved credentials. Without them it
+still converges the fleet from the local copy and reports that the bucket was
+not reached; the next run that has credentials uploads what is pending.
+
+**A fleet that kept its configuration in the bucket.** Before projects, the
+configuration was stored with `fleet-state --import` and the bucket was named
+with `fleet-state --init --bucket …`. To move such a fleet into a project, on
+the manager:
+
+```sh
+mkdir my-fleet && cd my-fleet && git init && npm init -y
+npm install --save-dev --save-exact @crvouga/dev-fleet
+npx devfleet fleet-state --export > fleet.json
+```
+
+Add the `state` block to `fleet.json` with the same bucket, endpoint, region
+and prefix as `~/.config/dev-fleet/bucket.json`, then run
+`npx devfleet fleet-sync`. The credentials already saved for that bucket keep
+working.
+
+The clone of dev-fleet the fleet used to run from is then no longer read by
+`fleet-sync`, with one exception: the CLI proxy's installed code is a Git
+worktree of the repository it was installed from. Install the proxy again
+from the project (`npx devfleet cliproxy install`, which takes the revision
+`fleet-sync` applied from the manager's own copy of the source) before you
+delete the clone.
+
+Without a `fleet.json`, `fleet-state --init --bucket NAME --endpoint https://HOST`
+still connects a bucket and restores the configuration stored in it.
+
+On a manager older than the fleet state itself, `--init` (or the first
+`fleet-sync`) also moves the configuration, the roster and the approved
+revision from the files that held them into the state. Those files are left in
+place and no longer read.
+
+`"state": { "directory": "/Volumes/backup/fleet" }` replicates to a directory
+instead of a bucket (an attached disk, a mounted share). It behaves the same
+way, needs no credentials and is the quickest way to try this out.
 
 ## Day to day
 
 ```sh
 devfleet fleet-state            # read-only: where the state is, and how it stands with the bucket
-devfleet fleet-state --export   # print the configuration
-devfleet fleet-state --import PATH   # store an edited configuration
+devfleet fleet-state --example  # print a fleet.json to start a project from
+devfleet fleet-state --export   # print the configuration fleet-sync last applied
 devfleet fleet-state --push     # upload changes made while the bucket was unreachable
 devfleet fleet-state --restore  # replace the local copy with the bucket's
 ```
 
-To change the fleet, for example to add a worker:
+To change the fleet, for example to add a worker, edit `fleet.json`, commit
+and run `devfleet fleet-sync` from the project. `fleet-sync` validates the
+file, installs it on every machine and records it in the state.
 
-```sh
-devfleet fleet-state --export > /tmp/fleet.json
-$EDITOR /tmp/fleet.json
-devfleet fleet-state --import /tmp/fleet.json && rm /tmp/fleet.json
-devfleet fleet-sync
-```
+Which configuration a command uses, in this order:
 
-`--import` validates the file before it stores anything. `fleet-sync` then
-installs the stored configuration on every machine, as it always has.
+1. The file `DEVFLEET_CONFIG` names.
+2. The closest `fleet.json` in the working directory or above it.
+3. The configuration `fleet-sync` last applied, from the fleet state (the
+   devfleet CLI on the manager).
+4. The copy `fleet-sync` installed at `~/.config/dev-fleet/fleet.json`
+   (launchers and scheduled jobs on every machine read only this one).
 
-You can still keep `fleet.json` in a repository of your own and name it with
-`DEVFLEET_CONFIG`. A named file wins, and then only the roster and the approved
-revision are kept in the state.
+`fleet-state --import PATH` stores a configuration in the state without
+running `fleet-sync`.
 
 ## How it stays correct
 
@@ -110,8 +160,8 @@ it records what it applied. Its report carries the result as the
 | Standing       | Meaning                                                | What happens                                               |
 | -------------- | ------------------------------------------------------ | ---------------------------------------------------------- |
 | `in-sync`      | The bucket and this machine hold the same version      | Nothing to do                                              |
-| `local-only`   | No bucket is configured                                | A warning on every `fleet-sync`; run `--init`              |
-| `empty`        | Neither side holds any state                           | `--import` a configuration                                 |
+| `local-only`   | No bucket is configured                                | A warning on every `fleet-sync`; name one in `fleet.json`  |
+| `empty`        | Neither side holds any state                           | The first `fleet-sync` records it                          |
 | `unpublished`  | The bucket holds nothing yet                           | The next change, or `--push`, seeds it                     |
 | `local-ahead`  | This machine has changes the bucket has not received   | The next change, or `--push`, uploads them                 |
 | `bucket-ahead` | Another manager changed the bucket; this copy is stale | The next change or `fleet-sync` takes the bucket's version |
@@ -137,22 +187,37 @@ state that is replicated differently or not at all:
 | CLI proxy: provider logins, keys, Tailscale identity | `~/Library/Application Support/cliproxy-fleet/state`     | Restored from its own encrypted restic snapshots ([cliproxy](../cliproxy/README.md)); needs `vault`    |
 | Monitoring hub (Beszel) database                     | `~/Library/Application Support/personal-beszel`          | `fleet-sync` recreates accounts and systems; metric history, alerts and settings made by hand are lost |
 | T3 ownership record                                  | `~/.t3/userdata/personal-managed.json`                   | `t3-apply --import ID` adopts instances again                                                          |
-| The `fleet-sync` schedule                            | A launchd agent                                          | `fleet-sync --schedule enable`                                                                         |
 
 Everything else under `~/.local/share/personal/fleet` and
-`~/.local/state/personal/fleet` (run checkouts, reports, receipts, logs) is a
-cache that the next `fleet-sync` rebuilds.
+`~/.local/state/personal/fleet` (the copy of the source repository, run
+checkouts, reports, receipts, logs) is a cache that the next `fleet-sync`
+rebuilds. The CLI proxy's installed code is a Git worktree of that copy of the
+source repository: after deleting it, run `devfleet cliproxy install` again
+once `fleet-sync` has fetched it back.
 
 ## Reference
 
-| Setting                                                              | Meaning                                                    |
-| -------------------------------------------------------------------- | ---------------------------------------------------------- |
-| `DEVFLEET_STATE`                                                     | Another state directory. Earlier files are not read for it |
-| `DEVFLEET_BUCKET`                                                    | Another `bucket.json`                                      |
-| `DEVFLEET_BUCKET_ACCESS_KEY_ID`, `DEVFLEET_BUCKET_SECRET_ACCESS_KEY` | Credentials for `--init` when there is no terminal         |
-| `DEVFLEET_CONFIG`                                                    | A configuration file that replaces the stored one          |
+| Setting                                                              | Meaning                                                      |
+| -------------------------------------------------------------------- | ------------------------------------------------------------ |
+| `state` in `fleet.json`                                              | Where the bucket is                                          |
+| `DEVFLEET_BUCKET_ACCESS_KEY_ID`, `DEVFLEET_BUCKET_SECRET_ACCESS_KEY` | The bucket's credentials, for the command they are passed to |
+| `DEVFLEET_CONFIG`                                                    | A configuration file, instead of the project's `fleet.json`  |
+| `DEVFLEET_STATE`                                                     | Another state directory. Earlier files are not read for it   |
+| `DEVFLEET_BUCKET`                                                    | Another `bucket.json`                                        |
 
-`bucket.json`:
+How a command reaches the bucket:
+
+- **Where it is**: the `state` block of the configuration; without one, the
+  bucket saved in `bucket.json`.
+- **Credentials**: the two variables; otherwise the ones saved in
+  `bucket.json`, only when they were saved for that same bucket; otherwise the
+  standard AWS environment or profile.
+
+`fleet-state --json` reports both as `bucket.location` (`fleet.json` or
+`bucket.json`) and `bucket.credentials` (`environment`, `bucket.json` or
+`aws`), never a credential.
+
+`bucket.json`, written by `fleet-state --init`:
 
 ```json
 {
@@ -168,14 +233,13 @@ cache that the next `fleet-sync` rebuilds.
 
 It must be readable by you alone (`chmod 600`); devfleet refuses to use it
 otherwise. The keys reach Litestream through its environment and are never
-written to its configuration, a report or a log. To rotate them, edit the file
-or run `--init` again with the same bucket.
+written to its configuration, a report or a log. To rotate them, pass the new
+ones to `fleet-state --init`.
 
-One bucket can hold several fleets under different prefixes. The database is
-stored under `PREFIX/fleet.db/`. Each change adds a few kilobytes and Litestream
-keeps thirty days of snapshots, so a restore to an earlier point is possible
-with Litestream directly (with the bucket's keys in `AWS_ACCESS_KEY_ID` and
-`AWS_SECRET_ACCESS_KEY`):
+The database is stored under `PREFIX/fleet.db/`. Each change adds a few
+kilobytes and Litestream keeps thirty days of snapshots, so a restore to an
+earlier point is possible with Litestream directly (with the bucket's keys in
+`AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`):
 
 ```sh
 mise exec litestream -- litestream restore -no-expand-env \

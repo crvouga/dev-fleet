@@ -6,7 +6,7 @@ import { isRevision } from './machine/state';
 import { sshArgs, shellQuote, sshFailure } from './ssh';
 import type { FleetNode, NodeReport, Runner, Check } from './types';
 import { record } from './config';
-import type { FleetDefinition } from './definition';
+import { installedDefinition, type FleetDefinition } from './definition';
 import { cleanCheck, validCheck } from './protocol';
 
 export interface BootstrapPayload {
@@ -48,7 +48,7 @@ export async function prepareBootstrap(
   );
   // The fleet configuration is data, not source: it travels beside the code.
   return payload && options.definition
-    ? { ...payload, config: JSON.stringify(options.definition, null, 2) + '\n' }
+    ? { ...payload, config: installedDefinition(options.definition) }
     : payload;
 }
 

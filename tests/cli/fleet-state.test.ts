@@ -2,7 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { execute } from '../../src/cli/program';
 import { fleetState, type FleetStateServices } from '../../src/cli/fleet-state';
 import { legacyPath } from '../../src/state/legacy';
@@ -10,7 +10,8 @@ import { bucketPath, databasePath, stateRoot } from '../../src/state/paths';
 import { readDocument } from '../../src/state/store';
 import { fakeLitestream, type FakeLitestream } from '../state/litestream-fake';
 
-const EXAMPLE = resolve(import.meta.dir, '../../examples/fleet.json');
+// The example fleet without the bucket it names (tests/setup.ts).
+const EXAMPLE = process.env['DEVFLEET_CONFIG']!;
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -174,14 +175,16 @@ test('credentials come from the environment or a prompt and are stored privately
     },
     {
       ...services,
-      env: { DEVFLEET_BUCKET_ACCESS_KEY_ID: 'AKIDEXAMPLE' },
       ask: async (question) => {
         asked.push(question);
-        return secret;
+        return question.includes('secret') ? secret : 'AKIDEXAMPLE';
       },
     }
   );
-  expect(asked).toEqual(['Bucket secret access key']);
+  expect(asked).toEqual([
+    'Bucket access key ID (empty to use the AWS environment or profile)',
+    'Bucket secret access key',
+  ]);
   expect(JSON.stringify(result)).not.toContain(secret);
   expect(result.data).toMatchObject({
     bucket: {
@@ -202,7 +205,7 @@ test('credentials come from the environment or a prompt and are stored privately
     other.services
   );
   expect(plain.data).toMatchObject({
-    bucket: { credentials: 'environment' },
+    bucket: { location: 'bucket.json', credentials: 'aws' },
   });
   await expect(
     fleetState(
@@ -289,4 +292,116 @@ test('the command is registered, documented and read-only without a flag', async
     standing: 'local-only',
     root: process.env['DEVFLEET_STATE']!,
   });
+});
+
+/** A project of the operator's own: the example with a bucket named in it. */
+function project(home: string, state: Record<string, string>): string {
+  const path = join(home, 'project/fleet.json');
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(
+    path,
+    JSON.stringify({ ...JSON.parse(readFileSync(EXAMPLE, 'utf8')), state })
+  );
+  return path;
+}
+
+const KEYS = {
+  DEVFLEET_BUCKET_ACCESS_KEY_ID: 'AKIDPASSED',
+  DEVFLEET_BUCKET_SECRET_ACCESS_KEY: 'secret/passed+key',
+};
+
+test('a project that names its bucket needs only credentials passed to each command', async () => {
+  const { services, bucket } = await manager();
+  const env = {
+    DEVFLEET_CONFIG: project(services.home, {
+      bucket: 'fleet-state',
+      endpoint: 'https://s3.example.com',
+    }),
+    ...KEYS,
+  };
+  const pushed = await fleetState({ push: true }, { ...services, env });
+  expect(pushed.data).toMatchObject({
+    standing: 'empty',
+    bucket: {
+      bucket: 'fleet-state',
+      location: 'fleet.json',
+      credentials: 'environment',
+    },
+  });
+  expect(checks(pushed.data)).toMatchObject({
+    'state:bucket': 'pass',
+    'state:definition': 'pass',
+  });
+  // Litestream was handed the passed keys, and nothing was saved here.
+  expect(bucket.calls.at(-1)!.env).toMatchObject({
+    AWS_ACCESS_KEY_ID: KEYS.DEVFLEET_BUCKET_ACCESS_KEY_ID,
+    AWS_SECRET_ACCESS_KEY: KEYS.DEVFLEET_BUCKET_SECRET_ACCESS_KEY,
+  });
+  expect(existsSync(bucketPath({}, services.home))).toBe(false);
+  expect(JSON.stringify(pushed)).not.toContain('secret/passed');
+  // The bucket is the project's to name: a flag cannot point elsewhere.
+  await expect(
+    fleetState({ init: true, bucket: 'another-fleet' }, { ...services, env })
+  ).rejects.toThrow('names another bucket');
+});
+
+test('init saves the project’s bucket and the passed credentials for runs this machine starts by itself', async () => {
+  const { services } = await manager();
+  const config = project(services.home, { bucket: 'fleet-state' });
+  const saved = () =>
+    JSON.parse(readFileSync(bucketPath({}, services.home), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+  const connected = await fleetState(
+    { init: true },
+    { ...services, env: { DEVFLEET_CONFIG: config, ...KEYS } }
+  );
+  expect(connected.exitCode).toBe(0);
+  expect(saved()).toMatchObject({
+    bucket: 'fleet-state',
+    accessKeyId: KEYS.DEVFLEET_BUCKET_ACCESS_KEY_ID,
+    secretAccessKey: KEYS.DEVFLEET_BUCKET_SECRET_ACCESS_KEY,
+  });
+  // A later command that is passed nothing (the schedule) uses them.
+  const unattended = { ...services, env: { DEVFLEET_CONFIG: config } };
+  expect((await fleetState({}, unattended)).data).toMatchObject({
+    bucket: { location: 'fleet.json', credentials: 'bucket.json' },
+  });
+  // Repeating --init without credentials keeps them; passing new ones rotates.
+  await fleetState({ init: true }, unattended);
+  expect(saved()['accessKeyId']).toBe(KEYS.DEVFLEET_BUCKET_ACCESS_KEY_ID);
+  await fleetState(
+    { init: true },
+    {
+      ...services,
+      env: {
+        DEVFLEET_CONFIG: config,
+        DEVFLEET_BUCKET_ACCESS_KEY_ID: 'AKIDROTATED',
+        DEVFLEET_BUCKET_SECRET_ACCESS_KEY: 'secret/rotated',
+      },
+    }
+  );
+  expect(saved()['accessKeyId']).toBe('AKIDROTATED');
+});
+
+test('the example printed to start a project from is a valid configuration without credentials', async () => {
+  const { services, bucket } = await manager();
+  const example = await fleetState({ example: true }, services);
+  expect(example.exitCode).toBe(0);
+  const { definition } = example.data as {
+    definition: Record<string, unknown>;
+  };
+  expect(JSON.parse(example.text!)).toEqual(definition);
+  expect(definition['$schema']).toBe(
+    './node_modules/@crvouga/dev-fleet/schema/fleet.schema.json'
+  );
+  const { parseDefinition } = await import('../../src/definition');
+  expect(parseDefinition(definition).state).toMatchObject({
+    bucket: 'my-fleet-state',
+  });
+  expect(example.text).not.toContain('accessKey');
+  // Read-only: no bucket, no state.
+  expect(bucket.calls).toHaveLength(0);
+  expect(existsSync(stateRoot({}, services.home))).toBe(false);
 });

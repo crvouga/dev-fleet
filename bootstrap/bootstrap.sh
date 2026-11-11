@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Download to a file and run with bash; also works directly from a checkout.
+# Installs the pinned toolchain for the checkout this script is in. fleet-sync
+# runs it on every machine from the checkout of the revision it applies;
+# nobody clones dev-fleet to use it (see README.md).
 set -euo pipefail
 MISE_VERSION=2026.10.24
-repo=https://github.com/crvouga/dev-fleet.git
 os=$(uname -s)
 case "$os" in
   Darwin) platform=macos ;;
@@ -37,15 +38,10 @@ for tool in curl tar unzip; do
   command -v "$tool" >/dev/null || { echo "Install $tool, then rerun." >&2; exit 1; }
 done
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
-if [[ -f "$script_dir/../mise.toml" ]]; then
-  checkout=$(cd "$script_dir/.." && pwd)
-else
-  checkout=${WORKSPACE_DIR:-"$HOME/workspace"}
-  if [[ ! -d "$checkout/.git" ]]; then git clone "$repo" "$checkout"; fi
-  [[ "$(git -C "$checkout" remote get-url origin)" == "$repo" ]] || {
-    echo "Unexpected checkout at $checkout; choose an empty WORKSPACE_DIR." >&2; exit 1;
-  }
-fi
+[[ -f "$script_dir/../mise.toml" ]] || {
+  echo 'Run this from a dev-fleet checkout. To use dev-fleet, run its CLI instead: fleet-sync installs the toolchain.' >&2; exit 1;
+}
+checkout=$(cd "$script_dir/.." && pwd)
 cd "$checkout"
 # Reuse an observed matching managed executable. Repeated reconciliation must
 # not download/reinstall mise solely because a previous run finished.

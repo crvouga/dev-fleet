@@ -1,15 +1,25 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-// Tests run against the example fleet, never a real machine's configuration.
-process.env['DEVFLEET_CONFIG'] = resolve(
-  import.meta.dir,
-  '../examples/fleet.json'
-);
-
-// Nor a real machine's fleet state or bucket: each run gets an empty directory.
+// No test touches a real machine's fleet state or bucket: each run gets an
+// empty directory.
 const state = mkdtempSync(join(tmpdir(), 'devfleet-test-state-'));
 process.env['DEVFLEET_STATE'] = join(state, 'state');
 process.env['DEVFLEET_BUCKET'] = join(state, 'bucket.json');
 process.on('exit', () => rmSync(state, { recursive: true, force: true }));
+
+// Tests run against the example fleet, never a real machine's configuration,
+// and without the bucket the example names: a test that replicates anywhere
+// names its own target.
+const { state: _bucket, ...example } = JSON.parse(
+  readFileSync(resolve(import.meta.dir, '../examples/fleet.json'), 'utf8')
+) as Record<string, unknown>;
+process.env['DEVFLEET_CONFIG'] = join(state, 'fleet.json');
+writeFileSync(
+  process.env['DEVFLEET_CONFIG'],
+  JSON.stringify(example, null, 2) + '\n'
+);
+// Nor with a developer's own bucket credentials.
+delete process.env['DEVFLEET_BUCKET_ACCESS_KEY_ID'];
+delete process.env['DEVFLEET_BUCKET_SECRET_ACCESS_KEY'];

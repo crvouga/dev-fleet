@@ -91,7 +91,6 @@ test('nothing printed or passed as an argument carries a credential', () => {
     expect(text).not.toContain(S3.accessKeyId);
     expect(text).not.toContain(S3.secretAccessKey);
   }
-  expect(described).toContain('"credentials":"bucket.json"');
   expect(litestreamEnvironment(bucket)).toEqual({
     AWS_ACCESS_KEY_ID: S3.accessKeyId,
     AWS_SECRET_ACCESS_KEY: S3.secretAccessKey,

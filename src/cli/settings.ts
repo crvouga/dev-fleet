@@ -1,6 +1,6 @@
 import { access } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { PACKAGE_ROOT, packageInfo } from '../package-info';
 import { STATE_ROSTER } from '../state/roster';
 
 export interface Settings {
@@ -31,16 +31,17 @@ async function findUp(start: string, name: string): Promise<string | null> {
 /** A dev-fleet checkout, as opposed to any other project that has a mise.toml. */
 const CHECKOUT_MARKER = 'bootstrap/fleet-manager-run.sh';
 
-/** Where this CLI's own files live: the package root, also when run by npx. */
-const packageRoot = (): string =>
-  fileURLToPath(new URL('../..', import.meta.url));
-
+/** Where the CLI runs from. A published package is its own workspace, whatever
+ * project it is run in; code run from a checkout uses the dev-fleet checkout
+ * the command is started in (development).
+ */
 async function findCheckout(start: string): Promise<string> {
+  if (packageInfo().revision) return PACKAGE_ROOT;
   let current = resolve(start);
   while (true) {
     if (await exists(join(current, CHECKOUT_MARKER))) return current;
     const parent = dirname(current);
-    if (parent === current) return packageRoot();
+    if (parent === current) return PACKAGE_ROOT;
     current = parent;
   }
 }

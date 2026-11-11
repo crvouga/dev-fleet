@@ -4,6 +4,7 @@ import { FleetUsageError } from './errors';
 import { parseConfig, record } from './config';
 import type { FleetConfig } from './types';
 import { parseSecretsConfig, type SecretsConfig } from './secrets';
+import { parseLocation, type BucketLocation } from './state/bucket';
 
 export interface MachineDefinition {
   id: string;
@@ -26,10 +27,14 @@ export interface ManagerDefinition {
 }
 export interface FleetDefinition {
   version: 3;
-  /** The Git repository that holds this fleet's configuration and pins. */
+  /** The Git repository machines take dev-fleet's code from. */
   source: { repository: string };
   /** Where this fleet keeps its secrets. */
   secrets: SecretsConfig;
+  /** The bucket that holds the fleet state. Its credentials are never part
+   * of the configuration: they come from the environment of the command.
+   */
+  state?: BucketLocation;
   manager: ManagerDefinition;
   /** Stateless, replaceable Linux boxes; clients of the manager's services. */
   workers: MachineDefinition[];
@@ -137,6 +142,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'version',
       'source',
       'secrets',
+      'state',
       'manager',
       'workers',
       'services',
@@ -155,6 +161,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
     version: 3,
     source: source(value['source']),
     secrets: secrets(value['secrets']),
+    ...(value['state'] === undefined ? {} : { state: state(value['state']) }),
     manager: lead,
     workers,
     services: services(value['services']),
@@ -198,6 +205,18 @@ const account = (value: unknown): value is string =>
 function secrets(value: unknown): SecretsConfig {
   return parseSecretsConfig(value) ?? fail();
 }
+/** Says what is wrong with the block itself: a bucket has several settings. */
+function state(value: unknown): BucketLocation {
+  const bucket = parseLocation(value);
+  if (bucket.kind === 'directory') return { directory: bucket.path };
+  const { bucket: name, endpoint, region } = bucket;
+  return {
+    bucket: name,
+    ...(endpoint ? { endpoint } : {}),
+    ...(region ? { region } : {}),
+    prefix: bucket.prefix,
+  };
+}
 function source(value: unknown): FleetDefinition['source'] {
   if (
     !record(value) ||
@@ -219,6 +238,17 @@ function baseline(ubuntu: unknown): FleetDefinition['ubuntu'] {
   )
     return fail();
   return ubuntu as FleetDefinition['ubuntu'];
+}
+
+/** The configuration as every machine keeps it at
+ * ~/.config/dev-fleet/fleet.json: without the bucket. Only the devfleet CLI
+ * on the manager reaches the bucket, and a launcher that still runs the
+ * revision from before the block existed must go on accepting the file while
+ * a sync is under way.
+ */
+export function installedDefinition(definition: FleetDefinition): string {
+  const { state: _bucket, ...machine } = definition;
+  return JSON.stringify(machine, null, 2) + '\n';
 }
 
 export function loadDefinition(path: string): FleetDefinition {

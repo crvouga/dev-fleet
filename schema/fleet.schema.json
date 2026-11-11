@@ -222,13 +222,55 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["repository"],
-      "description": "The Git repository that holds this fleet's configuration and pins. Nodes only accept source from it.",
+      "description": "The Git repository machines take dev-fleet's code from: the one the package you run was published from, or your fork. Nodes only accept source from it.",
       "properties": {
         "repository": {
           "type": "string",
           "pattern": "^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+\\.git$"
         }
       }
+    },
+    "state": {
+      "description": "The bucket that holds the fleet state (the roster, the approved revision and the configuration last applied). Any S3-compatible service, or a directory. Never credentials: a devfleet command reads those from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bucket"],
+          "properties": {
+            "bucket": {
+              "type": "string",
+              "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+            },
+            "endpoint": {
+              "type": "string",
+              "description": "The https origin of the S3 service; omit for AWS S3.",
+              "pattern": "^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$"
+            },
+            "region": {
+              "type": "string",
+              "pattern": "^[a-z0-9-]{1,32}$"
+            },
+            "prefix": {
+              "type": "string",
+              "description": "Key prefix, so one bucket can hold several fleets. Default: dev-fleet.",
+              "pattern": "^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["directory"],
+          "properties": {
+            "directory": {
+              "type": "string",
+              "description": "An absolute path on an attached disk or a mounted share.",
+              "pattern": "^/"
+            }
+          }
+        }
+      ]
     },
     "secrets": {
       "description": "Where this fleet keeps its secrets. env: DEVFLEET_SECRET_<NAME>; file: one file per secret; sops: one encrypted document; vault: a KV v2 location per secret.",

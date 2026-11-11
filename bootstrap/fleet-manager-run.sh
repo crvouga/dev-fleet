@@ -12,15 +12,24 @@ shift
 case "$revision" in *[!a-f0-9]*|'') exit 2;; esac
 [ "${#revision}" = 40 ] || exit 2
 say() { printf 'fleet-sync (manager): %s\n' "$1" >&2; }
-# The dev-fleet clone to take the revision from: named by the caller, or the
-# one the devfleet launcher is linked into.
+# mise is installed here by the toolchain step below; a login shell is not
+# required to find it.
+export PATH="$HOME/.local/bin:$PATH"
+fleet="$HOME/.local/share/personal/fleet"
+# The repository to take the revision from. Nobody keeps a clone of dev-fleet:
+# fleet-sync names the one it prepared, and a hand-off (which names none) uses
+# the manager's own copy of the source repository, or the checkout the devfleet
+# launcher is linked into.
 repo=${DEVFLEET_REPO:-}
+if [ -z "$repo" ] && git -C "$fleet/manager/source" rev-parse --git-dir >/dev/null 2>&1; then
+  repo="$fleet/manager/source"
+fi
 if [ -z "$repo" ]; then
-  launcher=$(command -v devfleet) || { say 'set DEVFLEET_REPO to a dev-fleet clone, or install the launcher with sh bootstrap/install-launcher.sh.'; exit 3; }
+  launcher=$(command -v devfleet) || { say 'this manager has no copy of the source yet; run fleet-sync once on the manager itself, from the project that holds your fleet.json.'; exit 3; }
   repo=$(dirname "$(readlink -f "$launcher")")
 fi
-repo=$(git -C "$repo" rev-parse --show-toplevel) || { say 'cannot locate the dev-fleet clone on the manager.'; exit 3; }
-runs="$HOME/.local/share/personal/fleet/manager-runs"
+repo=$(git -C "$repo" rev-parse --show-toplevel) || { say 'cannot read the source repository on the manager; run fleet-sync once on the manager itself to fetch it again.'; exit 3; }
+runs="$fleet/manager-runs"
 dir="$runs/$revision"
 ready() {
   [ "$(git -C "$dir" rev-parse HEAD 2>/dev/null)" = "$revision" ] &&
@@ -28,6 +37,7 @@ ready() {
 }
 if ! ready; then
   git -C "$repo" cat-file -e "$revision^{commit}" 2>/dev/null || git -C "$repo" fetch --quiet origin || true
+  git -C "$repo" cat-file -e "$revision^{commit}" 2>/dev/null || git -C "$repo" fetch --quiet --no-tags origin "$revision" || true
   git -C "$repo" cat-file -e "$revision^{commit}" 2>/dev/null || { say "revision $revision is neither on the manager nor on origin; push it first."; exit 4; }
   mkdir -p "$runs"
   chmod 700 "$runs"
@@ -56,7 +66,9 @@ failed() {
 }
 if [ "$(cat "$stamp" 2>/dev/null)" != "$key" ] || [ -z "$(find "$stamp" -mmin -1440 2>/dev/null)" ]; then
   rm -f -- "$stamp"
-  mise exec --locked bun -- bun bootstrap/setup.ts --tools-only >"$log" 2>&1 || failed
+  # The toolchain bootstrap installs the pinned mise first when the manager
+  # has none (or another version), so Git is all a new manager needs.
+  bash bootstrap/bootstrap.sh --tools-only >"$log" 2>&1 || failed
   printf '%s' "$key" >"$stamp"
 fi
 if [ ! -d node_modules ]; then
@@ -68,7 +80,9 @@ applied=$(basename "$(readlink "$(dirname "$runs")/current" 2>/dev/null || true)
 # shellcheck disable=SC2012
 for old in $(ls -1td "$runs"/*/ | tail -n +4); do
   [ "$(basename "$old")" != "$applied" ] || continue
-  git -C "$repo" worktree remove --force "$old" 2>/dev/null || true
+  # A checkout made from another repository (an earlier clone) is not this
+  # repository's worktree: remove the directory itself.
+  git -C "$repo" worktree remove --force "$old" 2>/dev/null || rm -rf -- "$old"
   rm -f -- "${old%/}.setup.log"
 done
 git -C "$repo" worktree prune

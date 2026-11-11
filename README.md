@@ -10,14 +10,40 @@ Status: extracted from a working three-machine fleet and in daily use there.
 It has not yet been set up from nothing by a second person; expect rough edges
 and read [what is assumed](#what-it-assumes) first.
 
+## How you use it
+
+You do not clone this repository. dev-fleet is a command you install, and your
+fleet is a small project of your own:
+
+```
+my-fleet/               your repository
+  fleet.json            your machines, your services, the bucket that holds the state
+  package.json          pins the dev-fleet version every machine runs
+```
+
+You run `devfleet` from inside that project and pass it the credentials of a
+storage bucket you own. Nothing else has to be kept:
+
+| What                                                                                    | Where it lives                                                     |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| The fleet configuration                                                                 | `fleet.json`, in your repository                                   |
+| The version of dev-fleet                                                                | The `@crvouga/dev-fleet` dependency in your `package.json`         |
+| The fleet state: the enrolled workers, the approved revision, the configuration applied | Your bucket (any S3-compatible service)                            |
+| Secrets                                                                                 | The provider `fleet.json` names (`vault`, `sops`, `file` or `env`) |
+| The source, checkouts, tools and reports dev-fleet puts on a machine                    | A cache: delete it and `fleet-sync` rebuilds it                    |
+
+The CLI proxy and the monitoring hub on the manager still keep data of their
+own; [known limits](#known-limits) says what is lost with the manager.
+
 ## What it assumes
 
 dev-fleet is opinionated. These are part of it, not options:
 
-- The **manager** is a macOS machine. It runs `fleet-sync` and hosts the
-  shared services (the CLI proxy and the monitoring hub) in Docker Desktop.
+- The **manager** is a macOS machine. You run `fleet-sync` on it, and it hosts
+  the shared services (the CLI proxy and the monitoring hub) in Docker Desktop.
 - **Workers** are Ubuntu 26.04 machines reached over SSH. They are stateless:
   everything on them is rebuilt from Git and your secrets.
+- The fleet state is kept in an **S3-compatible bucket** you own.
 - Machines reach each other over **Tailscale**.
 - Coding agents (Claude Code, Codex, Grok, OpenCode, Antigravity) run through
   **CLIProxyAPI** on the manager, and **T3 Code** lists one provider per
@@ -30,73 +56,109 @@ tailnet or repository is written in this code. They live in your `fleet.json`.
 
 ## Quickstart
 
-On the manager (macOS, with Git, Docker Desktop and Tailscale signed in), clone
-this repository and run everything from the clone:
+On the manager you need macOS with Git, Node 22 or newer, Docker Desktop and
+Tailscale signed in. You also need an empty private bucket on any
+S3-compatible service (AWS S3, Cloudflare R2, Backblaze B2, MinIO) and an
+access key that can read and write it.
 
 ```sh
-git clone https://github.com/crvouga/dev-fleet.git
-cd dev-fleet
-bash bootstrap/bootstrap.sh          # installs the pinned toolchain with mise
+mkdir my-fleet && cd my-fleet && git init
+npm init -y
+npm install --save-dev --save-exact @crvouga/dev-fleet
 
-# Connect the bucket that holds your fleet's state (asks for its access key).
-./devfleet fleet-state --init --bucket my-fleet-state \
-  --endpoint https://ACCOUNT.r2.cloudflarestorage.com --region auto
+npx devfleet fleet-state --example > fleet.json
+$EDITOR fleet.json                   # your machines, and your bucket under "state"
 
-# A new fleet: describe your machines once. An existing fleet skips this;
-# --init already restored its configuration from the bucket.
-cp examples/fleet.json /tmp/fleet.json && $EDITOR /tmp/fleet.json
-./devfleet fleet-state --import /tmp/fleet.json && rm /tmp/fleet.json
-
-./devfleet fleet-sync --dry-run      # preview
-./devfleet fleet-sync                # apply
+export DEVFLEET_BUCKET_ACCESS_KEY_ID=…
+export DEVFLEET_BUCKET_SECRET_ACCESS_KEY=…
+npx devfleet fleet-sync --dry-run    # preview
+npx devfleet fleet-sync              # apply
 ```
 
-`fleet-sync` converges the manager first, then every worker over SSH: it sends
-the revision the clone is at and your configuration, installs the toolchain,
-applies the Ansible policy and verifies the result. It prints one table and
-writes a full JSON report. The commit the clone is at is your version; check
-out another one to move the fleet to it.
+Commit `fleet.json`, `package.json` and the lockfile. Keep the two credentials
+out of Git: pass them from wherever you keep secrets (a password manager's
+`run` command, a git-ignored `.env`, your shell). They are read from the
+environment and never taken from arguments.
+
+`fleet-sync` converges the manager first, then every worker over SSH. It
+fetches the commit your dev-fleet version was published from, sends it and
+your configuration to each machine, installs the pinned toolchain, applies the
+Ansible policy and verifies the result. It prints one table and writes a full
+JSON report. The first run on a machine installs everything, mise included, so
+Git is the only tool it needs beforehand.
+
+`devfleet` finds the closest `fleet.json` in the directory you run it from or
+above it. `DEVFLEET_CONFIG` names a file elsewhere.
+
+The CLI runs on [Bun](https://bun.sh), which the package brings as a
+dependency. If your package manager does not run dependency install scripts,
+allow Bun's or install Bun yourself; the CLI uses the one on `PATH`.
+
+## The version
+
+Every release of `@crvouga/dev-fleet` is published from one commit and names
+it. The version in your `package.json` is therefore the revision of every
+machine in the fleet:
+
+```sh
+npx devfleet --version               # 1.4.0 (commit 3f2a…)
+npm install --save-dev --save-exact @crvouga/dev-fleet@latest
+npx devfleet fleet-sync              # the fleet moves to that release
+```
+
+Install an older version and run `fleet-sync` to go back. The first worker
+proves a new revision before the others receive it.
 
 ## State
 
-The fleet's own state is not kept only on the manager. The fleet
-configuration, the roster of enrolled workers and the approved revision live in
-one SQLite database, which [Litestream](https://litestream.io) replicates to a
-storage bucket you own (any S3-compatible service). The bucket is the source of
-truth and the local copy is disposable:
+Your bucket is the source of truth for everything Git does not hold: the
+roster of enrolled workers, the approved revision, and the configuration
+`fleet-sync` last applied. It is one SQLite database that
+[Litestream](https://litestream.io) replicates to the bucket. `fleet.json`
+says where the bucket is and the command is passed its credentials:
 
-```sh
-./devfleet fleet-state               # where the state is, and how it stands with the bucket
+```json
+"state": {
+  "bucket": "my-fleet-state",
+  "endpoint": "https://ACCOUNT.r2.cloudflarestorage.com",
+  "region": "auto"
+}
 ```
 
-To replace the manager, clone this repository on the new machine and run the
-same `fleet-state --init`: the fleet comes back from the bucket. The bucket's
-location and credentials (`~/.config/dev-fleet/bucket.json`) are the only thing
-you bring. [docs/state.md](docs/state.md) explains how it works, how to change
-the configuration, and which state is not in the bucket yet.
+```sh
+npx devfleet fleet-state             # where the state is, and how it stands with the bucket
+```
+
+The copy on the manager is disposable. **To replace the manager**, clone your
+project on the new machine and run the same two commands:
+
+```sh
+npm ci
+npx devfleet fleet-sync              # with the two bucket credentials in the environment
+```
+
+The roster and the approved revision come back from the bucket, and the
+machine is rebuilt from Git.
+
+Some runs are started by a machine rather than by you: a worker that hands
+`fleet-sync` to the manager, for example. They get no environment, so save the
+credentials on the manager once (in `~/.config/dev-fleet/bucket.json`,
+readable by you alone):
+
+```sh
+npx devfleet fleet-state --init
+```
 
 Without a bucket everything still works from the local copy, and `fleet-sync`
-warns that the manager holds the only one.
-
-## Run it from npm
-
-The CLI is also published as `@crvouga/dev-fleet`, for any machine or project
-that has Node:
-
-```sh
-npx @crvouga/dev-fleet commands --json
-npx @crvouga/dev-fleet fleet-status --local
-```
-
-`fleet-sync` still runs from a clone, because it pins a git revision. See
-[releasing](docs/releasing.md) for how versions are published.
+warns that the manager holds the only one. [docs/state.md](docs/state.md)
+explains how replication stays correct, how to move an existing fleet to a
+project, and which state is not in the bucket yet.
 
 ## Add or remove a machine
 
 1. Set up SSH from the manager to the new Ubuntu box (a non-root user with
    sudo) and join it to your tailnet.
-2. Add it under `workers` in the fleet configuration
-   (`fleet-state --export`, edit, `fleet-state --import`):
+2. Add it under `workers` in your `fleet.json` and commit:
 
    ```json
    {
@@ -116,20 +178,20 @@ npx @crvouga/dev-fleet fleet-status --local
    `bun ansible/ubuntu/tests/fresh-box.ts` proves that against a bare
    container.
 
-Remove a machine by deleting its entry.
+Remove a machine by deleting its entry and running `fleet-sync`.
 
 ## Configuration
 
-The fleet configuration (`fleet.json`) is validated by
-[`schema/fleet.schema.json`](schema/fleet.schema.json);
-[`examples/fleet.json`](examples/fleet.json) is a complete example. It is kept
-in the [fleet state](#state): `fleet-state --export` prints it and
-`fleet-state --import PATH` stores an edited copy. To keep it in a repository
-of your own instead, name the file with `DEVFLEET_CONFIG`.
+Your `fleet.json` is validated by
+[`schema/fleet.schema.json`](schema/fleet.schema.json), which the installed
+package carries: `fleet-state --example` prints a complete example that points
+`$schema` at it, so an editor checks the file as you type.
+[`examples/fleet.json`](examples/fleet.json) is the same example.
 
 | Block      | What it declares                                                    |
 | ---------- | ------------------------------------------------------------------- |
 | `source`   | The Git repository nodes accept code from (this one, or your fork)  |
+| `state`    | The bucket that holds the fleet state; never its credentials        |
 | `secrets`  | Where secrets are kept: `env`, `file`, `sops` or `vault`            |
 | `manager`  | The one macOS manager                                               |
 | `workers`  | The Ubuntu workers                                                  |
@@ -139,6 +201,37 @@ of your own instead, name the file with `DEVFLEET_CONFIG`.
 Secrets are asked for by purpose (`proxy-client-key`,
 `monitoring-account-password`, `monitoring-tunnel-token`,
 `proxy-tunnel-token`); see [`src/secrets.ts`](src/secrets.ts).
+
+`fleet-sync` records the configuration it applies in the fleet state, so a
+run started outside your project uses the one last applied.
+`fleet-state --export` prints it.
+
+To run your own fork, publish it as your own package and name its repository
+under `source`: the commit a package names must be reachable there.
+
+## Bugs and feature requests
+
+A defect in dev-fleet, or something it cannot do yet, is raised as an
+[issue](https://github.com/crvouga/dev-fleet/issues). From your project that
+is the only way to change dev-fleet, for you and for the coding agents working
+there. Do not patch the installed package, a checkout `fleet-sync` put on a
+machine or a file it manages: the next install or `fleet-sync` replaces them.
+
+The tool says so itself: `devfleet --help` names the issue tracker, and the
+agent contract (`devfleet commands --json`, under `agent.support`) carries the
+rule, what an issue should include and what it must leave out. Agents only
+read it if your project sends them there, so put this in the `AGENTS.md` of
+the project that holds your `fleet.json`:
+
+```md
+The fleet is managed with dev-fleet (`npx devfleet`, pinned in package.json).
+Read `npx devfleet commands --json` before using it. Never edit dev-fleet
+itself: not node_modules, not a clone, not what it installs on a machine. A
+bug in dev-fleet or a feature it lacks is a GitHub issue at
+https://github.com/crvouga/dev-fleet/issues; tell me what is blocked and link
+it. Issues are public: no credentials, hostnames, accounts, domains or
+fleet.json contents.
+```
 
 ## Known limits
 
@@ -154,7 +247,13 @@ Secrets are asked for by purpose (`proxy-client-key`,
 - Caches and units on machines still use the historical `personal` prefix
   (`~/.local/share/personal/fleet`, `/etc/personal-fleet`, unit names). It
   works, and renaming it needs a migration.
+- The CLI proxy's installed code is a Git worktree of the manager's copy of
+  the source repository (`~/.local/share/personal/fleet/manager/source`).
+  `fleet-sync` fetches that copy again when it is deleted, but the proxy then
+  needs `devfleet cliproxy install` once more.
 - The manager is a Mac host. There is no container image of the manager.
+- `fleet-sync --schedule enable` (unattended runs on a timer) is not available
+  from the published package yet.
 - The reference documents under `docs/` were written for the fleet this came
   from and are being revised.
 
@@ -170,14 +269,24 @@ Secrets are asked for by purpose (`proxy-client-key`,
 | `bootstrap/` | Toolchain bootstrap and the manager and worker entry scripts      |
 | `schema/`    | JSON schemas for `fleet.json` and the private roster              |
 | `examples/`  | A complete example configuration                                  |
+| `bin/`       | The entry point of the published package                          |
 
 ## Develop
 
+Working on dev-fleet itself is the only reason to clone it:
+
 ```sh
+git clone https://github.com/crvouga/dev-fleet.git && cd dev-fleet
 bash bootstrap/bootstrap.sh
 bun install --frozen-lockfile
 bun run check
+./devfleet fleet-status --local      # the CLI, from this checkout
 ```
+
+Run from a checkout, `fleet-sync` converges the fleet to the checkout's `HEAD`
+commit (never to uncommitted files). The checkout's `origin` must be the
+repository `fleet.json` names under `source`. Every merge to `main` publishes a release;
+see [releasing](docs/releasing.md).
 
 `bun run check` runs formatting, typecheck, lint, the TypeScript tests and the
 proxy package's Python tests. Tests run against `examples/fleet.json` and

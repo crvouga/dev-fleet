@@ -71,6 +71,9 @@ jobs:
           else
             # The version lives in the tag; package.json keeps 0.0.0-development.
             npm version "$VERSION" --no-git-tag-version
+            # The package says which commit it is: fleet-sync run from it
+            # converges every machine to exactly this revision.
+            npm pkg set gitHead="$(git rev-parse HEAD)"
             npm publish --provenance --access public
           fi
       - name: Tag and release

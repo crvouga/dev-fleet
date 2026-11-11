@@ -4,6 +4,11 @@
   "source": {
     "repository": "https://github.com/crvouga/dev-fleet.git"
   },
+  "state": {
+    "bucket": "my-fleet-state",
+    "endpoint": "https://s3.example.com",
+    "region": "auto"
+  },
   "secrets": {
     "provider": "vault",
     "address": "https://vault.example.com",

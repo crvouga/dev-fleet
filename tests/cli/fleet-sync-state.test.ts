@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { mkdtemp, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { managerSync, type ManagerSync } from '../../src/cli/fleet-sync';
+import { parseDefinition } from '../../src/definition';
+import { reloadFleet } from '../../src/fleet-config';
 import { parseBucket, writeBucket } from '../../src/state/bucket';
 import { loadEnrollment, storeEnrollment } from '../../src/state/enrollment';
 import { STATE_ROSTER } from '../../src/state/roster';
@@ -37,6 +40,8 @@ beforeEach(async () => {
 afterEach(async () => {
   process.env['DEVFLEET_STATE'] = saved['DEVFLEET_STATE'];
   process.env['DEVFLEET_BUCKET'] = saved['DEVFLEET_BUCKET'];
+  process.env['DEVFLEET_CONFIG'] = saved['DEVFLEET_CONFIG'];
+  reloadFleet();
   await rm(home, { recursive: true, force: true });
 });
 
@@ -161,4 +166,32 @@ test('a preview reads the local copy and never contacts the bucket', async () =>
   expect(outcome.exitCode).toBe(1);
   expect(bucket.calls).toHaveLength(0);
   expect(await loadEnrollment(null)).toBeNull();
+});
+
+test('a run from a project replicates to the bucket its fleet.json names and records the configuration it applied', async () => {
+  // The project's file, with the bucket named in it. Nothing is saved on the
+  // manager: no bucket.json.
+  const example = JSON.parse(
+    readFileSync(saved['DEVFLEET_CONFIG']!, 'utf8')
+  ) as Record<string, unknown>;
+  const project = join(home, 'fleet.json');
+  const declared = { ...example, state: { directory: join(home, 'remote') } };
+  writeFileSync(project, JSON.stringify(declared));
+  process.env['DEVFLEET_CONFIG'] = project;
+  reloadFleet();
+  await managerSync(request, settings, services({ count: 0 }));
+  expect(bucket.calls.length).toBeGreaterThan(0);
+  // A replacement manager, or a run started outside the project (the
+  // schedule, a hand-off from a worker), finds what was applied.
+  const replacement: StateContext = {
+    root: join(home, 'other-state'),
+    bucket: parseBucket({ directory: join(home, 'remote') }),
+    run,
+  };
+  expect((await refresh(replacement)).standing).toBe('in-sync');
+  const recorded = readDocument(databasePath(replacement.root), 'definition');
+  expect(JSON.parse(recorded!)).toEqual(parseDefinition(declared));
+  expect(readDocument(databasePath(replacement.root), 'enrollment')).toContain(
+    REVISION
+  );
 });

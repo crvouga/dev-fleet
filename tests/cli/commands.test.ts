@@ -14,6 +14,7 @@ import { wantsInteractive } from '../../src/cli/app';
 import { addNode, readRoster } from '../../src/cli/roster';
 import { COMMANDS, commandCatalog } from '../../src/cli/registry';
 import { resolveSettings } from '../../src/cli/settings';
+import { packageInfo } from '../../src/package-info';
 import { NODE } from '../../src/test-fixtures';
 
 const directories: string[] = [];
@@ -225,11 +226,14 @@ test('bare invocation is help; the command index carries the agent contract and 
   expect((await execute(['--json'], base, release)).data).toEqual(catalog.data);
   const data = catalog.data as {
     releasedAt: string;
-    agent: { discovery: string };
+    agent: { discovery: string; support: { issues: string | null } };
     commands: { id: string; help: string; execution: { default: string } }[];
   };
   expect(data.releasedAt).toBe(release.releasedAt);
   expect(data.agent.discovery).toBe('devfleet commands --json');
+  // A release without an issue tracker names none and prints no such line.
+  expect(data.agent.support.issues).toBeNull();
+  expect(bare.text).not.toContain('Bugs and feature requests');
   expect(
     data.commands.find((entry) => entry.id === 't3-apply')?.execution.default
   ).toBe('apply');
@@ -245,6 +249,28 @@ test('bare invocation is help; the command index carries the agent contract and 
     true
   );
   expect(await readRoster(base.config)).toBeNull();
+});
+
+// An agent in a consumer's project cannot change dev-fleet and must not patch
+// what is installed: the contract and the help both send it to the issues.
+test('the agent contract and the help say where bugs and feature requests go', async () => {
+  const base = await settings();
+  const issues = 'https://git.example.com/scope/dev-fleet/issues';
+  const release = { version: '1.2.3', releasedAt: null, issues };
+  const { support } = (
+    (await execute(['commands', '--json'], base, release)).data as {
+      agent: { support: Record<string, string> };
+    }
+  ).agent;
+  expect(support['issues']).toBe(issues);
+  expect(support['report']).toContain('bug or feature request');
+  expect(support['never']).toContain('Do not edit the installed package');
+  expect(support['withhold']).toContain('public');
+  expect((await execute(['--help'], base, release)).text).toContain(
+    `Bugs and feature requests: ${issues}.`
+  );
+  // The package that is published names its own tracker.
+  expect(packageInfo().issues).toMatch(/^https:\/\/\S+\/issues$/);
 });
 
 test('every indexed command has read-only help without a checkout or credentials', async () => {

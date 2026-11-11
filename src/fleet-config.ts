@@ -8,7 +8,11 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { parseDefinition, type FleetDefinition } from './definition';
+import {
+  installedDefinition,
+  parseDefinition,
+  type FleetDefinition,
+} from './definition';
 import { FleetUsageError } from './errors';
 import { pinnedPath } from './agents/toolchain';
 import type { Runner } from './types';
@@ -18,6 +22,7 @@ import {
   type SecretsProvider,
 } from './secrets';
 import { isOperator, stateDefinition } from './state/operator';
+import type { BucketLocation } from './state/bucket';
 import { definitionPath, stateRoot } from './state/paths';
 
 /** Where every machine keeps the fleet configuration fleet-sync approved.
@@ -27,10 +32,11 @@ const installedPath = (home: string): string =>
   join(home, '.config/dev-fleet/fleet.json');
 
 /** Where this process reads the fleet configuration from, in this order:
- * - `file`: the file `DEVFLEET_CONFIG` names (a configuration kept in your
- *   own repository, or a test fixture);
- * - `state`: the `definition` document in the manager's fleet state, which
- *   only the devfleet CLI reads. `path` is its copy as a file;
+ * - `file`: the file `DEVFLEET_CONFIG` names. The devfleet CLI sets it to the
+ *   `fleet.json` of the project it is run from (src/cli/project.ts);
+ * - `state`: the `definition` document in the manager's fleet state, the
+ *   configuration fleet-sync last applied, which only the devfleet CLI
+ *   reads. `path` is its copy as a file;
  * - `installed`: the copy fleet-sync installed on this machine.
  */
 export interface DefinitionSource {
@@ -78,19 +84,40 @@ export function configPath(env = process.env, home = homedir()): string {
  * Returns whether the file changed.
  */
 export function installConfig(home = homedir()): boolean {
-  return writePrivate(
-    installedPath(home),
-    JSON.stringify(fleet, null, 2) + '\n'
-  );
+  return writePrivate(installedPath(home), installedDefinition(fleet));
+}
+
+function read(path: string): FleetDefinition {
+  let value: unknown;
+  try {
+    value = JSON.parse(readFileSync(path, 'utf8'));
+  } catch {
+    throw new FleetUsageError(
+      `The fleet configuration at ${path} is not readable JSON.`
+    );
+  }
+  return parseDefinition(value);
 }
 
 function load(): FleetDefinition {
   const path = configPath();
   if (!existsSync(path))
     throw new FleetUsageError(
-      `No fleet configuration. On the manager, restore it from your bucket (devfleet fleet-state --init) or start one from the example (devfleet fleet-state --import examples/fleet.json); DEVFLEET_CONFIG names a file instead. Looked at ${path}.`
+      `No fleet configuration. Run devfleet from the project that holds your fleet.json (devfleet fleet-state --example prints one to start from), or name the file with DEVFLEET_CONFIG. A manager whose bucket already holds one restores it with devfleet fleet-state --init. Looked at ${path}.`
     );
-  return parseDefinition(JSON.parse(readFileSync(path, 'utf8')));
+  return read(path);
+}
+
+/** Where the configuration says the fleet state is kept, read from the file
+ * each time: null when it names no bucket, or when this machine has no
+ * configuration yet.
+ */
+export function declaredState(
+  env = process.env,
+  home = homedir()
+): BucketLocation | null {
+  const path = configPath(env, home);
+  return existsSync(path) ? (read(path).state ?? null) : null;
 }
 
 let loaded: FleetDefinition | undefined;

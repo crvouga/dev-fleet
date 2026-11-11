@@ -1,11 +1,15 @@
 import type { Enrollment } from '../machine/state';
 import { replicaCheck } from '../state/check';
 import { storeEnrollment } from '../state/enrollment';
+import { adoptEarlier } from '../state/legacy';
+import { databasePath, stateRoot } from '../state/paths';
+import { writeDocument } from '../state/store';
 import { pending, push, type Standing, type StateContext } from '../state/sync';
 import type { Check } from '../types';
 
 /** What one fleet-sync run records in the fleet state: the revision it was
- * approved for, then what it applied, then an upload so the bucket holds both.
+ * approved for and the configuration it runs with, then what it applied, then
+ * an upload so the bucket holds all of it.
  */
 export interface RunRecord {
   /** Before any machine changes: this revision is the approved one. */
@@ -19,7 +23,16 @@ export interface RunRecord {
 export function runRecord(
   previous: Enrollment | null,
   revision: string,
-  state: { context: StateContext; standing: Standing; env?: NodeJS.ProcessEnv }
+  state: {
+    context: StateContext;
+    standing: Standing;
+    env?: NodeJS.ProcessEnv;
+    /** The configuration this run reads from a project's fleet.json. Stored
+     * so that a run started anywhere else (the schedule, a hand-off from a
+     * worker, a replacement manager) uses the one last applied.
+     */
+    definition?: string;
+  }
 ): RunRecord {
   const env = state.env ?? process.env;
   const approval: Enrollment = {
@@ -37,7 +50,16 @@ export function runRecord(
       ? push(state.context)
       : Promise.resolve(state.standing);
   return {
-    approve: () => storeEnrollment(approval, env),
+    approve: () => {
+      storeEnrollment(approval, env);
+      if (state.definition === undefined) return;
+      adoptEarlier(env);
+      writeDocument(
+        databasePath(stateRoot(env)),
+        'definition',
+        state.definition
+      );
+    },
     async settle(converged) {
       settled = true;
       if (converged)

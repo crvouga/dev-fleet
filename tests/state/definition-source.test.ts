@@ -2,8 +2,7 @@ import { afterEach, expect, test } from 'bun:test';
 import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import example from '../../examples/fleet.json';
+import { join } from 'node:path';
 import { parseDefinition } from '../../src/definition';
 import {
   configPath,
@@ -16,7 +15,9 @@ import { actAsOperator, isOperator } from '../../src/state/operator';
 import { databasePath, definitionPath, stateRoot } from '../../src/state/paths';
 import { readDocument, writeDocument } from '../../src/state/store';
 
-const EXAMPLE = resolve(import.meta.dir, '../../examples/fleet.json');
+// The example fleet without the bucket it names (tests/setup.ts).
+const EXAMPLE = process.env['DEVFLEET_CONFIG']!;
+const example: unknown = JSON.parse(readFileSync(EXAMPLE, 'utf8'));
 const roots: string[] = [];
 afterEach(async () => {
   actAsOperator(null);

@@ -59,20 +59,20 @@ export const COMMANDS: CommandSpec[] = [
     [
       'fleet-sync',
       'Synchronize the enrolled Ubuntu fleet',
-      'Manager push to all enrolled Ubuntu nodes at one approved revision over verified SSH; interactive confirmation or --apply --yes. Readiness is verified separately.',
+      'Manager push to all enrolled Ubuntu nodes at one approved revision over verified SSH: the commit the dev-fleet package was published from, with the fleet.json of the project it is run from. Interactive confirmation or --apply --yes. Readiness is verified separately.',
       ['ubuntu', 'enrollment', 'converge', 'sync'],
       true,
     ],
     [
       'fleet-state',
       'Check the fleet state and its bucket',
-      'Read-only: where the fleet configuration, the roster and the approved revision are kept on this manager, and whether the bucket holds the same version. --export prints the stored configuration; --import PATH stores one.',
+      'Read-only: where the fleet configuration, the roster and the approved revision are kept on this manager, and whether the bucket holds the same version. --example prints a fleet.json to start a project from; --export prints the configuration fleet-sync last applied; --import PATH stores one.',
       ['state', 'bucket', 's3', 'backup', 'litestream', 'configuration'],
     ],
     [
       'fleet-state --init',
       'Connect the bucket and restore or seed the fleet state',
-      'Save the bucket settings given with --bucket/--endpoint (or --directory), then restore the fleet state from the bucket, or seed an empty bucket from this machine. Credentials come from the environment or a terminal prompt.',
+      'Restore the fleet state from the bucket fleet.json names under "state" (or the one given with --bucket/--endpoint or --directory), or seed an empty bucket from this machine, and save the bucket and its credentials on this machine for runs it starts by itself. Credentials come from the environment or a terminal prompt.',
       ['state', 'bucket', 's3', 'setup', 'restore', 'new manager'],
       true,
     ],

@@ -1,3 +1,11 @@
+# Bugs and feature requests
+
+This file ships inside the dev-fleet package. If you are an agent working in
+another project and dev-fleet is wrong or lacks something, do not edit it
+here, in a clone or on a machine. Raise an issue in the dev-fleet repository;
+`devfleet --help` prints the address and `devfleet commands --json` carries
+the rule under `agent.support`.
+
 # Manager-led Ubuntu fleet setup
 
 For the enrolled Ubuntu development fleet, run on the designated manager:
@@ -16,23 +24,17 @@ The legacy local commands below retain their existing behavior for compatibility
 Use **personal** for node and T3 configuration. Workstation and fleet are internal
 implementation packages; neither exports its own executable.
 
-After the shared [machine bootstrap](../../../bootstrap/README.md), run in the
-personal checkout:
+`fleet-sync` installs the `devfleet` launcher on every machine it converges,
+linked to the fleet-owned checkout of the applied revision. On such a machine:
 
 ```sh
-sh bootstrap/install-launcher.sh
-devfleet fleet-node-sync
 devfleet fleet-status
 ```
 
-The npm fallback is the same interface:
-
-```sh
-devfleet fleet-node-sync
-```
-
-Use `PERSONAL_WORKSPACE` or `--workspace PATH` when invoking the npm CLI outside
-the checkout. The installed source launcher resolves its checkout automatically.
+`fleet-node-sync` reconciles one machine from a checkout of dev-fleet
+(`--workspace PATH` or `PERSONAL_WORKSPACE` names it). It is for development:
+run from the published package it is refused, because `fleet-sync` does the
+same from a checkout it owns.
 Each machine still needs its own authorized Vault session, SSH keys and T3 pairing.
 The sync never copies them or provisions infrastructure.
 

@@ -13,12 +13,13 @@ install the toolchain.
 
 ### New machine
 
-macOS / Linux, in Bash (download first so the script is reviewable):
+A manager or a worker is set up by `fleet-sync`, run from the published
+package ([README](../README.md#quickstart)): it checks out the revision on the
+machine and runs `bootstrap/bootstrap.sh` from that checkout. Nothing is
+downloaded and run by hand.
 
-```sh
-curl -fsSL https://raw.githubusercontent.com/crvouga/dev-fleet/main/bootstrap/bootstrap.sh -o /tmp/workspace-bootstrap.sh
-bash /tmp/workspace-bootstrap.sh
-```
+To develop dev-fleet, run `bash bootstrap/bootstrap.sh` from a checkout. The
+script only ever installs the toolchain of the checkout it is in.
 
 Native Windows, in x64 PowerShell (5.1 or newer):
 
@@ -30,13 +31,13 @@ Invoke-WebRequest https://raw.githubusercontent.com/crvouga/dev-fleet/main/boots
 If script execution is blocked, use a process-scoped policy for this reviewed
 script: `powershell -NoProfile -ExecutionPolicy Bypass -File "$env:TEMP\workspace-bootstrap.ps1"`.
 Do not change the machine-wide execution policy. WSL is optional: run the Linux
-bootstrap **inside WSL** to install Linux tools there; the native Windows and WSL
-tool installations, Docker connections and credentials are separate.
+bootstrap **inside WSL**, from a checkout there, to install Linux tools; the
+native Windows and WSL tool installations, Docker connections and credentials
+are separate.
 
-Default checkout: `~/workspace`. Override with `WORKSPACE_DIR=/path/to/workspace`
-on Unix or `-WorkspaceDir C:\path\workspace` on Windows. An existing checkout is
-reused, never reset or implicitly pulled. From a checkout, run
-`bash bootstrap/bootstrap.sh` or `& ./bootstrap/bootstrap.ps1`.
+On Windows the default checkout is `~\workspace`; override it with
+`-WorkspaceDir C:\path\workspace`. An existing checkout is reused, never reset
+or implicitly pulled. From a checkout, run `& ./bootstrap/bootstrap.ps1`.
 
 The scripts install checksum-verified mise **2026.10.24**, trust this repository's
 configuration, install pinned Bun, install the shared tools with `--locked`, copy

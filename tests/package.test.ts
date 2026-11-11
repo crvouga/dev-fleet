@@ -22,6 +22,8 @@ test('the published package carries everything the CLI reads and no tests', asyn
     'ansible/ubuntu/baseline.yml',
     'cliproxy/scripts/cli.py',
     'examples/fleet.json',
+    'schema/fleet.schema.json',
+    'src/package-info.ts',
     'mise.toml',
     'mise.lock',
   ])

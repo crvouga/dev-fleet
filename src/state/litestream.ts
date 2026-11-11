@@ -1,13 +1,13 @@
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { stringify } from 'yaml';
 import { pinnedPath } from '../agents/toolchain';
+import { PACKAGE_ROOT } from '../package-info';
 import type { Runner } from '../types';
 import type { Bucket } from './bucket';
 
-/** The checkout this code runs from: its mise.toml pins Litestream. */
-const SOURCE = fileURLToPath(new URL('../..', import.meta.url));
+/** Where this code runs from: its mise.toml pins Litestream. */
+const SOURCE = PACKAGE_ROOT;
 
 export interface Replication {
   database: string;
@@ -23,7 +23,12 @@ const located = new WeakMap<Runner, Promise<string | null>>();
  * time the manager needs it; workers never do.
  */
 function binary(run: Runner, install: boolean): Promise<string | null> {
-  const options = { cwd: SOURCE, env: { PATH: pinnedPath() } };
+  // An installed package is a directory nobody ran `mise trust` in. Its pins
+  // are trusted for these commands only; nothing is recorded on the machine.
+  const options = {
+    cwd: SOURCE,
+    env: { PATH: pinnedPath(), MISE_TRUSTED_CONFIG_PATHS: SOURCE },
+  };
   const locate = async (): Promise<string | null> => {
     const which = await run(['mise', 'which', 'litestream'], options);
     const path = which.stdout.trim();
