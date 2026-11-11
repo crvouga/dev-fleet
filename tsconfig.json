@@ -27,6 +27,7 @@
     "agents/**/*.ts",
     "ansible/**/*.ts",
     "bootstrap/**/*.ts",
-    "tests/**/*.ts"
+
+    "features/**/*.ts"
   ]
 }

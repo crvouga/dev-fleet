@@ -89,7 +89,7 @@ filename `release.yml`, environment empty.
 
 ## Why the package looks like this
 
-- `files` is an allow-list; tests and Python caches are excluded. `tests/package.test.ts`
+- `files` is an allow-list; tests and Python caches are excluded. `features/rules/package.feature`
   fails if a file the CLI reads is missing from the tarball.
 - `bun` is a dependency pinned to the same version as `packageManager` and the
   `mise.toml` pin; bump the three together.
