@@ -44,6 +44,7 @@ test('ownership checks survive moving the owning package', async () => {
     for await (const path of new Bun.Glob('**/*.yml').scan(root))
       for (const line of readFileSync(resolve(root, path), 'utf8').split('\n'))
         if (/^\s*-\s*"/.test(line) && line.includes('Managed by personal'))
-          expect(line).not.toMatch(/Managed by personal [^'"]*packages\/\w/);
+          // No path after the marker's colon: not a directory, package or repository.
+          expect(line).not.toMatch(/Managed by personal [A-Za-z-]+:[^'"]*\//);
   }
 });
