@@ -1,6 +1,5 @@
-import { readFile, mkdir, writeFile, rename, rm } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import { loadConfig } from '../config';
+import { mkdir, rm } from 'node:fs/promises';
+import { loadRoster } from './roster';
 import { enrolledRoster } from '../definition';
 import { FleetUsageError } from '../errors';
 import { dirname } from 'node:path';
@@ -10,6 +9,7 @@ import { matchComputers } from '../tailnet-matching';
 import { sshArgs, sshFailure } from '../ssh';
 import { ensurePrivateRoot } from '../machine/state';
 import type { FleetNode, Runner } from '../types';
+import { STATE_ROSTER, readRosterText, writeRosterText } from '../state/roster';
 
 /** Interactive enrollment/resume only. Existing paths and explicit identities
  * are preserved. Tailnet candidates never enter the declared membership.
@@ -20,7 +20,7 @@ export async function enrollManager(path: string, run: Runner): Promise<void> {
   const saved =
     original === null
       ? []
-      : enrolledRoster(canonical, await loadConfig(path)).nodes;
+      : enrolledRoster(canonical, await loadRoster(path)).nodes;
   const nodes: FleetNode[] = canonical.workers.map((node) => ({
     id: node.id,
     ssh: node.ssh,
@@ -55,8 +55,6 @@ export async function enrollManager(path: string, run: Runner): Promise<void> {
   process.stderr.write(
     `Enrolling verified SSH connections for canonical targets:\n${enrolled.map((node) => `  ${node.id} → ${node.ssh}; device ${enrollmentIdentity(node)}`).join('\n')}\nMissing targets remain visible and are never replaced by discovered peers.\n`
   );
-  await ensurePrivateRoot(dirname(path));
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
   await persistEnrollment(path, original, merged);
 }
 
@@ -95,13 +93,8 @@ function ambiguous(ids: string[], matches: Map<string, FleetNode[]>): boolean {
     ids.length > 1 || (ids.length === 1 && matches.get(ids[0]!)?.length !== 1)
   );
 }
-async function existingEnrollment(path: string): Promise<string | null> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-    throw error;
-  }
+function existingEnrollment(path: string): Promise<string | null> {
+  return readRosterText(path);
 }
 export function mergeEnrollment(
   saved: FleetNode[],
@@ -123,22 +116,25 @@ async function persistEnrollment(
   original: string | null,
   nodes: FleetNode[]
 ): Promise<void> {
-  const lock = `${path}.enroll.lock`;
-  await mkdir(lock, { mode: 0o700 });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
+  const write = async (): Promise<void> => {
     if ((await existingEnrollment(path)) !== original)
       throw new FleetUsageError(
         'Enrollment changed during approval. Inspect it and rerun; no connection was overwritten.'
       );
-    await writeFile(
-      temporary,
-      JSON.stringify({ version: 1, nodes }, null, 2) + '\n',
-      { flag: 'wx', mode: 0o600 }
+    await writeRosterText(
+      path,
+      JSON.stringify({ version: 1, nodes }, null, 2) + '\n'
     );
-    await rename(temporary, path);
+  };
+  // The fleet state serializes its own writers; a roster file needs a lock.
+  if (path === STATE_ROSTER) return write();
+  await ensurePrivateRoot(dirname(path));
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
+  const lock = `${path}.enroll.lock`;
+  await mkdir(lock, { mode: 0o700 });
+  try {
+    await write();
   } finally {
-    await rm(temporary, { force: true });
     await rm(lock, { recursive: true });
   }
 }

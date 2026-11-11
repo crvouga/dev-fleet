@@ -11,7 +11,8 @@ import { saveReport } from './fleet-sync-report';
 import { synchronizeMonitoring } from './fleet-sync-monitoring';
 import { convergeManager } from './fleet-sync-manager';
 import { FleetUsageError } from '../errors';
-import { loadConfig, selectNodes } from '../config';
+import { selectNodes } from '../config';
+import { loadRoster } from './roster';
 import { enrolledRoster } from '../definition';
 import type { FleetDefinition } from '../definition';
 import { fleet as definition } from '../fleet-config';
@@ -19,23 +20,27 @@ import { synchronizeManager } from '../manager-sync';
 import { inspectBootstrap } from '../manager-sync';
 import { prepareBootstrap, bootstrapRemote } from '../remote-bootstrap';
 import { machineRoot } from './fleet-sync';
-import type { Runner } from '../types';
-import type { DeployNode } from '../manager-sync';
+import type { Check, Runner } from '../types';
+import type { DeployNode, ManagerReport } from '../manager-sync';
 import type { FleetSyncOptions } from './fleet-sync';
 import type { Settings } from './settings';
 import type { CommandOutcome } from './contracts';
 
+/** `settle` runs once the fleet's result is known and before it is reported:
+ * it records the result and returns the check that says so.
+ */
 export async function selected(
   options: FleetSyncOptions,
   settings: Settings,
-  run: Runner
+  run: Runner,
+  settle?: (report: ManagerReport) => Promise<Check>
 ): Promise<CommandOutcome> {
   if (!options.revision)
     throw new FleetUsageError('An approved source revision is required.');
   const canonical = definition;
   let roster;
   try {
-    roster = enrolledRoster(canonical, await loadConfig(settings.config));
+    roster = enrolledRoster(canonical, await loadRoster(settings.config));
   } catch {
     return enrollmentRequired(canonical, options.revision);
   }
@@ -89,6 +94,7 @@ export async function selected(
     run,
     deployWithMonitoring(payload, canonical, run, ui)
   ).finally(() => ui.progress.stop());
+  if (settle) report.checks.push(await settle(report));
   return outcome(report, planFingerprint, started);
 }
 

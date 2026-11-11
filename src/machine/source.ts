@@ -5,7 +5,7 @@ import type { Runner } from '../types';
 import { ensurePrivateRoot } from './state';
 import { fleet } from '../fleet-config';
 
-const REPOSITORY = fleet.source.repository;
+const repository = (): string => fleet.source.repository;
 
 /** Called after approval; local sources supply Git objects only, never dirty files. */
 export async function prepareSource(
@@ -40,7 +40,7 @@ async function prepareRemoteSource(
         '--no-checkout',
         '--origin',
         'origin',
-        REPOSITORY,
+        repository(),
         source,
       ],
       { timeoutMs: 120_000 }
@@ -48,7 +48,7 @@ async function prepareRemoteSource(
     if (!cloned.ok) return null;
     origin = await run(['git', 'remote', 'get-url', 'origin'], { cwd: source });
   }
-  if (!origin.ok || origin.stdout.trim() !== REPOSITORY) return null;
+  if (!origin.ok || origin.stdout.trim() !== repository()) return null;
   let found = await run(
     ['git', 'rev-parse', '--verify', `${revision}^{commit}`],
     { cwd: source }

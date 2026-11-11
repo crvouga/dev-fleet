@@ -64,6 +64,33 @@ export const COMMANDS: CommandSpec[] = [
       true,
     ],
     [
+      'fleet-state',
+      'Check the fleet state and its bucket',
+      'Read-only: where the fleet configuration, the roster and the approved revision are kept on this manager, and whether the bucket holds the same version. --export prints the stored configuration; --import PATH stores one.',
+      ['state', 'bucket', 's3', 'backup', 'litestream', 'configuration'],
+    ],
+    [
+      'fleet-state --init',
+      'Connect the bucket and restore or seed the fleet state',
+      'Save the bucket settings given with --bucket/--endpoint (or --directory), then restore the fleet state from the bucket, or seed an empty bucket from this machine. Credentials come from the environment or a terminal prompt.',
+      ['state', 'bucket', 's3', 'setup', 'restore', 'new manager'],
+      true,
+    ],
+    [
+      'fleet-state --push',
+      'Upload fleet state changes to the bucket',
+      'Upload changes this manager made while the bucket was unreachable. Refuses when the bucket has changed since.',
+      ['state', 'bucket', 'upload', 'replicate'],
+      true,
+    ],
+    [
+      'fleet-state --restore',
+      'Replace the local fleet state with the bucket’s',
+      'Discard this manager’s copy of the fleet state and download the bucket’s version. Needs --yes when this machine has changes the bucket does not hold.',
+      ['state', 'bucket', 'restore', 'recover', 'disposable'],
+      true,
+    ],
+    [
       'fleet-node-sync',
       'Sync this node',
       'Reconcile locked tools, the personal launcher, Codex proxy profile and owned T3 instances on this machine. Applies by default; --dry-run previews.',

@@ -1,9 +1,9 @@
 import { expect, test } from 'bun:test';
-import { BESZEL_FLEET_IDENTITY, failure, fleetCredentials } from './hub-access';
+import { fleetIdentity, failure, fleetCredentials } from './hub-access';
 
 test('the generated password maps to the fixed fleet account; legacy JSON still works', () => {
   expect(fleetCredentials('generated-secret-value\n')).toEqual({
-    identity: BESZEL_FLEET_IDENTITY,
+    identity: fleetIdentity(),
     password: 'generated-secret-value',
   });
   expect(

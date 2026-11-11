@@ -1,6 +1,6 @@
 import { record } from '../config';
 import type { Check, Runner } from '../types';
-import { PUBLIC_HUB_URL } from './beszel';
+import { publicHubUrl } from './beszel';
 import { secretVia } from '../fleet-config';
 
 /** Shared Beszel hub helpers. The hub runs only on the manager; see
@@ -11,14 +11,14 @@ export function publicEndpointCheck(connected: boolean): Check {
     ? {
         id: 'beszel:public-endpoint',
         status: 'pass',
-        summary: `Cloudflare connector for ${PUBLIC_HUB_URL} was started from the Vault credential.`,
+        summary: `Cloudflare connector for ${publicHubUrl()} was started from the Vault credential.`,
       }
     : {
         id: 'beszel:public-endpoint',
         status: 'warn',
         summary: 'BESZEL_TUNNEL_CREDENTIAL_UNAVAILABLE',
         remedy: {
-          action: `Create the Cloudflare tunnel and store its token in the fleet's secrets, then log the manager's Vault session in with read access to secret/beszel/tunnel and rerun fleet-sync. The private dashboard is unaffected; ${PUBLIC_HUB_URL} stays offline until then.`,
+          action: `Create the Cloudflare tunnel and store its token in the fleet's secrets, then log the manager's Vault session in with read access to secret/beszel/tunnel and rerun fleet-sync. The private dashboard is unaffected; ${publicHubUrl()} stays offline until then.`,
         },
       };
 }

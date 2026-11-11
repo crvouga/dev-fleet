@@ -9,7 +9,7 @@ import { discoverTailnet } from '../tailscale';
 import { tailnetHealth } from '../tailnet-health';
 import { makeReport, renderReport, reportExitCode } from '../report';
 import { readRoster } from './roster';
-import { PUBLIC_HUB_URL } from '../monitoring/beszel';
+import { publicHubUrl } from '../monitoring/beszel';
 import { stableUrls } from './fleet-sync-output';
 import { timeout } from './options';
 import type { FleetServices } from './fleet';
@@ -89,7 +89,7 @@ export async function executeTailnet(
 
 /** Shown to people: the stable public name, never the tailnet address. */
 function publicDashboard(privateHub: string | null): string | null {
-  return privateHub ? PUBLIC_HUB_URL : null;
+  return privateHub ? publicHubUrl() : null;
 }
 
 async function healthContext(

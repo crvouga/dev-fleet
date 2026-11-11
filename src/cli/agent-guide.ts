@@ -4,6 +4,7 @@ const SAFETY = [
   'No arguments prints help, including on a TTY. --json returns this document. The menu requires --interactive; --json and --non-interactive never prompt.',
   'Diagnostics, onboarding instructions, schema, catalogs, scripts and repair previews are read-only.',
   'fleet-sync, fleet-node-sync, t3-apply and t3-cleanup apply by invocation; --dry-run previews. t3-apply --import ID explicitly adopts ownership. --json never implies a dry run. fleet-node-add and fleet-repair require --apply --yes.',
+  'fleet-state alone is read-only; --init, --import, --push and --restore each act on invocation. Bucket credentials come from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY or a terminal prompt, never from arguments.',
   'Do not copy credentials, forward SSH agents, bypass host keys, provision infrastructure or execute unreviewed remedies.',
   'A healthy manager does not prove another machine can connect to it. Run fleet-status from each intended manager.',
   'fleet-repair executes only allowlisted owner actions, then reruns diagnostics. Native logins, host trust and resource permissions remain explicit operator steps. Pass the reviewed planHash as --plan-hash to reject a changed plan.',
@@ -14,6 +15,7 @@ const SAFETY = [
 const EXAMPLES = [
   'devfleet fleet-node-sync',
   'devfleet fleet-status',
+  'devfleet fleet-state --json',
   'devfleet t3-status',
   'devfleet fleet-status --local --workspace /path/to/personal --json',
   'devfleet fleet-status --json --strict --timeout 120000',
@@ -42,7 +44,7 @@ export function agentGuide(release: Release) {
       'devfleet --interactive (explicit opt-in; TTY required, disabled in CI)',
     groups: {
       'fleet-*':
-        'Developer computers: fleet-status, fleet-discover, fleet-sync, fleet-node-sync, fleet-repair, fleet-nodes, fleet-node-add',
+        'Developer computers: fleet-status, fleet-discover, fleet-sync, fleet-state, fleet-node-sync, fleet-repair, fleet-nodes, fleet-node-add',
       't3-*': 'Declared T3 provider instances: t3-status, t3-apply, t3-cleanup',
       cliproxy: 'The CLI proxy service on the manager; arguments are forwarded',
     },
@@ -50,7 +52,11 @@ export function agentGuide(release: Release) {
       workspace:
         '--workspace PATH, PERSONAL_WORKSPACE, closest ancestor mise.toml, then current directory',
       roster:
-        '--config PATH, PERSONAL_FLEET_CONFIG, closest ancestor .fleet.local.json, then ~/.config/personal/fleet.json',
+        '--config PATH, PERSONAL_FLEET_CONFIG, closest ancestor .fleet.local.json, then the roster in the fleet state',
+      definition:
+        'DEVFLEET_CONFIG, then the fleet state (the devfleet CLI on the manager), then the copy fleet-sync installed at ~/.config/dev-fleet/fleet.json',
+      state:
+        'DEVFLEET_STATE or ~/.local/share/dev-fleet/state: a local copy of the fleet configuration, roster and approved revision. The bucket in DEVFLEET_BUCKET or ~/.config/dev-fleet/bucket.json is the source of truth; devfleet fleet-state --json compares them',
     },
     output: {
       stdout:
@@ -76,7 +82,8 @@ export function agentGuide(release: Release) {
       approval: 'Applies on invocation without a prompt; --dry-run previews',
       scope:
         'Whole enrolled Ubuntu fleet over verified SSH; --node filters diagnostics/rollout',
-      state: '~/.local/share/personal/fleet/manager/enrollment.json',
+      state:
+        'The approved and applied revision are kept in the fleet state and uploaded to its bucket after every run; the report carries the state:replica check',
       readiness:
         'Full Ubuntu acceptance is incomplete and fails closed; do not override it or claim deployment success.',
     },

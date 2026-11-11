@@ -3,14 +3,13 @@ import {
   mkdir,
   mkdtemp,
   rm,
-  readFile,
   writeFile,
   utimes,
   access,
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { readEnrollment, saveEnrollment, withMachineLock } from './state';
+import { readEnrollment, withMachineLock } from './state';
 const roots: string[] = [];
 afterEach(async () => {
   await Promise.all(
@@ -22,18 +21,22 @@ async function root() {
   roots.push(path);
   return path;
 }
-test('manager state saves an exact approved revision without fabricating application success', async () => {
+test('the earlier enrollment file is read exactly and an invalid one is refused', async () => {
   const directory = await root();
   expect(await readEnrollment(directory)).toBeNull();
-  await saveEnrollment(directory, {
-    version: 1,
-    id: 'manager',
-    approvedRevision: 'a'.repeat(40),
-  });
-  expect((await readEnrollment(directory))?.appliedRevision).toBeUndefined();
-  expect(
-    await readFile(join(directory, 'enrollment.json'), 'utf8')
-  ).not.toContain('token');
+  await writeFile(
+    join(directory, 'enrollment.json'),
+    JSON.stringify({
+      version: 1,
+      id: 'manager',
+      approvedRevision: 'a'.repeat(40),
+    })
+  );
+  const enrollment = await readEnrollment(directory);
+  expect(enrollment?.approvedRevision).toBe('a'.repeat(40));
+  expect(enrollment?.appliedRevision).toBeUndefined();
+  await writeFile(join(directory, 'enrollment.json'), '{"version":1}');
+  await expect(readEnrollment(directory)).rejects.toThrow('Invalid enrollment');
 });
 test('overlapping managers fail closed and a completed operation releases its lock', async () => {
   const directory = await root();

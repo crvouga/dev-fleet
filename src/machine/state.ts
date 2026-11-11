@@ -25,37 +25,24 @@ export interface Enrollment {
 export const isRevision = (value: unknown): value is string =>
   typeof value === 'string' && /^[a-f0-9]{40}$/.test(value);
 
+/** The manager's enrollment from the file that held it before it moved into
+ * the fleet state (src/state/enrollment.ts). Nothing writes this file now.
+ */
 export async function readEnrollment(root: string): Promise<Enrollment | null> {
   try {
     const path = join(root, 'enrollment.json');
     const info = await lstat(path);
     if (!info.isFile() || info.size > 4096) throw new Error();
-    const data: unknown = JSON.parse(await readFile(path, 'utf8'));
-    if (!validEnrollment(data)) throw new Error();
-    return data as unknown as Enrollment;
+    const enrollment = parseEnrollment(
+      JSON.parse(await readFile(path, 'utf8'))
+    );
+    if (!enrollment) throw new Error();
+    return enrollment;
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw new FleetUsageError(
       'Invalid enrollment state. Restore the private enrollment.json backup; do not enroll a replacement using another machine’s identity.'
     );
-  }
-}
-
-export async function saveEnrollment(
-  root: string,
-  state: Enrollment
-): Promise<void> {
-  await mkdir(root, { recursive: true, mode: 0o700 });
-  const path = join(root, 'enrollment.json');
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temporary, JSON.stringify(state) + '\n', {
-      mode: 0o600,
-      flag: 'wx',
-    });
-    await rename(temporary, path);
-  } finally {
-    await rm(temporary, { force: true });
   }
 }
 
@@ -169,17 +156,18 @@ export async function ensurePrivateRoot(root: string): Promise<void> {
   }
 }
 
-function validEnrollment(data: unknown): boolean {
-  if (!record(data) || data['version'] !== 1) return false;
+/** A valid enrollment record, or null. */
+export function parseEnrollment(data: unknown): Enrollment | null {
+  if (!record(data) || data['version'] !== 1) return null;
   if (
     typeof data['id'] !== 'string' ||
     !/^[a-z][a-z0-9-]{0,62}$/.test(data['id'])
   )
-    return false;
-  return (
-    isRevision(data['approvedRevision']) &&
+    return null;
+  return isRevision(data['approvedRevision']) &&
     ['appliedRevision', 'previousRevision'].every(
       (key) => data[key] === undefined || isRevision(data[key])
     )
-  );
+    ? (data as unknown as Enrollment)
+    : null;
 }

@@ -4,3 +4,5 @@ dist
 __pycache__
 *.pyc
 .DS_Store
+# A roster file for one checkout (--config finds it); never part of the source.
+.fleet.local.json

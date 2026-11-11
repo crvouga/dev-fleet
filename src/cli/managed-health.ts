@@ -6,7 +6,7 @@ import { enrolledRoster } from '../definition';
 import type { Tailnet } from '../tailscale';
 import type { FleetNode } from '../types';
 import {
-  PUBLIC_HUB_URL,
+  publicHubUrl,
   verifyBeszel,
   type BeszelRequest,
 } from '../monitoring/beszel';
@@ -122,7 +122,7 @@ async function hubReachable(
  */
 async function publicEndpoint(fetcher: typeof fetch): Promise<Check> {
   try {
-    const response = await fetcher(`${PUBLIC_HUB_URL}/api/health`, {
+    const response = await fetcher(`${publicHubUrl()}/api/health`, {
       redirect: 'error',
       signal: AbortSignal.timeout(10_000),
     });
@@ -130,7 +130,7 @@ async function publicEndpoint(fetcher: typeof fetch): Promise<Check> {
       return {
         id: 'beszel:public-endpoint',
         status: 'pass',
-        summary: `Dashboard answers publicly at ${PUBLIC_HUB_URL}.`,
+        summary: `Dashboard answers publicly at ${publicHubUrl()}.`,
       };
   } catch {
     /* Connection details are not evidence; fall through. */
@@ -140,7 +140,7 @@ async function publicEndpoint(fetcher: typeof fetch): Promise<Check> {
     status: 'warn',
     summary: 'BESZEL_PUBLIC_ENDPOINT_OFFLINE',
     remedy: {
-      action: `${PUBLIC_HUB_URL} did not answer. Create the Cloudflare tunnel and store its token in the fleet's secrets, then run fleet-sync on the manager so the hub starts its Cloudflare connector. The private dashboard is unaffected.`,
+      action: `${publicHubUrl()} did not answer. Create the Cloudflare tunnel and store its token in the fleet's secrets, then run fleet-sync on the manager so the hub starts its Cloudflare connector. The private dashboard is unaffected.`,
     },
   };
 }

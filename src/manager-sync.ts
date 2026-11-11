@@ -10,7 +10,7 @@ import { discoverTailnet, type TailnetComputer } from './tailscale';
 import { matchComputers } from './tailnet-matching';
 import { sshArgs, sshFailure } from './ssh';
 import type { FleetDefinition, MachineDefinition } from './definition';
-import { PUBLIC_HUB_URL } from './monitoring/beszel';
+import { publicHubUrl } from './monitoring/beszel';
 import {
   convergeable,
   evaluatePlatform,
@@ -104,7 +104,7 @@ export async function synchronizeManager(
     desiredRevision: input.revision,
     checks: tailnet.checks,
     // Printed for people: the stable public name, never a tailnet address.
-    dashboardUrl: PUBLIC_HUB_URL,
+    dashboardUrl: publicHubUrl(),
     nodes: [],
     candidates: tailnet.computers.filter(
       (peer) => !peer.self && !matches.get(peer.id)?.length

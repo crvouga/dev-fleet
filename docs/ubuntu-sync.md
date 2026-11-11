@@ -100,14 +100,15 @@ remaining parity gate. The interactive manager flow can request native sudo auth
 
 - `fleet.json` and `definition.schema.json`: portable machine
   IDs, aliases, OS, singleton roles and Ubuntu release policy.
-- Private manager overrides: `--config PATH`, `PERSONAL_FLEET_CONFIG`, or
-  `~/.config/personal/fleet.json`, using the existing roster schema. Preserve
-  workspace/runtime paths, capabilities and explicit `tailscaleId` bindings.
+- Private manager overrides: `--config PATH`, `PERSONAL_FLEET_CONFIG`, or the
+  roster in the [fleet state](state.md), using the existing roster schema.
+  Preserve workspace/runtime paths, capabilities and explicit `tailscaleId`
+  bindings.
 - Workstation network consumers derive their inventory from Fleet. The old file
   is retained only as `packages/fleet/migrations/workstation-network-v1.json` for
   lossless identity-path migration; conflicts fail rather than silently winning.
-- Manager approval: `~/.local/share/personal/fleet/manager/enrollment.json`.
-  Manager deployment lock: adjacent `sync.lock` directory.
+- Manager approval: the `enrollment` document in the [fleet state](state.md).
+  Manager deployment lock: `~/.local/share/personal/fleet/manager/sync.lock`.
 - Remote source: `~/.local/share/personal/fleet/revisions/FULL_SHA`.
   Remote lock file: `~/.local/share/personal/fleet/remote-operation.lock`, held
   with `flock` on Linux and the same descriptor through Python `fcntl` on macOS.

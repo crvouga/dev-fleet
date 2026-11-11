@@ -30,6 +30,13 @@ function execution(entry: CommandSpec) {
         'enrolled Ubuntu fleet over verified SSH; manager is not an implicit target',
       note: 'JSON/noninteractive never prompt. Full Ubuntu acceptance is not yet implemented.',
     };
+  if (entry.mutation && entry.id.startsWith('fleet-state '))
+    return {
+      default: 'apply',
+      authorization: 'command-invocation',
+      preview: 'devfleet fleet-state --json',
+      note: 'Each flag is one explicit action on this manager’s fleet state. JSON selects output format; it does not prevent writes.',
+    };
   if (APPLIES.has(entry.id))
     return {
       default: 'apply',

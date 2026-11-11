@@ -924,6 +924,35 @@ url = "https://dl.k8s.io/v1.37.2/bin/darwin/amd64/kubectl"
 checksum = "sha256:1691938f7de0e931969f9968c3601cf32d6b0d573573afb4ce471f3d28f51984"
 url = "https://dl.k8s.io/v1.37.2/bin/windows/amd64/kubectl.exe"
 
+[[tools.litestream]]
+version = "0.5.18"
+backend = "aqua:benbjohnson/litestream"
+specifiers = ["0.5.18"]
+
+[tools.litestream."platforms.linux-arm64"]
+checksum = "sha256:922a09e6a7ac67f2095571894dc6382e94e1dd4cdd9674883ddf1a8e74ab982d"
+checksum_source = "mise-versions"
+url = "https://github.com/benbjohnson/litestream/releases/download/v0.5.18/litestream-0.5.18-linux-arm64.tar.gz"
+url_api = "https://api.github.com/repos/benbjohnson/litestream/releases/assets/706493661"
+
+[tools.litestream."platforms.linux-x64"]
+checksum = "sha256:d3687b9fd0f2e9426bbd3da828429ff3f1dfc5c9b74d54fdf028e4ee510e7dea"
+checksum_source = "mise-versions"
+url = "https://github.com/benbjohnson/litestream/releases/download/v0.5.18/litestream-0.5.18-linux-x86_64.tar.gz"
+url_api = "https://api.github.com/repos/benbjohnson/litestream/releases/assets/706493670"
+
+[tools.litestream."platforms.macos-arm64"]
+checksum = "sha256:6d3e0875e5416628ef3d274e8f7bb0ecc2a19cbbe76b9ba43efe9901d82a5c84"
+checksum_source = "mise-versions"
+url = "https://github.com/benbjohnson/litestream/releases/download/v0.5.18/litestream-0.5.18-darwin-arm64.tar.gz"
+url_api = "https://api.github.com/repos/benbjohnson/litestream/releases/assets/706493582"
+
+[tools.litestream."platforms.macos-x64"]
+checksum = "sha256:25846be4fc4a4e0b4fd9ac5d0e019c10ec70a4dc12fe84255f5607b8b9a520e0"
+checksum_source = "mise-versions"
+url = "https://github.com/benbjohnson/litestream/releases/download/v0.5.18/litestream-0.5.18-darwin-x86_64.tar.gz"
+url_api = "https://api.github.com/repos/benbjohnson/litestream/releases/assets/706493692"
+
 [[tools.ninja]]
 version = "1.13.2"
 backend = "aqua:ninja-build/ninja"

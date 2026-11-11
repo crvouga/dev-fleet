@@ -1,5 +1,5 @@
 import { localCheckoutRevision } from '../machine/local-source';
-import { fleet as canonicalDefinition } from '../fleet-config';
+import { fleet as canonicalDefinition, reloadFleet } from '../fleet-config';
 import { managerFailure } from '../manager-failure';
 import { managerText, stdoutColor } from './fleet-sync-output';
 import { managerSchedule, type ScheduleAction } from './fleet-sync-schedule';
@@ -9,12 +9,20 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { existsSync, renameSync } from 'node:fs';
 import {
-  readEnrollment,
   isRevision,
-  saveEnrollment,
   withMachineLock,
   ensurePrivateRoot,
+  type Enrollment,
 } from '../machine/state';
+import { loadEnrollment } from '../state/enrollment';
+import { legacyHome } from '../state/paths';
+import {
+  DIVERGED_REMEDY,
+  refresh,
+  stateContext,
+  type Standing,
+} from '../state/sync';
+import { runRecord } from './fleet-sync-state';
 import { runCommand } from '../runner';
 import type { Runner } from '../types';
 import type { Settings } from './settings';
@@ -69,9 +77,29 @@ export async function fleetSync(
   if (!(await onManager(run)))
     return offManager(options, settings, run, forward);
   if (options.schedule === 'status') return scheduleStatus(settings, run);
-  const root = machineRoot();
+  return managerSync(options, settings, {
+    run,
+    root: machineRoot(),
+    restart: () => fleetSync(options, settings, run, forward),
+  });
+}
+
+export interface ManagerSync {
+  run: Runner;
+  /** This machine's run lock and caches. */
+  root: string;
+  /** Starts the request over once the fleet state has been replaced. */
+  restart: () => Promise<CommandOutcome>;
+}
+
+/** fleet-sync on the machine already known to be the manager. */
+export async function managerSync(
+  options: FleetSyncOptions,
+  settings: Settings,
+  { run, root, restart }: ManagerSync
+): Promise<CommandOutcome> {
   await ensurePrivateRoot(root);
-  const state = await readEnrollment(root);
+  const state = await loadEnrollment(legacyHome() ? root : null);
   const revision = await selectedRevision(
     options.revision,
     state?.approvedRevision,
@@ -91,51 +119,81 @@ export async function fleetSync(
     run
   );
   if (rehomed) return rehomed;
-  const request = { ...options, revision };
-  if (request.dryRun) return selected(request, settings, run);
-  // Applies without a confirmation prompt; --dry-run is the preview.
-  request.apply = true;
-  request.yes = true;
-  if (interactive(options)) {
-    await enrollManager(settings.config, run);
-    // Needed to hand each node its own Vault token; nodes report any gap.
-    await authorizeManager({ interactive: true }, run);
-    request.interactiveAuthorization = true;
+  if (options.dryRun) return selected({ ...options, revision }, settings, run);
+  // The bucket is the source of truth: a run starts from its version of the
+  // configuration, the roster and the approval, not from a stale local copy.
+  const fresh = await refresh(stateContext(run));
+  if (fresh.standing === 'diverged')
+    return actionRequired('FLEET_STATE_DIVERGED', DIVERGED_REMEDY, revision);
+  if (fresh.replaced) {
+    // Everything read so far came from the stale copy, the manager's own
+    // identity included.
+    reloadFleet();
+    return restart();
   }
-  return applyLocked(root, state, request, { settings, run });
+  return authorizeAndApply(root, state, options, {
+    settings,
+    run,
+    revision,
+    standing: fresh.standing,
+  });
 }
 
-/** Records the approved revision, converges, then records what was applied. */
+interface ApplyContext {
+  settings: Settings;
+  run: Runner;
+  revision: string;
+  /** How the fleet state stood with the bucket when this run started. */
+  standing: Standing;
+}
+
+/** Applies without a confirmation prompt; --dry-run is the preview. */
+async function authorizeAndApply(
+  root: string,
+  state: Enrollment | null,
+  options: FleetSyncOptions,
+  context: ApplyContext
+): Promise<CommandOutcome> {
+  const { settings, run, revision } = context;
+  const request = { ...options, revision, apply: true, yes: true };
+  if (!interactive(options)) return applyLocked(root, state, request, context);
+  await enrollManager(settings.config, run);
+  // Needed to hand each node its own Vault token; nodes report any gap.
+  await authorizeManager({ interactive: true }, run);
+  return applyLocked(
+    root,
+    state,
+    { ...request, interactiveAuthorization: true },
+    context
+  );
+}
+
+/** Records the approved revision, converges, records what was applied, then
+ * uploads the fleet state: the report says whether the bucket holds it.
+ */
 function applyLocked(
   root: string,
-  state: Awaited<ReturnType<typeof readEnrollment>>,
+  state: Enrollment | null,
   request: FleetSyncOptions & { revision: string },
-  context: { settings: Settings; run: Runner }
+  context: ApplyContext
 ): Promise<CommandOutcome> {
-  const { revision } = request;
-  const { settings, run } = context;
+  const { settings, run, revision } = context;
+  const record = runRecord(state, revision, {
+    context: stateContext(run),
+    standing: context.standing,
+  });
   return withMachineLock(root, async () => {
-    const approval = {
-      ...state,
-      version: 1 as const,
-      id: 'manager',
-      approvedRevision: revision,
-    };
-    await saveEnrollment(root, approval);
-    const result = await selected(
-      { ...request, rolledOut: state?.appliedRevision === revision },
-      settings,
-      run
-    );
-    if (result.exitCode === 0)
-      await saveEnrollment(root, {
-        ...approval,
-        appliedRevision: revision,
-        ...(state?.appliedRevision && state.appliedRevision !== revision
-          ? { previousRevision: state.appliedRevision }
-          : {}),
-      });
-    return result;
+    record.approve();
+    try {
+      return await selected(
+        { ...request, rolledOut: state?.appliedRevision === revision },
+        settings,
+        run,
+        (report) => record.settle(report.ok)
+      );
+    } finally {
+      await record.abandon();
+    }
   }).catch((error: unknown) => {
     if (error instanceof FleetLockError)
       return actionRequired(

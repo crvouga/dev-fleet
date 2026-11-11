@@ -7,14 +7,15 @@ import { fleet, secret } from '../fleet-config';
  * Its password is the fleet's monitoring-account-password secret. A fresh hub on the
  * manager creates the account itself on first start (hub-darwin.yml).
  */
-export const BESZEL_FLEET_IDENTITY = fleet.services.monitoring.managerAccount;
+export const fleetIdentity = (): string =>
+  fleet.services.monitoring.managerAccount;
 
 /** Read-only Beszel user the hub signs every visitor in as (AUTO_LOGIN), so the
  * dashboard needs no login. Create it once in the hub (Settings > Users, role
  * "Read-only"); it holds no secret and must never be an admin. If the account
  * does not exist the hub simply shows its normal login page.
  */
-export const BESZEL_PUBLIC_VIEWER_IDENTITY =
+export const publicViewerIdentity = (): string =>
   fleet.services.monitoring.viewerAccount;
 
 /** Accept the plain password, or a legacy JSON identity/password pair. */
@@ -39,7 +40,7 @@ export function fleetCredentials(secret: string): {
       throw new Error('BESZEL_ACCOUNT_INVALID');
     return { identity: parsed['identity'], password: parsed['password'] };
   }
-  return { identity: BESZEL_FLEET_IDENTITY, password: value };
+  return { identity: fleetIdentity(), password: value };
 }
 
 /** The fleet login from the manager's Vault session, or null when absent.
