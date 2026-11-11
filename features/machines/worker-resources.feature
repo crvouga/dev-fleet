@@ -1,7 +1,7 @@
 Feature: A worker's memory and disk guards are measured where they run
   What is measured is the running system, not the files Ansible wrote:
-  systemd-oomd and the disk guard are running, user workloads are capped below
-  physical memory, T3 agents have a limit each, swap is active, free disk is
+  systemd-oomd, the disk guard and the disk GC timer are running, user
+  workloads are capped below physical memory, T3 agents have a limit each, swap is active, free disk is
   above the guard's floor of 3072 MiB and /tmp can be written to.
 
   Background:
@@ -9,6 +9,7 @@ Feature: A worker's memory and disk guards are measured where they run
       | command                                                          | answer                                                                 |
       | systemctl is-active systemd-oomd.service                         | prints active\n                                                        |
       | systemctl is-active personal-fleet-disk-guard.service            | prints active\n                                                        |
+      | systemctl is-active personal-fleet-disk-gc.timer                 | prints active\n                                                        |
       | systemctl show --property=MemoryMax -- user.slice                | prints MemoryMax=29720510464\n                                         |
       | systemctl show --property=ManagedOOMSwap -- -.slice              | prints ManagedOOMSwap=kill\n                                           |
       | test -f /etc/systemd/user/t3code-.scope.d/60-personal-fleet.conf | succeeds                                                               |
@@ -22,9 +23,9 @@ Feature: A worker's memory and disk guards are measured where they run
     Then the check passes
 
   Scenario Outline: <what is wrong> fails the worker
-    Free space under the floor fails even when every guard runs: the guard
-    stops runaway writers but deletes nothing, so a person has to recover the
-    space. An exhausted /tmp quota fails even when the filesystem reports free
+    Free space under the floor fails even when every guard runs: the disk GC
+    has already removed idle build output and caches, so what is left is work
+    a person must decide about. An exhausted /tmp quota fails even when the filesystem reports free
     space: /tmp is held in memory with a quota for each user, which only a real
     write of 1 MiB shows.
     Given the command "<command>" <answer>
@@ -34,6 +35,7 @@ Feature: A worker's memory and disk guards are measured where they run
     Examples:
       | what is wrong              | command                                               | answer                                    | summary                 |
       | A stopped disk guard       | systemctl is-active personal-fleet-disk-guard.service | fails printing failed\n                   | RESOURCE_GUARD_INACTIVE |
+      | A stopped disk GC timer    | systemctl is-active personal-fleet-disk-gc.timer      | fails printing inactive\n                 | RESOURCE_GUARD_INACTIVE |
       | Uncapped user memory       | systemctl show --property=MemoryMax -- user.slice     | prints MemoryMax=infinity\n               | MEMORY_RESERVE_MISSING  |
       | No swap                    | cat /proc/swaps                                       | prints Filename Type Size Used Priority\n | SWAP_MISSING            |
       | Free space under the floor | df --output=avail -B1 …                               | prints Avail\n2147483648\n                | DISK_FREE_BELOW_FLOOR   |

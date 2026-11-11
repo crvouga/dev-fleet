@@ -1,3 +1,4 @@
+import { diskGc } from './disk-gc';
 import { installer } from './installer';
 import { publishing } from './publishing';
 import { toolchain } from './toolchain';
@@ -6,4 +7,11 @@ import { BootstrapWorld, common } from './world';
 
 export { BootstrapWorld };
 /** Every step of this area. */
-export const bootstrap = [common, publishing, installer, toolchain, worker];
+export const bootstrap = [
+  common,
+  publishing,
+  installer,
+  toolchain,
+  worker,
+  diskGc,
+];
