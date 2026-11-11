@@ -41,7 +41,13 @@ reused, never reset or implicitly pulled. From a checkout, run
 The scripts install checksum-verified mise **2026.10.24**, trust this repository's
 configuration, install pinned Bun, install the shared tools with `--locked`, copy
 the managed global config/lock/sidecars, set up persistent shims on PATH, and run
-`bun install --frozen-lockfile`. Reopen your terminal/editor afterward. To refresh
+`bun install --frozen-lockfile`. The published global config also trusts the
+agent worktree roots in `AGENT_WORKTREE_ROOTS` (`bootstrap/global-config.ts`,
+currently `~/.t3/worktrees`): each agent task gets a new checkout, and an
+untrusted `mise.toml` there makes every mise shim, `claude` and `bun` included,
+exit before the agent starts. Entries added locally with
+`mise settings add trusted_config_paths PATH` are kept on every publish.
+Reopen your terminal/editor afterward. To refresh
 an already-open Unix terminal immediately, run `exec "$SHELL" -l`; an installer
 cannot change its parent shell's environment. **If `bun` or `mise` is missing,
 run `bash bootstrap/bootstrap.sh` from this checkout first, not a Bun command.**

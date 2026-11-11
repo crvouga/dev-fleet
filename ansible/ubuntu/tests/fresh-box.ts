@@ -102,6 +102,11 @@ try {
     'ssh',
     `cd "$HOME/.local/share/personal/fleet/revisions/${revision}" && test -d node_modules && test "$(git rev-list --count HEAD)" = 1 && "$HOME/.local/bin/mise" exec --locked bun -- bun --version`,
   ]);
+  // A brand-new agent worktree with its own mise.toml must not need `mise trust`.
+  const worktree = await transport([
+    'ssh',
+    'w="$HOME/.t3/worktrees/fresh-box/check" && mkdir -p "$w" && printf \'[env]\\nFRESH_BOX = "1"\\n\' > "$w/mise.toml" && cd "$w" && "$HOME/.local/bin/mise" which claude >/dev/null',
+  ]);
   const configured = await transport([
     'ssh',
     'test -s "$HOME/.config/dev-fleet/fleet.json"',
@@ -110,6 +115,7 @@ try {
     !bootstrapped(first.checks) ||
     !bootstrapped(second.checks) ||
     !installed.ok ||
+    !worktree.ok ||
     !configured.ok ||
     repeat > 120_000;
   console.log(
