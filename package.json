@@ -16,7 +16,7 @@
     "format": "prettier --check .",
     "test": "bun test",
     "test:cliproxy": "DEVFLEET_CONFIG=$PWD/examples/fleet.json python3 -B -m unittest discover -s cliproxy/tests -p \"test_*.py\"",
-    "lint:cliproxy": "python3 -B cliproxy/scripts/check.py",
+    "lint:cliproxy": "DEVFLEET_CONFIG=$PWD/examples/fleet.json python3 -B cliproxy/scripts/check.py",
     "check": "bun run format && bun run tc && bun run lint && bun test && bun run lint:cliproxy && bun run test:cliproxy"
   },
   "dependencies": {
