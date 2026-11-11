@@ -6,29 +6,41 @@
 
 ## Release status
 
-This working-tree implementation is **not yet a completed or published fleet
-release**. Do not describe it as having configured Chris’s machines. Required
-acceptance checks remain incomplete: multi-target remote/bootstrap fault tests, unattended
-paired T3 execution and live private-route acceptance, all five live provider routes, manager boot/scheduling acceptance,
-off-host monitoring recovery, and the full Ubuntu drift/fault matrix. Disposable Ubuntu baseline
-apply/repeat/reboot and pinned native T3 install/repeat/crash recovery/reboot passed.
-The production boot-policy observer also passed inside the rebooted VM. Pinned
-Beszel hub installation (including a missing Docker engine), repeat no-op and
-reboot passed. Native Beszel agent installation, repeat no-op, crash recovery and
-reboot also passed with an intentionally unreachable fixture hub; private metrics
-acceptance remains separate. A further full SSH bootstrap test caught a T3 archive verification bug: release-builder UID/GID values are not the designated installation user. The shared installer now verifies local ownership, content, modes and links independently of archive-builder identity. The same test exposed restrictive-umask extraction drift; archive modes are now preserved and staging is verified before promotion. A fresh Ubuntu VM now passes the production strict-SSH source transfer, missing-prerequisite bootstrap, shared tool installation and baseline, then repeats with preserved SSH identity, developer work and managed-file timestamps. This uses a disposable exact test commit, not a published release or live fleet. Multi-target and interruption acceptance remains open. The VM caught and fixed an Ansible piped-stdin
-variable-loading failure; runtime variables now use a private temporary file with
-cleanup and never enter command arguments. See the
-[reproducible VM test instructions](../../fleet/ubuntu/tests/README.md).
-Real Beszel 0.21.1 binaries passed authenticated metrics, identity preservation and
-supported API backup/restore in an isolated loopback fixture; that is not live fleet evidence. Incomplete
-checks return nonzero; they do not advance a successful fleet receipt.
+What is proven, and where:
 
-Newest and still unverified against live machines: the macOS convergence path
-(`ansible/macos`, launchd Beszel agent, fcntl remote lock), the Linux
-always-on service drop-ins, and dashboard evidence inside `fleet-status --workers`.
-They pass unit tests and Ansible syntax checks only; treat them as unaccepted
-until a disposable-machine run and a live manager run are recorded.
+| Evidence                                                                 | Where                                                                                                                                     |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| A bare Ubuntu 26.04 machine bootstrapped over real SSH, then repeated    | `features/fresh-box/fresh-box.feature`, on every pull request (amd64 and arm64)                                                           |
+| One run over several machines, one versioned report, no partial receipt  | `features/fresh-box/fleet.feature`                                                                                                        |
+| Interrupted checkout, package installation and toolchain setup resumed   | `features/fresh-box/fleet.feature`                                                                                                        |
+| Overlapping runs, a dropped connection, a held APT lock, no DNS, no disk | `features/fresh-box/fleet.feature`                                                                                                        |
+| A failed canary stops promotion; a changed host key is never touched     | `features/fresh-box/fleet.feature`, `features/orchestration/fleet-sync.feature`                                                           |
+| Offline, unapproved and replaced devices                                 | `features/orchestration/fleet-sync.feature` (the tailnet is injected)                                                                     |
+| T3 route, origin policy, pairing redaction, service environment          | `features/core/t3-access.feature`, `features/agents/native-agents.feature`                                                                |
+| Vault renewal and policy outcomes, provider incompatibilities            | `features/core/worker-checks.feature`, `features/agents/provider-failures.feature`                                                        |
+| Beszel agent privileges, evidence, backups and the stock API             | `features/monitoring/`, and `ansible/monitoring/tests/upstream.py` against the pinned binaries (backup restored into a separate instance) |
+
+A container has no systemd, so the fresh-box runs prove bootstrap,
+interruption and fault handling, not a booted desktop session. What only a
+live fleet can show is checked by `fleet-sync` itself on every run and stays a
+failed or skipped required check until it is true; nothing advances a success
+receipt before then:
+
+- the private T3 route reached from a separate tailnet client, and a paired
+  conversation with a tool action (`t3:manager-endpoint`, `t3:paired-access`,
+  `t3:end-to-end`);
+- each provider route signed in on its real account, under the T3 service's
+  environment (`provider:*`, `agent:service-environment`);
+- unattended Vault renewal under the fleet's real policy
+  (`worker:vault-renewal`, `worker:proxy-authentication`);
+- private Beszel metrics from every worker and a scheduled off-host hub backup
+  (`beszel:*`, `beszel:backup`);
+- reboot, logout and crash recovery of a real GNOME session
+  (`worker:t3-recovery`, `ubuntu:boot-policy`).
+
+Reproduce the disposable runs with
+`DEVFLEET_TEST_FRESH_BOX=1 bun test features/fresh-box`; the VM procedure for
+a full systemd guest is in [`ansible/ubuntu/tests/README.md`](../ansible/ubuntu/tests/README.md).
 
 ## One command, from the manager
 
@@ -65,7 +77,7 @@ local-first fleet-sync version 1 contract.
 The manager needs Node/npm (Node `^22.13.0 || >=23.5.0`), an OpenSSH client,
 a working Tailscale daemon, and Git for approved source preparation. npx cannot
 execute without Node/npm. Existing shared setup remains
-[`bootstrap/bootstrap.sh`](../../../bootstrap/bootstrap.sh); run that tracked
+[`bootstrap/bootstrap.sh`](../bootstrap/bootstrap.sh); run that tracked
 bootstrap on a manager without developer tools, then invoke the same command.
 Do not install an unrelated fleet installer. The npm command’s help, catalog and
 structured missing-enrollment result require neither Bun nor a checkout.
@@ -270,7 +282,7 @@ runs on the manager (`definition.json.services.proxy`). Workers consume that
 gateway; no worker gets a separate OAuth-owning proxy. Keep the existing
 key/endpoint contract, encrypted recovery and runtime authentication. Moving it
 requires fencing the old host before restoring state
-([migration](../../cliproxy-fleet/docs/migration.md)). Fleet never copies identities.
+([migration](../cliproxy/docs/migration.md)). Fleet never copies identities.
 
 ### Agents on every node
 

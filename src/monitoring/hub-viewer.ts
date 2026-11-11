@@ -25,13 +25,13 @@ function viewerCheck(
   };
 }
 
-interface Session {
+export interface Session {
   fetcher: Fetcher;
   base: string;
   token: string;
 }
 
-async function api(
+export async function api(
   session: Session,
   method: string,
   path: string,
@@ -52,7 +52,7 @@ async function api(
   return response.json() as Promise<unknown>;
 }
 
-async function superuserToken(
+export async function superuserToken(
   session: Session,
   login: HubLogin
 ): Promise<string> {

@@ -18,6 +18,7 @@ import {
   publicViewerIdentity,
 } from '../../../src/monitoring/hub-access';
 import { ensurePublicViewer } from '../../../src/monitoring/hub-viewer';
+import { verifyHubBackups } from '../../../src/monitoring/hub-backup';
 import type { Check } from '../../../src/types';
 import type { DataTable } from '../../support/gherkin';
 import { wording } from '../../support/answers';
@@ -405,3 +406,75 @@ When(
     world.checks = [publicEndpointCheck(false)];
   }
 );
+
+// ── The hub's own backups ────────────────────────────────────────────────
+
+Given(
+  'the hub on the manager answers its superuser:',
+  (world, table: DataTable) => {
+    answers(world, table);
+  }
+);
+
+Given(
+  'the hub on the manager refuses every request with {string}',
+  (world, detail: string) => {
+    world.hubError = detail;
+  }
+);
+
+/** The loopback hub, answering what the scenario says; every request is
+ * recorded as its method and path.
+ */
+const backupHub = (world: MonitoringWorld): typeof fetch =>
+  (async (url: string | URL, init?: RequestInit) => {
+    const path = new URL(String(url)).pathname;
+    world.asked.push(`${init?.method ?? 'GET'} ${path}`);
+    if (world.hubError !== undefined)
+      return new Response(world.hubError, { status: 403 });
+    if (path === '/api/collections/_superusers/auth-with-password')
+      return Response.json({ token: 'superuser-token' });
+    const found = world.answers.find((described) => described.matches(path));
+    if (!found)
+      throw new Error(
+        `The scenario does not say what the hub answers: ${path}`
+      );
+    return new Response(found.json);
+  }) as typeof fetch;
+
+When(
+  "the hub's backups are read with the fleet login {string}",
+  async (world, identity: string) => {
+    world.checks = [
+      await verifyHubBackups(
+        { identity, password: 'never-output-password' },
+        backupHub(world),
+        'http://127.0.0.1:8090',
+        world.now
+      ),
+    ];
+  }
+);
+
+When("the hub's backups are read without a fleet login", async (world) => {
+  world.checks = [
+    await verifyHubBackups(
+      null,
+      backupHub(world),
+      'http://127.0.0.1:8090',
+      world.now
+    ),
+  ];
+});
+
+Then('the check is skipped', (world) => {
+  expect(world.check.status).toBe('skip');
+});
+
+Then('the hub was asked exactly, in order:', (world, table: DataTable) => {
+  expect(world.asked).toEqual(table.list());
+});
+
+Then('the hub was not asked anything', (world) => {
+  expect(world.asked).toEqual([]);
+});

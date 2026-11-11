@@ -66,6 +66,10 @@ export class CoreWorld extends World {
   reconnect: { withinMs: number; everyMs: number } | undefined;
   waitedMs = 0;
   respond: (() => Response) | undefined;
+  /** What the worker answers a request carrying a foreign Origin header;
+   * the plain answer when a scenario says nothing of it.
+   */
+  respondForeign: (() => Response) | undefined;
   requests: { url: string; options: RequestInit }[] = [];
 
   // A checkout.

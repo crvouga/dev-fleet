@@ -71,7 +71,7 @@ export function diagnostic(node: string, check: Check): Diagnostic {
 }
 function scope(id: string): Diagnostic['scope'] {
   if (
-    /^(t3:manager-endpoint|ssh:|manager:|rollout:|source:|tailscale:(reachability|identity|enrolled-identity))/.test(
+    /^(t3:manager-(endpoint|origin)|ssh:|manager:|rollout:|source:|tailscale:(reachability|identity|enrolled-identity))/.test(
       id
     )
   )

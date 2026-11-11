@@ -41,6 +41,29 @@ export async function toolchainChecks(
   }
 }
 
+/** Checks of the doctor that are not a tool version, with their own words. */
+const OWN: Record<string, { pass: string; fail: string; action: string }> = {
+  'global-mise-config': {
+    pass: 'The global mise configuration is the one fleet-sync publishes.',
+    fail: 'The global mise configuration is missing, was replaced by another project or tool, or is not the one this revision publishes.',
+    action:
+      'Run devfleet fleet-sync from the project that holds fleet.json. On a fleet machine the global mise configuration belongs to dev-fleet: a project pins its own tools in a project mise.toml and never publishes a global one.',
+  },
+};
+
+/** A doctor check with its own words, or null for a tool version. */
+function ownCheck(id: string, status: Check['status']): Check | null {
+  if (!Object.hasOwn(OWN, id)) return null;
+  const own = OWN[id]!;
+  const ok = status === 'pass';
+  return {
+    id: `tool:${id}`,
+    status,
+    summary: ok ? own.pass : own.fail,
+    ...(!ok ? { remedy: { action: own.action } } : {}),
+  };
+}
+
 function toolCheck(value: unknown): Check | null {
   if (
     !record(value) ||
@@ -49,6 +72,8 @@ function toolCheck(value: unknown): Check | null {
     !['pass', 'fail', 'warn', 'skip'].includes(String(value['status']))
   )
     return null;
+  const own = ownCheck(value['id'], value['status'] as Check['status']);
+  if (own) return own;
   const ok = value['status'] === 'pass';
   const version =
     typeof value['detail'] === 'string' &&

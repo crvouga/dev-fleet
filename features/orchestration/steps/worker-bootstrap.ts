@@ -95,10 +95,40 @@ Then('the bootstrap ran in {string} mode', (world, mode: string) => {
     expect(command.at(-1)).toContain(`'${mode}'`);
 });
 
-Then('the bootstrap was fed {string}', (world, input: string) => {
-  for (const { options } of bootstraps(world))
-    expect(options?.input).toBe(input);
+/** The bootstrap's input: a line with the configuration, then the bundle. */
+function fed(world: OrchestrationWorld): { config: string; bundle: string }[] {
+  return bootstraps(world).map(({ options }) => {
+    const input = String(options?.input ?? '');
+    const newline = input.indexOf('\n');
+    expect(newline).toBeGreaterThanOrEqual(0);
+    return {
+      config: Buffer.from(input.slice(0, newline), 'base64').toString(),
+      bundle: input.slice(newline + 1),
+    };
+  });
+}
+
+Then('the bootstrap was fed the bundle {string}', (world, bundle: string) => {
+  for (const input of fed(world)) expect(input.bundle).toBe(bundle);
 });
+
+Then('the bootstrap was fed no bundle', (world) => {
+  for (const input of fed(world)) expect(input.bundle).toBe('');
+});
+
+Then(
+  'the bootstrap was fed, before anything else, the fleet configuration:',
+  (world, config: string) => {
+    for (const input of fed(world)) expect(input.config).toBe(config);
+  }
+);
+
+Given(
+  'the payload carries the fleet configuration:',
+  (world, config: string) => {
+    need(world.bootstrap.payload, 'a bootstrap payload').config = config;
+  }
+);
 
 // ── The bundle ───────────────────────────────────────────────────────────
 

@@ -1,205 +1,34 @@
 import { expect } from 'bun:test';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import ubuntu from '../../ansible/ubuntu/policy.json';
-import { loadDefinition } from '../../src/definition';
-import { bootstrapRemote, prepareBootstrap } from '../../src/remote-bootstrap';
-import { runCommand } from '../../src/runner';
 import { sshArgs } from '../../src/ssh';
-import type { Check, FleetNode, Runner } from '../../src/types';
 import { World, steps, type DataTable } from '../support/gherkin';
+import {
+  BEFOREHAND,
+  bootstrap,
+  box,
+  firstBootstrap,
+  reachedConvergence,
+  remote,
+  repo,
+  sshClient,
+  type Bootstrap,
+  type Box,
+} from './support/boxes';
 
-const repo = resolve(import.meta.dir, '../..');
-const image = 'dev-fleet-fresh-box';
-const node: FleetNode = {
-  id: 'fresh-box',
-  ssh: 'fresh-box',
-  workspace: '/unused',
-  required: [],
-};
-
-async function must(command: string[], timeoutMs = 600_000): Promise<string> {
-  const result = await runCommand(command, { cwd: repo, timeoutMs });
-  if (!result.ok) throw new Error(`${command.slice(0, 3).join(' ')} failed`);
-  return result.stdout.trim();
-}
-
-interface Bootstrap {
-  checks: Check[];
-  seconds: number;
-  /** Whether the commit travelled with this run. */
-  transferred: boolean;
-}
-
-/** One disposable machine for the whole feature: creating it and
- * bootstrapping it are too slow to repeat for every scenario, so both happen
- * once and every scenario reads what was observed.
- */
-interface Box {
-  container: string;
-  scratch: string;
-  revision: string;
-  /** The commands found on the machine before anything was done to it. */
-  present: string[];
-  /** The production transport. Only the client configuration is the test's:
-   * it holds what an operator's `~/.ssh/config` and `known_hosts` would.
-   */
-  transport: Runner;
-  first?: Promise<Bootstrap>;
-}
-let box: Promise<Box> | undefined;
-
-const BEFOREHAND = [
-  'git',
-  'curl',
-  'python3',
-  'ansible-playbook',
-  'mise',
-  'bun',
-  'node',
-];
-
-async function sshClient(container: string, scratch: string): Promise<string> {
-  const key = join(scratch, 'id_ed25519');
-  await must(['ssh-keygen', '-q', '-t', 'ed25519', '-N', '', '-f', key]);
-  // "SSH is set up": the manager's key is authorized on the machine, and the
-  // machine's host key was read out of band, here from the machine itself.
-  const authorize =
-    'install -d -m 700 -o fleettest -g fleettest /home/fleettest/.ssh && cat > /home/fleettest/.ssh/authorized_keys && chown fleettest:fleettest /home/fleettest/.ssh/authorized_keys && chmod 600 /home/fleettest/.ssh/authorized_keys';
-  const authorized = await runCommand(
-    ['docker', 'exec', '-i', container, 'sh', '-c', authorize],
-    { input: await readFile(`${key}.pub`, 'utf8') }
-  );
-  if (!authorized.ok) throw new Error('The key could not be authorized.');
-  const hostKey = await must([
-    'docker',
-    'exec',
-    container,
-    'cat',
-    '/etc/ssh/ssh_host_ed25519_key.pub',
-  ]);
-  const port = (await must(['docker', 'port', container, '22/tcp']))
-    .split('\n')[0]!
-    .split(':')
-    .at(-1)!;
-  const knownHosts = join(scratch, 'known_hosts');
-  await writeFile(
-    knownHosts,
-    `[127.0.0.1]:${port} ${hostKey.split(' ').slice(0, 2).join(' ')}\n`
-  );
-  const config = join(scratch, 'ssh_config');
-  await writeFile(
-    config,
-    [
-      `Host ${node.ssh}`,
-      '  HostName 127.0.0.1',
-      `  Port ${port}`,
-      '  User fleettest',
-      `  IdentityFile ${key}`,
-      '  IdentitiesOnly yes',
-      `  UserKnownHostsFile ${knownHosts}`,
-      '',
-    ].join('\n')
-  );
-  return config;
-}
-
-async function createBox(): Promise<Box> {
-  const scratch = await mkdtemp(join(tmpdir(), 'fleet-fresh-box-'));
-  const container = `fleet-fresh-box-${process.pid}`;
-  const revision = await must(['git', 'rev-parse', 'HEAD']);
-  if (await must(['git', 'status', '--porcelain']))
-    console.log('Note: uncommitted edits are not part of the tested commit.');
-  await must([
-    'docker',
-    'build',
-    '-q',
-    '-t',
-    image,
-    '-f',
-    'features/fresh-box/Dockerfile',
-    'features/fresh-box',
-  ]);
-  await must([
-    'docker',
-    'run',
-    '-d',
-    '--rm',
-    '--name',
-    container,
-    '-p',
-    '127.0.0.1::22',
-    image,
-  ]);
-  const config = await sshClient(container, scratch);
-  const transport: Runner = (command, options) =>
-    runCommand(
-      command[0] === 'ssh'
-        ? ['ssh', '-F', config, ...command.slice(1)]
-        : command,
-      options
-    );
-  // The SSH server needs a moment after the container starts.
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    if ((await transport([...sshArgs(node), 'true'])).ok) break;
-    await Bun.sleep(500);
-  }
-  const present: string[] = [];
-  for (const command of BEFOREHAND)
-    if ((await transport([...sshArgs(node), `command -v ${command}`])).ok)
-      present.push(command);
-  return { container, scratch, revision, present, transport };
-}
-
-export async function discardBox(): Promise<void> {
-  if (!box) return;
-  const created = await box.catch(() => null);
-  if (!created) return;
-  if (process.env['DEVFLEET_TEST_FRESH_BOX'] === 'keep')
-    console.log(`Kept ${created.container} (docker exec -it … sh).`);
-  else await runCommand(['docker', 'rm', '-f', created.container]);
-  await rm(created.scratch, { recursive: true, force: true });
-}
-
-async function bootstrap(machine: Box): Promise<Bootstrap> {
-  const payload = await prepareBootstrap(
-    machine.scratch,
-    machine.revision,
-    runCommand,
-    {
-      checkout: repo,
-      // The example fleet: the machine receives its configuration like any worker.
-      definition: loadDefinition(resolve(repo, 'examples/fleet.json')),
-    }
-  );
-  if (!payload) throw new Error('The commit under test could not be bundled.');
-  let transferred = false;
-  const observing: Runner = (command, options) => {
-    if (command.at(-1)?.includes("'fleet-bootstrap'"))
-      transferred = command.at(-1)!.endsWith("'transfer'");
-    return machine.transport(command, options);
-  };
-  const started = Date.now();
-  const report = await bootstrapRemote(node, payload, observing);
-  const seconds = Math.round((Date.now() - started) / 1000);
-  console.log(`\nBootstrap of the fresh machine (${seconds}s)`);
-  for (const check of report.checks)
-    console.log(`  ${check.status.padEnd(4)} ${check.id}  ${check.summary}`);
-  return { checks: report.checks, seconds, transferred };
-}
+/** The machine of the single-machine feature. */
+const FRESH_BOX = 'fresh-box';
 
 export class FreshBoxWorld extends World {
   machine!: Box;
+  revision = '';
   bootstrap!: Bootstrap;
   worktree = '';
 
   /** A command on the machine, over the same SSH transport fleet-sync uses. */
-  async remote(command: string): Promise<{ ok: boolean; stdout: string }> {
-    const result = await this.machine.transport([...sshArgs(node), command], {
-      timeoutMs: 120_000,
-    });
-    return { ok: result.ok, stdout: result.stdout.trim() };
+  remote(command: string): Promise<{ ok: boolean; stdout: string }> {
+    return remote(this.machine, command);
   }
   /** In the checkout of the commit under test, with the pinned tools. */
   pinned(
@@ -207,7 +36,7 @@ export class FreshBoxWorld extends World {
     command: string
   ): Promise<{ ok: boolean; stdout: string }> {
     return this.remote(
-      `cd "$HOME/.local/share/personal/fleet/revisions/${this.machine.revision}" && "$HOME/.local/bin/mise" exec --locked ${tool} -- ${command} 2>&1`
+      `cd "$HOME/.local/share/personal/fleet/revisions/${this.revision}" && "$HOME/.local/bin/mise" exec --locked ${tool} -- ${command} 2>&1`
     );
   }
 }
@@ -219,8 +48,8 @@ Given(
   'a fresh Ubuntu {float} machine with an SSH server and an account that can use sudo',
   async (world, release: number) => {
     expect(release.toFixed(2)).toBe(ubuntu.release);
-    box ??= createBox();
-    world.machine = await box;
+    world.machine = await box(FRESH_BOX);
+    world.revision = (await sshClient()).revision;
     expect(
       (await world.remote('. /etc/os-release && echo "$VERSION_ID"')).stdout
     ).toBe(ubuntu.release);
@@ -233,7 +62,7 @@ Given(
   "the manager reaches it over SSH with its own key and the machine's verified host key",
   async (world) => {
     // The production options: batch mode, strict host keys, no agent.
-    expect(sshArgs(node)).toContain('StrictHostKeyChecking=yes');
+    expect(sshArgs(world.machine.node)).toContain('StrictHostKeyChecking=yes');
     expect((await world.remote('whoami')).stdout).toBe('fleettest');
   }
 );
@@ -246,15 +75,14 @@ Then(
   }
 );
 
-const firstBootstrap = async (world: FreshBoxWorld): Promise<void> => {
-  world.machine.first ??= bootstrap(world.machine);
-  world.bootstrap = await world.machine.first;
+const bootstrapped = async (world: FreshBoxWorld): Promise<void> => {
+  world.bootstrap = await firstBootstrap(world.machine);
 };
 When(
   'the manager bootstraps the machine at the commit under test',
-  firstBootstrap
+  bootstrapped
 );
-Given('the manager has bootstrapped the machine', firstBootstrap);
+Given('the manager has bootstrapped the machine', bootstrapped);
 
 When('the manager bootstraps the machine again', async (world) => {
   world.bootstrap = await bootstrap(world.machine);
@@ -266,20 +94,16 @@ When('the manager bootstraps the machine again', async (world) => {
  * `ssh:` check instead of the node's own.
  */
 Then('the bootstrap reaches node convergence', (world) => {
-  const { checks } = world.bootstrap;
-  expect(checks.length).toBeGreaterThan(0);
-  expect(checks.filter((check) => /^(bootstrap|ssh):/.test(check.id))).toEqual(
-    []
-  );
+  expect(reachedConvergence(world.bootstrap.checks)).toBe(true);
 });
 
 Then(
   'the machine holds the commit under test, checked out without its history',
   async (world) => {
-    const checkout = `"$HOME/.local/share/personal/fleet/revisions/${world.machine.revision}"`;
+    const checkout = `"$HOME/.local/share/personal/fleet/revisions/${world.revision}"`;
     expect(
       (await world.remote(`git -C ${checkout} rev-parse HEAD`)).stdout
-    ).toBe(world.machine.revision);
+    ).toBe(world.revision);
     expect(
       (await world.remote(`git -C ${checkout} rev-list --count HEAD`)).stdout
     ).toBe('1');

@@ -1,6 +1,8 @@
 import { afterAll } from 'bun:test';
 import { runFeatures } from '../support/gherkin';
-import { FreshBoxWorld, discardBox, freshBox } from './steps';
+import { FreshBoxWorld, freshBox } from './steps';
+import './fleet-steps';
+import { discardBoxes } from './support/boxes';
 
 // The whole worker toolchain is downloaded: run on request, and on every pull
 // request (`DEVFLEET_TEST_FRESH_BOX=required` there).
@@ -14,4 +16,4 @@ runFeatures({
 });
 
 // Removing the machine can take longer than a hook's default five seconds.
-afterAll(discardBox, 120_000);
+afterAll(discardBoxes, 300_000);

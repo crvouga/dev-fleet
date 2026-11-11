@@ -6,13 +6,15 @@ import { hubUrl, roleOf } from '../topology';
 import { record } from '../config';
 import { isRevision } from '../machine/state';
 import { privateHub } from './beszel';
+import { agentConnection, agentDisk } from './agent-evidence';
 import { runLockedCommand as runCommand } from '../runner';
 import type { Check, Runner } from '../types';
 
 export async function applyAgent(
   value: unknown,
   root: string,
-  run: Runner
+  run: Runner,
+  options: { receipts?: string } = {}
 ): Promise<Check[]> {
   const request = validateRequest(value);
   const definition = fleet;
@@ -32,7 +34,7 @@ export async function applyAgent(
   // Agents connect only to the manager's private hub URL.
   if (privateHub(request.hubUrl) !== privateHub(hubUrl(definition)))
     throw new Error('BESZEL_HUB_MISMATCH');
-  return installAgent(request, root, run);
+  return installAgent(request, root, run, options.receipts);
 }
 
 /** Workers (Linux) install a hardened systemd unit. The macOS manager's own
@@ -42,8 +44,12 @@ export async function applyAgent(
 async function installAgent(
   request: Request,
   root: string,
-  run: Runner
+  run: Runner,
+  receipts: string | undefined
 ): Promise<Check[]> {
+  // Measured before anything changes: a full disk is named, not guessed at.
+  const disk = await agentDisk(run);
+  if (disk.status !== 'pass') return [disk];
   const monitoring = resolve(root, 'ansible/monitoring');
   const result = await runAnsibleWithReceipt(
     run,
@@ -62,10 +68,12 @@ async function installAgent(
       name: 'beszel-agent',
       sources: [monitoring],
       verify: () => agentActive(run),
+      ...(receipts ? { directory: receipts } : {}),
     }
   );
   if (!result.ok)
     return [
+      disk,
       {
         id: 'beszel:installation',
         status: 'fail',
@@ -78,6 +86,7 @@ async function installAgent(
     ];
   const ready = await agentActive(run);
   return [
+    disk,
     {
       id: 'beszel:service',
       status: ready ? 'pass' : 'fail',
@@ -85,6 +94,9 @@ async function installAgent(
         ? 'Native Beszel service is enabled and active; hub metrics remain a separate gate.'
         : 'BESZEL_SERVICE_STOPPED',
     },
+    // How the hub answered the agent, from the agent's side: a rejected token
+    // or key is told apart from a hub that is merely down.
+    ...(ready ? [await agentConnection(run)] : []),
   ];
 }
 async function agentActive(run: Runner): Promise<boolean> {

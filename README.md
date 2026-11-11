@@ -60,6 +60,13 @@ tailnet or repository is written in this code. They live in your `fleet.json`.
 
 ## Quickstart
 
+Setting it up with a coding agent? Point it at
+[`llms.txt`](llms.txt) or straight at
+[Set up a fleet from your own project](docs/consumer-setup.md): the whole
+procedure in one pass, including what the agent must ask you for and the
+first sync only you can run. Both ship in the package, under
+`node_modules/@crvouga/dev-fleet/`.
+
 On the manager you need macOS with Git, Node 22 or newer, Docker Desktop and
 Tailscale signed in. You also need an empty private bucket on any
 S3-compatible service (AWS S3, Cloudflare R2, Backblaze B2, MinIO) and an
@@ -91,6 +98,11 @@ Ansible policy and verifies the result. It prints one table and writes a full
 JSON report. The first run on a machine installs everything, mise included, so
 Git is the only tool it needs beforehand.
 
+`--dry-run` changes no machine. On the manager it checks the release out into
+dev-fleet's cache and installs the Bun that release pins beside any others, so
+that it can run; it never installs the toolchain, publishes the global mise
+configuration, edits shell profiles or touches a worker.
+
 `devfleet` finds the closest `fleet.json` in the directory you run it from or
 above it. `DEVFLEET_CONFIG` names a file elsewhere.
 
@@ -112,6 +124,25 @@ npx devfleet fleet-sync              # the fleet moves to that release
 
 Install an older version and run `fleet-sync` to go back. The first worker
 proves a new revision before the others receive it.
+
+## Your project's own tools
+
+On a fleet machine the global mise configuration (`~/.config/mise/config.toml`
+and its `mise.lock`) belongs to dev-fleet: `fleet-sync` publishes it with the
+fleet's pinned tools and the agent worktree roots mise must trust. A project
+pins its own tools in its own `mise.toml` and installs them with
+`mise install --locked` in its checkout. It never publishes a global
+configuration. If anything replaces dev-fleet's, `fleet-status` fails the check
+`tool:global-mise-config` until the next `fleet-sync`.
+
+## Using it from code
+
+dev-fleet has no library API. The package is the `devfleet` command: it
+declares no `main` or `exports`, and nothing under `src/`, `bootstrap/` or
+`ansible/` is a supported import. Any release, a patch included, may change
+them, and some modules read the fleet configuration as soon as they are
+imported. If your project needs something dev-fleet does, ask for a command in
+an [issue](#bugs-and-feature-requests).
 
 ## State
 

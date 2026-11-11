@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   statSync,
   writeFileSync,
 } from 'node:fs';
@@ -48,17 +49,23 @@ export function assertManagedConfig(dir: string): void {
   }
 }
 
+/** What `publishGlobalConfig` writes to config.toml, given what is there. */
+function publishedConfig(root: string, previous: string | undefined): string {
+  return (
+    MARKER +
+    withTrustedPaths(
+      readFileSync(join(root, 'mise.toml'), 'utf8'),
+      trustedPaths(previous)
+    )
+  );
+}
+
 export function publishGlobalConfig(dir: string, root = workspaceRoot): void {
   assertManagedConfig(dir);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, 'config.toml');
   const previous = existsSync(path) ? readFileSync(path, 'utf8') : undefined;
-  const config =
-    MARKER +
-    withTrustedPaths(
-      readFileSync(join(root, 'mise.toml'), 'utf8'),
-      trustedPaths(previous)
-    );
+  const config = publishedConfig(root, previous);
   if (previous !== config) writeFileSync(path, config);
   cpSync(join(root, 'mise.lock'), join(dir, 'mise.lock'), {
     filter: changedFile,
@@ -69,6 +76,57 @@ export function publishGlobalConfig(dir: string, root = workspaceRoot): void {
       recursive: true,
       filter: changedFile,
     });
+}
+
+/**
+ * How the global mise configuration stands against what this revision
+ * publishes. On a fleet machine it belongs to dev-fleet: a project pins its
+ * tools in its own mise.toml and never publishes a global one.
+ *
+ * - `published`: dev-fleet's marker, this revision's pins and lock
+ * - `missing`: there is no global config.toml
+ * - `replaced`: another owner (or nobody's marker) wrote it
+ * - `changed`: dev-fleet's marker, but not this revision's content
+ */
+export type GlobalConfigStanding =
+  'published' | 'missing' | 'replaced' | 'changed';
+
+export function globalConfigStanding(
+  dir: string,
+  root = workspaceRoot
+): GlobalConfigStanding {
+  const path = join(dir, 'config.toml');
+  if (!existsSync(path)) return 'missing';
+  const current = readFileSync(path, 'utf8');
+  if (!current.startsWith(MARKER)) return 'replaced';
+  const same = (source: string, target: string): boolean =>
+    existsSync(target) && readFileSync(source).equals(readFileSync(target));
+  const sidecars = join(root, '.mise/locks');
+  const locks = existsSync(sidecars)
+    ? (readdirSync(sidecars, { recursive: true }) as string[])
+        .map((name) => join('.mise/locks', name))
+        .filter((name) => statSync(join(root, name)).isFile())
+    : [];
+  // Paths trusted on the machine are kept by every publish, in any order;
+  // the agent worktree roots must be among them.
+  const TRUSTED = /^trusted_config_paths\s*=.*\n/m;
+  const trusted = trustedPaths(current);
+  let listed: unknown;
+  try {
+    listed = (Bun.TOML.parse(current) as { settings?: Record<string, unknown> })
+      .settings?.['trusted_config_paths'];
+  } catch {
+    listed = undefined;
+  }
+  const unchanged =
+    Array.isArray(listed) &&
+    trusted.every((path) => listed.includes(path)) &&
+    current.replace(TRUSTED, '') ===
+      publishedConfig(root, current).replace(TRUSTED, '') &&
+    ['mise.lock', ...locks].every((name) =>
+      same(join(root, name), join(dir, name))
+    );
+  return unchanged ? 'published' : 'changed';
 }
 
 /**

@@ -12,6 +12,11 @@ shift
 case "$revision" in *[!a-f0-9]*|'') exit 2;; esac
 [ "${#revision}" = 40 ] || exit 2
 say() { printf 'fleet-sync (manager): %s\n' "$1" >&2; }
+# A preview (--dry-run) changes nothing outside dev-fleet's own disposable
+# caches: it never publishes the global mise configuration, never edits shell
+# profiles and never prunes run checkouts. Only an apply does.
+preview=false
+for arg in "$@"; do [ "$arg" != --dry-run ] || preview=true; done
 # mise is installed here by the toolchain step below; a login shell is not
 # required to find it.
 export PATH="$HOME/.local/bin:$PATH"
@@ -64,7 +69,12 @@ failed() {
   say "toolchain or dependency install failed in the run checkout; full log: $log"
   exit 5
 }
-if [ "$(cat "$stamp" 2>/dev/null)" != "$key" ] || [ -z "$(find "$stamp" -mmin -1440 2>/dev/null)" ]; then
+if [ "$preview" = true ]; then
+  # The revision's own locked Bun is enough to preview; mise keeps it beside
+  # its other versions without making it the global one.
+  command -v mise >/dev/null 2>&1 || { say 'this manager has no toolchain yet, so a preview cannot run; fleet-sync without --dry-run installs it.'; exit 6; }
+  mise install --locked bun >"$log" 2>&1 || failed
+elif [ "$(cat "$stamp" 2>/dev/null)" != "$key" ] || [ -z "$(find "$stamp" -mmin -1440 2>/dev/null)" ]; then
   rm -f -- "$stamp"
   # The toolchain bootstrap installs the pinned mise first when the manager
   # has none (or another version), so Git is all a new manager needs.
@@ -76,15 +86,18 @@ if [ ! -d node_modules ]; then
 fi
 # Keep the three most recent run checkouts (names are commit SHAs) and the
 # applied one: fleet/current points at it and T3's providers launch from there.
-applied=$(basename "$(readlink "$(dirname "$runs")/current" 2>/dev/null || true)")
-# shellcheck disable=SC2012
-for old in $(ls -1td "$runs"/*/ | tail -n +4); do
-  [ "$(basename "$old")" != "$applied" ] || continue
-  # A checkout made from another repository (an earlier clone) is not this
-  # repository's worktree: remove the directory itself.
-  git -C "$repo" worktree remove --force "$old" 2>/dev/null || rm -rf -- "$old"
-  rm -f -- "${old%/}.setup.log"
-done
-git -C "$repo" worktree prune
+# A preview leaves them for the next apply to prune.
+if [ "$preview" = false ]; then
+  applied=$(basename "$(readlink "$(dirname "$runs")/current" 2>/dev/null || true)")
+  # shellcheck disable=SC2012
+  for old in $(ls -1td "$runs"/*/ | tail -n +4); do
+    [ "$(basename "$old")" != "$applied" ] || continue
+    # A checkout made from another repository (an earlier clone) is not this
+    # repository's worktree: remove the directory itself.
+    git -C "$repo" worktree remove --force "$old" 2>/dev/null || rm -rf -- "$old"
+    rm -f -- "${old%/}.setup.log"
+  done
+  git -C "$repo" worktree prune
+fi
 export PERSONAL_WORKSPACE="$dir" PERSONAL_FLEET_RUN_CHECKOUT="$revision"
 exec mise exec --locked bun -- bun src/cli/cli.ts fleet-sync --revision "$revision" "$@"

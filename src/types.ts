@@ -80,6 +80,10 @@ export interface CommandOptions {
   input?: string;
   timeoutMs?: number;
   env?: NodeJS.ProcessEnv;
+  /** Run with `env` alone instead of on top of this process's environment:
+   * for a launch that must see only what a service would.
+   */
+  isolatedEnv?: boolean;
 }
 
 export interface CommandResult {

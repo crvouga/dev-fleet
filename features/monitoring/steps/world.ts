@@ -41,7 +41,13 @@ export class MonitoringWorld extends CommandWorld {
   tailscale: string | null = null;
   account: HubLogin | null = null;
   viewer: Check | undefined;
+  backups: Check | undefined;
   workerHome = '';
+
+  // A disposable machine the agent's playbook runs on.
+  box = '';
+  pid = '';
+  changed: number | undefined;
 }
 
 export const monitoring = steps<MonitoringWorld>();

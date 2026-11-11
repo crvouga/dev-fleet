@@ -179,7 +179,12 @@ async function applyNodes(
   deploy: DeployNode
 ): Promise<void> {
   const workers = report.nodes.filter((node) => node.role !== 'manager');
-  const canary = workers.find((node) => node.node === input.canary);
+  // A revision new to the fleet is proven on one worker first. When the run
+  // selects only later workers, the first selected one proves it instead:
+  // narrowing a run never skips the canary.
+  const canary = input.canary
+    ? (workers.find((node) => node.node === input.canary) ?? workers[0])
+    : undefined;
   let blocked = report.checks.some(blocking);
   const step = async (result: ManagerNode) => {
     const deployable = mayDeploy(result, input.nodes);

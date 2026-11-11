@@ -30,7 +30,8 @@ in the source repository.
 
 Every merge to `main` is a release. When CI passes on `main`, the
 [Release workflow](../.github/workflows/release.yml) picks the next version from
-the commits since the newest `vX.Y.Z` tag
+the commits since the newest `vX.Y.Z` tag (or, before there is one, the newest
+version on npm)
 ([`bootstrap/release-version.ts`](../bootstrap/release-version.ts)), publishes it
 to `@crvouga/dev-fleet` with provenance, pushes the tag and creates the GitHub
 Release. The commit messages choose the bump:
@@ -45,7 +46,10 @@ Release. The commit messages choose the bump:
 workflow stamps the version and the commit into the package it publishes, so
 nobody edits a version or runs `npm publish` by hand after the one-time setup
 below. Merges that land while a release runs
-wait, and the newest one releases everything since the last tag. Re-running a
+wait, and the newest one releases everything since the last tag. A run that
+cannot release because publishing was never set up (no tag and nothing on
+npm) fails, and the run summary says why; a merge with nothing new to release
+passes and says so. Re-running a
 release whose version is already on npm skips the publish and finishes the tag
 and GitHub Release.
 
@@ -71,7 +75,10 @@ bun run bootstrap
 It signs in to npm (browser approval), runs `bun run check`, publishes `0.1.0`
 from a throwaway checkout of `HEAD` (so your working tree is never edited),
 makes `release.yml` the package's trusted publisher, and tags `v0.1.0` on the
-commit npm recorded. Every step measures first and skips what is already done,
+commit npm recorded. When npm recorded none (as for the `0.1.0` that is on
+npm), there is nothing to tag: until the first tag exists, the Release
+workflow counts from the newest version on npm and every commit up to `HEAD`
+picks the bump. Every step measures first and skips what is already done,
 so run it again after any interruption. It needs npm 11.10 or newer (for
 `npm trust`) and an npm account that owns the `@crvouga` scope. Flags: `--yes`
 skips the confirmation, `--skip-check` skips `bun run check`.

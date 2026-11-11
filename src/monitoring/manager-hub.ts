@@ -6,6 +6,7 @@ import { runAnsibleWithReceipt } from '../platform/ansible-receipt';
 import { failure, inspectRoute, publicEndpointCheck, tunnelToken } from './hub';
 import { publicViewerIdentity, fleetAccount } from './hub-access';
 import { ensurePublicViewer, type HubLogin } from './hub-viewer';
+import { verifyHubBackups } from './hub-backup';
 import type { FleetDefinition } from '../definition';
 import { hostId, hubUrl } from '../topology';
 import { publicHubUrl, privateHub } from './beszel';
@@ -55,6 +56,8 @@ export interface ManagerHubOptions {
   receipts?: string;
   /** Ensures the read-only AUTO_LOGIN user; defaults to the loopback hub API. */
   viewer?: (login: HubLogin | null) => Promise<Check>;
+  /** Reads the hub's backup settings; defaults to the loopback hub API. */
+  backups?: (login: HubLogin | null) => Promise<Check>;
 }
 
 /** Converges the singleton Beszel hub locally on the manager: pinned Compose
@@ -124,6 +127,7 @@ export async function convergeManagerHub(
     },
     publicEndpointCheck(tunnel !== null),
     await ensureViewer(options, account),
+    await (options.backups ?? verifyHubBackups)(account),
   ];
 }
 

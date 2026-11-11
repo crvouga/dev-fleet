@@ -1,0 +1,35 @@
+# dev-fleet
+
+> dev-fleet keeps a set of development machines in sync: one macOS **manager** and any number of Ubuntu 26.04 **workers** reached over SSH and Tailscale. It is used as the npm package `@crvouga/dev-fleet` (CLI `devfleet`) from a project of your own that holds `fleet.json` and pins the package version; one command, `devfleet fleet-sync`, converges every machine to the commit that version was published from. The fleet state lives in an S3-compatible bucket you own.
+
+Rules for an agent working in a project that uses dev-fleet:
+
+- Never clone, vendor or patch dev-fleet, and never edit what it installs on a machine. A defect or missing feature is a public issue at https://github.com/crvouga/dev-fleet/issues (no credentials, hostnames, accounts, domains or `fleet.json` contents).
+- Never put a secret in an argument, `fleet.json`, a commit or a log. Bucket credentials come from `DEVFLEET_BUCKET_ACCESS_KEY_ID` and `DEVFLEET_BUCKET_SECRET_ACCESS_KEY`; other secrets from the provider `fleet.json` names (`vault`, `sops`, `file` or `env`).
+- `npx devfleet commands --json` prints the machine-readable contract: commands, exit codes, safety rules, how to report a bug. Read it first; pass `--json --non-interactive` to every diagnostic.
+- `--dry-run`, `fleet-status` and `fleet-state` (without flags) are read-only. `fleet-sync` changes every machine, and its first run must be done by a human at a terminal (host enrollment, sudo, Vault).
+- The installed package carries these documents under `node_modules/@crvouga/dev-fleet/`.
+
+## Set up a fleet
+
+- [Set up a fleet from your own project](https://github.com/crvouga/dev-fleet/blob/main/docs/consumer-setup.md): the one-pass procedure for an agent: prerequisites and how to verify them, what to ask the human, every `fleet.json` field, secrets, bucket credentials, the first sync, verification and failure codes
+- [README](https://github.com/crvouga/dev-fleet/blob/main/README.md): what dev-fleet assumes, quickstart, versions, adding a machine, known limits
+- [Example fleet.json](https://github.com/crvouga/dev-fleet/blob/main/examples/fleet.json): a complete configuration with placeholders (`npx devfleet fleet-state --example` prints it)
+- [fleet.json schema](https://github.com/crvouga/dev-fleet/blob/main/schema/fleet.schema.json): JSON Schema for the fleet configuration
+
+## Operate it
+
+- [Fleet state](https://github.com/crvouga/dev-fleet/blob/main/docs/state.md): the bucket, replication, replacing the manager, what the bucket does not hold yet
+- [Topology](https://github.com/crvouga/dev-fleet/blob/main/docs/topology.md): the manager and worker roles and the canary
+- [What is declared, and where](https://github.com/crvouga/dev-fleet/blob/main/docs/declared.md): what is pinned on a machine and what is not
+- [CLI proxy](https://github.com/crvouga/dev-fleet/blob/main/cliproxy/README.md): the CLIProxyAPI service on the manager that every coding agent uses
+- [Monitoring](https://github.com/crvouga/dev-fleet/blob/main/ansible/monitoring/README.md): the Beszel hub on the manager and the agent on every machine
+
+## Optional
+
+- [Ubuntu fleet-sync reference](https://github.com/crvouga/dev-fleet/blob/main/docs/ubuntu-sync.md): enrollment, approval, machine policy by platform, remote-work safety
+- [Worker contract](https://github.com/crvouga/dev-fleet/blob/main/docs/worker-contract.md): what a worker guarantees and how readiness is scoped
+- [Operations](https://github.com/crvouga/dev-fleet/blob/main/docs/operations.md): roster, diagnostics and repairs
+- [Coding agents on every node](https://github.com/crvouga/dev-fleet/blob/main/agents/setup.md): agent launchers and the T3 providers
+- [Releasing](https://github.com/crvouga/dev-fleet/blob/main/docs/releasing.md): how a version is published from one commit (for dev-fleet developers)
+- [Features](https://github.com/crvouga/dev-fleet/blob/main/features/README.md): the behaviour specified in Gherkin (for dev-fleet developers)

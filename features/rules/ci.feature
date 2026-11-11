@@ -20,6 +20,7 @@ Feature: Every pull request is checked the way machines run
       | check     |
       | state     |
       | fresh-box |
+      | agent-box |
       | workflows |
 
   Scenario: The fresh worker check covers both architectures a worker may have
@@ -34,6 +35,12 @@ Feature: Every pull request is checked the way machines run
     And its "fresh-box" job has no condition
     And its "fresh-box" job runs "bun test features/fresh-box"
     And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX" to "required"
+
+  Scenario: The monitoring agent is applied on a systemd machine on every pull request
+    Then the "CI" workflow runs on "pull_request"
+    And its "agent-box" job has no condition
+    And its "agent-box" job runs "bun test features/monitoring"
+    And its "agent-box" job sets "DEVFLEET_TEST_AGENT_BOX" to "required"
 
   Scenario: A release stamps the commit it is published from into the package
     fleet-sync run from the package converges every machine to the commit the

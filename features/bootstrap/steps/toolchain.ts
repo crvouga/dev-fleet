@@ -9,6 +9,7 @@ import {
 import { dirname, join, resolve } from 'node:path';
 import {
   dockerChecks,
+  globalConfigCheck,
   toolChecks,
   worktreeTrustCheck,
   type Check,
@@ -386,6 +387,17 @@ When(
     ];
   }
 );
+
+When('the doctor checks the global mise configuration', (world) => {
+  doctor(world).checks = [
+    globalConfigCheck(published(world).target, published(world).source),
+  ];
+});
+
+Then('the check says {string}', (world, text: string) => {
+  expect(doctor(world).checks).toHaveLength(1);
+  expect(doctor(world).checks[0]!.detail).toContain(text);
+});
 
 Then(
   /^the check "([^"]*)" (passes|fails)$/,

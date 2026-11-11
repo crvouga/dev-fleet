@@ -78,6 +78,8 @@ export async function convergeLinux(
     ...(await attempt('agent:verification', () =>
       verifyNativeAgents(node, root, run, {
         outOfQuota: quotaLimited(providers),
+        // Where T3 starts them: the environment of its user service.
+        t3Service: true,
       })
     ))
   );

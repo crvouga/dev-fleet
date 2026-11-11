@@ -22,7 +22,29 @@ export async function verifyT3Linked(
     )();
     check = await linkedOnce(node, run, now());
   }
-  return check;
+  return check.status === 'fail' ? explained(node, run, check) : check;
+}
+
+/** A worker enrolled with one T3 environment that now runs another lost
+ * its identity (a reset data directory, a reinstall): the old link cannot
+ * reach it, and a new pairing is the remedy, not a reconnect.
+ */
+async function explained(
+  node: FleetNode,
+  run: Runner,
+  check: Check
+): Promise<Check> {
+  if (!node.t3EnvironmentId) return check;
+  const observed = await observedIdentity(node, run).catch(() => undefined);
+  if (!observed || observed === node.t3EnvironmentId) return check;
+  return {
+    ...check,
+    summary: 'T3_ENVIRONMENT_IDENTITY_CHANGED',
+    remedy: {
+      action:
+        'This worker now runs a different T3 environment than the one enrolled in the roster, so the manager’s link cannot reach it. Find out why its T3 data was replaced before anything else; then pair the new environment through T3 Connections and enroll it again. Fleet never copies or rewrites a T3 identity.',
+    },
+  };
 }
 
 async function linkedOnce(

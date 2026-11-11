@@ -162,7 +162,11 @@ export function plan(state: State): Step[] {
     {
       id: 'tag',
       title: `Tag ${seedTag} on the commit that was published`,
-      done: state.tagRemote,
+      // npm recorded no commit for a seed published without one, so there is
+      // nothing to tag: the Release workflow then counts from the newest
+      // version on npm (bootstrap/release-version.ts).
+      done:
+        state.tagRemote || (state.published && state.publishedCommit === null),
       blocked: null,
     },
   ];

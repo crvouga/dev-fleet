@@ -150,6 +150,13 @@ Feature: The command catalog
       And in the answer, "agent.support.never" contains "Do not edit the installed package"
       And in the answer, "agent.support.withhold" contains "public"
 
+    Scenario: The agent contract says there is no library and whose the global mise configuration is
+      When the operator runs "devfleet commands --json"
+      Then in the answer, "agent.library" contains "nothing under src/ is a supported import"
+      And in the answer, "agent.toolchain" contains "global mise configuration belongs to dev-fleet"
+      And in the answer, "agent.toolchain" contains "tool:global-mise-config"
+      And in the answer, "agent.fleetSync.approval" contains "never the toolchain, the global mise configuration or shell profiles"
+
     Scenario: The help names the issue tracker
       When the operator runs "devfleet --help"
       Then it prints text containing "Bugs and feature requests: https://git.example.com/scope/dev-fleet/issues."

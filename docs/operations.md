@@ -11,16 +11,16 @@ existing mise/workstation owners rather than introducing another installer.
 
 The fleet is one singleton **manager** (the human's macOS machine, which runs
 `fleet-sync` and every singleton service such as the CLI proxy and Beszel hub)
-and stateless Linux **workers**. See [topology](docs/topology.md).
+and stateless Linux **workers**. See [topology](topology.md).
 
-See [Ubuntu fleet-sync implementation and operator status](docs/ubuntu-sync.md) for
+See [Ubuntu fleet-sync implementation and operator status](ubuntu-sync.md) for
 the manager-driven public command and its outstanding full-machine gates.
 
 ## Worker contract
 
 Use `devfleet fleet-sync` to reconcile all declared workers and
 `devfleet fleet-status --workers` to inspect remaining gaps. See
-[worker-contract.md](docs/worker-contract.md) for bootstrap, ownership and the exact
+[worker-contract.md](worker-contract.md) for bootstrap, ownership and the exact
 scope of readiness. `fleet-status` without flags diagnoses the local roster.
 Workers are Ubuntu 26.04; the manager is macOS and never sleeps on AC power
 (`ansible/macos/manager.yml`). Machine policy (never sleep, no automatic
@@ -28,7 +28,7 @@ logout, always-on Tailscale/SSH/Docker/Beszel, memory and disk safety, per-node
 credential renewal) is
 declared in Ansible and measured by `fleet-status --workers`, which also verifies
 the centralized Beszel dashboard. See the
-[platform matrix](docs/ubuntu-sync.md#machine-policy-by-platform).
+[platform matrix](ubuntu-sync.md#machine-policy-by-platform).
 
 ## Quick start
 
@@ -131,7 +131,7 @@ need normal repository validation. A green install is not a healthy fleet.
 
 ## Add a computer
 
-1. Review and run the shared [machine bootstrap](../../bootstrap/README.md) on
+1. Review and run the shared [machine bootstrap](../bootstrap/bootstrap.sh) on
    the new machine. Reopen terminal/editor. Do not invent a second installer.
 2. As operator, enable OS SSH access on a trusted private network. Generate a
    distinct machine key, authorize only its public key and verify the server
@@ -268,7 +268,7 @@ All commands are in the `devfleet` entry point.
 `devfleet fleet-node-sync --revision FULL_SHA --dry-run` previews this node's
 reviewed configuration; without `--dry-run` it applies. `devfleet fleet-sync
 --revision FULL_SHA` rolls the same reviewed revision out to the enrolled fleet
-after approval. The [setup runbook](../fleet/agents/setup.md#reviewed-rollout-and-rollback)
+after approval. The [setup runbook](../agents/setup.md)
 covers canaries, offline/partial failures, per-node receipts and rollback. Both
 delegate rendering to personal workstation and installation to existing mise/bootstrap.
 They never reset the developer checkout or transfer credentials. Status delegates
