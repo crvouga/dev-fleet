@@ -207,7 +207,8 @@ Then(
     for (const machine of fleet(world).machines) {
       const found = await asRoot(
         machine,
-        'grep -rls fleet-sync /etc/systemd /etc/cron.d /etc/crontab /var/spool/cron /home/fleettest/.config/systemd 2>/dev/null; true'
+        // A unit that runs it, a timer for such a unit, or a cron line.
+        "grep -rlsE '^ExecStart=.*fleet-sync' /etc/systemd /home/fleettest/.config/systemd; ls /etc/systemd/system/*fleet-sync*.timer /home/fleettest/.config/systemd/user/*fleet-sync*.timer 2>/dev/null; grep -rls fleet-sync /etc/cron.d /etc/crontab /var/spool/cron 2>/dev/null; true"
       );
       expect(`${machine.name}: ${found.stdout}`).toBe(`${machine.name}: `);
     }
@@ -502,11 +503,12 @@ When(
     world.machine = machine;
     const interrupted = bootstrap(machine);
     // The character classes keep these patterns from matching the shell
-    // that runs them.
+    // that runs them, and the anchor from matching the bootstrap script,
+    // whose own command line holds this text.
     expect(
       await waitFor(
         machine,
-        "pgrep -f 'bootstrap/[b]ootstrap.sh --worker'",
+        "pgrep -f '^bash bootstrap/[b]ootstrap.sh --worker'",
         300_000
       )
     ).toBe(true);
@@ -515,7 +517,7 @@ When(
     // whole process group.
     const killed = await asRoot(
       machine,
-      'group=$(ps -o pgid= -p "$(pgrep -f \'bootstrap/[b]ootstrap.sh --worker\' | head -1)" | tr -d \' \'); [ -z "$group" ] || kill -KILL -- "-$group"; for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null | grep -q \'remote-operation[.]lock\' && kill -KILL "${p#/proc/}"; done; true'
+      'group=$(ps -o pgid= -p "$(pgrep -f \'^bash bootstrap/[b]ootstrap.sh --worker\' | head -1)" | tr -d \' \'); [ -z "$group" ] || kill -KILL -- "-$group"; for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null | grep -q \'remote-operation[.]lock\' && kill -KILL "${p#/proc/}"; done; true'
     );
     expect(killed.ok).toBe(true);
     world.bootstrap = await interrupted;
