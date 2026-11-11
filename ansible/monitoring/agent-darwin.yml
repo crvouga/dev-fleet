@@ -51,7 +51,7 @@
     - name: Require explicit adoption of any previously unmanaged agent
       ansible.builtin.assert:
         that:
-          - "not existing_plist.stat.exists or 'Managed by personal Fleet: packages/' in (existing_agent.content | default('') | b64decode)"
+          - "not existing_plist.stat.exists or 'Managed by personal Fleet:' in (existing_agent.content | default('') | b64decode)"
         fail_msg: Unmanaged Beszel launch agent exists. Review a source-controlled migration before replacing it.
     - name: Create private configuration, version and state directories
       ansible.builtin.file:

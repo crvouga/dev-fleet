@@ -28,7 +28,7 @@
     - name: Require explicit adoption of any previously unmanaged service
       ansible.builtin.assert:
         that:
-          - "not existing_service.stat.exists or (existing_unit.content | default('') | b64decode).startswith('# Managed by personal Fleet: packages/')"
+          - "not existing_service.stat.exists or (existing_unit.content | default('') | b64decode).startswith('# Managed by personal Fleet:')"
         fail_msg: Unmanaged Beszel unit exists. Review a source-controlled migration before replacing it.
     - name: Create unprivileged service account
       ansible.builtin.user:
