@@ -41,8 +41,7 @@ not exist yet. One command does the one-time work with your own npm login, from
 `main` with a clean tree:
 
 ```sh
-bun run bootstrap             # walk through it
-bun run bootstrap --dry-run   # show what is done and what would run
+bun run bootstrap
 ```
 
 It signs in to npm (browser approval), runs `bun run check`, publishes `0.1.0`

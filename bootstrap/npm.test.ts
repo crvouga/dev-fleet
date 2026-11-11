@@ -96,7 +96,7 @@ function world(initial: Partial<Record<string, unknown>> = {}) {
   return { w, ran, deps };
 }
 
-const options = { dryRun: false, yes: true, skipCheck: true };
+const options = { yes: true, skipCheck: true };
 
 test('a fresh setup signs in, publishes the seed, trusts the workflow and tags the published commit, in order', async () => {
   const { ran, deps } = world();
@@ -128,12 +128,6 @@ test('an interrupted run resumes at the first step that is not done', async () =
   expect(await bootstrap(deps, target, options)).toBe(0);
   expect(ran[0]).toStartWith('npm trust github');
   expect(ran).not.toContain('seed');
-});
-
-test('a dry run reports and changes nothing', async () => {
-  const { ran, deps } = world();
-  expect(await bootstrap(deps, target, { ...options, dryRun: true })).toBe(0);
-  expect(ran).toEqual([]);
 });
 
 test('it will not publish from uncommitted work or a commit that is not main', async () => {

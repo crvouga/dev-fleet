@@ -8,7 +8,6 @@
  * already done, so it is safe to run again after any interruption.
  *
  *   bun run bootstrap              walk through and do it
- *   bun run bootstrap --dry-run    show what is done and what would run
  *   bun run bootstrap --yes        do not ask before publishing
  *   bun run bootstrap --skip-check do not run `bun run check` first
  */
@@ -178,7 +177,6 @@ export interface Deps {
 }
 
 interface Options {
-  dryRun: boolean;
   yes: boolean;
   skipCheck: boolean;
 }
@@ -255,7 +253,6 @@ export async function bootstrap(
     log('Nothing to do: publishing is bootstrapped.');
     return 0;
   }
-  if (options.dryRun) return todo.some((step) => step.blocked) ? 1 : 0;
   const blocked = todo.find((step) => step.blocked);
   if (blocked) return 1;
   if (
@@ -333,14 +330,11 @@ const system: Exec = {
 if (import.meta.main) {
   const args = process.argv.slice(2);
   const options: Options = {
-    dryRun: args.includes('--dry-run'),
     yes: args.includes('--yes'),
     skipCheck: args.includes('--skip-check'),
   };
-  if (!options.yes && !options.dryRun && !process.stdin.isTTY) {
-    console.error(
-      'Not a terminal: pass --yes to run unattended, or --dry-run.'
-    );
+  if (!options.yes && !process.stdin.isTTY) {
+    console.error('Not a terminal: pass --yes to run unattended.');
     process.exit(2);
   }
   process.exitCode = await bootstrap(
