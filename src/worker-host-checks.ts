@@ -62,6 +62,11 @@ export async function workerHostChecks(
         'Exact declarative Ubuntu package version.'
       )
     ),
+    check(
+      'package:tailscale',
+      audit.packages['tailscale'] === policy.tailscale.version,
+      'Exact declarative Tailscale version.'
+    ),
   ];
   for (const name of policy.alwaysOnServices) {
     const unit = await run([

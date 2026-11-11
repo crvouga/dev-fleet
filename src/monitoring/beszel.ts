@@ -1,4 +1,5 @@
 import { fleet } from '../fleet-config';
+import lock from '../../ansible/monitoring/lock.json';
 import type { Check } from '../types';
 
 export interface BeszelEvidence {
@@ -49,7 +50,8 @@ export function privateHub(value: string): string {
   return url.origin;
 }
 
-/** Read-only PocketBase endpoints, verified against upstream Beszel v0.21.1.
+/** Read-only PocketBase endpoints, verified against the upstream Beszel
+ * release `ansible/monitoring/lock.json` pins.
  * Never return raw records: they may contain tokens, hosts or user information.
  */
 export async function verifyBeszel(
@@ -63,7 +65,7 @@ export async function verifyBeszel(
   const result: BeszelEvidence = { dashboardUrl, checks: [], receivedAt: null };
   try {
     const info = await request('/api/beszel/info');
-    if (!object(info) || info['v'] !== '0.21.1') {
+    if (!object(info) || info['v'] !== lock.version) {
       result.checks.push(
         check(
           'version',
@@ -75,7 +77,12 @@ export async function verifyBeszel(
       return result;
     }
     result.checks.push(
-      check('version', 'pass', 'Authenticated hub reports 0.21.1.', 'None.')
+      check(
+        'version',
+        'pass',
+        `Authenticated hub reports ${lock.version}.`,
+        'None.'
+      )
     );
     const filter = encodeURIComponent(`name="${node}"`);
     const records = items(

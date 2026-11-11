@@ -21,11 +21,16 @@
   domain, tailnet name or consumer repository in tracked files; they belong in
   the consumer's `fleet.json`, read only through `src/fleet-config.ts`
   (`cliproxy/scripts/fleet_config.py` for the proxy scripts).
-  `tests/identity.test.ts` enforces this.
+  `features/rules/identity.feature` enforces this.
 - **Declare, then measure.** Anything that changes a machine is an Ansible task
   (`ansible/`, builtin modules only) or a mise pin. TypeScript refuses
   conflicts beforehand and measures the result afterwards; it must not run
   `systemctl start|restart|enable`, `tailscale serve`, `apt` or similar itself.
+  A version or digest is written once, in a lock or policy file
+  (`mise.toml`, `mise.lock`, `ansible/*/policy.json`,
+  `ansible/monitoring/lock.json`, `ansible/uv.lock`), never in a script or in
+  TypeScript. `features/rules/declared.feature` enforces this and `docs/declared.md`
+  lists what is not declared yet: add to neither list.
 - **Text written to machines is an interface.** Managed-file contents, unit
   names, launchd labels, state paths and ownership markers already exist on
   running machines. Changing one is a migration, never a rename. An ownership
@@ -46,7 +51,13 @@
   responses.
 - Keep the CLI flat: `fleet-*`, `t3-*`, `cliproxy`. Add flags, not aliases or
   nested groups.
-- Tests inject every subprocess, run against `examples/fleet.json` (without
-  the bucket it names) and never contact a real machine. Run `bun run check`
-  before pushing. Verify bootstrap changes with
-  `bun ansible/ubuntu/tests/fresh-box.ts`.
+- **Behaviour is specified in Gherkin.** Every test of the TypeScript is a
+  scenario under `features/` (read `features/README.md` first): the feature
+  says what is true in the product's words and carries its inputs and expected
+  values; the step definitions beside it hold the mechanics. Do not add a
+  `*.test.ts` that is not an area's `features.test.ts`. Scenarios inject every
+  subprocess, run against `examples/fleet.json` (without the bucket it names)
+  and never contact a real machine. Run `bun run check` before pushing. Verify
+  bootstrap changes with `DEVFLEET_TEST_FRESH_BOX=1 bun test
+features/fresh-box`, which bootstraps a disposable Ubuntu machine over SSH
+  from the `HEAD` commit; CI runs it on every pull request.

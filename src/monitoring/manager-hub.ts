@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { delimiter, join, resolve } from 'node:path';
+import { runAnsible } from '../platform/ansible';
 import { runAnsibleWithReceipt } from '../platform/ansible-receipt';
 import { failure, inspectRoute, publicEndpointCheck, tunnelToken } from './hub';
 import { publicViewerIdentity, fleetAccount } from './hub-access';
@@ -14,6 +15,8 @@ import type { Check, Runner } from '../types';
 export const TAILSCALE_APP_CLI =
   '/Applications/Tailscale.app/Contents/MacOS/Tailscale';
 const LOCAL_HUB = 'http://127.0.0.1:8090';
+/** The one place the route is declared; `hub-route-darwin.yml` receives it. */
+export const HUB_ROUTE = { port: '8443', proxy: LOCAL_HUB };
 
 /** Per-user hub paths on the manager. Data stays in the human's home (and its
  * normal backups); it is never copied to a worker.
@@ -57,7 +60,8 @@ export interface ManagerHubOptions {
 /** Converges the singleton Beszel hub locally on the manager: pinned Compose
  * under Docker Desktop, the connector token from the manager's own Vault
  * session (private variables file, never argv or output), a private Tailscale
- * Serve route, then independent health checks locally and over the tailnet.
+ * Serve route (its own playbook), then independent health checks locally and
+ * over the tailnet.
  */
 export async function convergeManagerHub(
   root: string,
@@ -105,7 +109,7 @@ export async function convergeManagerHub(
       'Inspect Docker Desktop, the Compose image, file sharing for ~/Library/Application Support and disk space. Existing data is never deleted.'
     );
   const route = await servePrivateRoute(
-    hub,
+    { hub, monitoring },
     run,
     options.tailscale === undefined ? tailscaleCommand() : options.tailscale
   );
@@ -175,8 +179,11 @@ async function preconditions(
   return null;
 }
 
+/** `hub-route-darwin.yml` publishes the route when its port has no owner; this
+ * refuses a conflicting owner beforehand and measures the result.
+ */
 async function servePrivateRoute(
-  hub: string,
+  { hub, monitoring }: { hub: string; monitoring: string },
   run: Runner,
   cli: string | null
 ): Promise<Check[] | null> {
@@ -191,21 +198,26 @@ async function servePrivateRoute(
       'BESZEL_PRIVATE_ROUTE_UNVERIFIED',
       'Inspect Tailscale Serve permission and existing private routes before retry.'
     );
-  const route = inspectRoute(status.stdout, hub);
+  const route = inspectRoute(status.stdout, hub, HUB_ROUTE);
   if (Array.isArray(route)) return route;
   if (!route) {
-    const serve = [cli, 'serve', '--bg', '--https=8443', LOCAL_HUB] as const;
-    const applied =
-      (await run([...serve], { timeoutMs: 20_000 })).ok ||
-      (await run(['sudo', '-n', ...serve], { timeoutMs: 20_000 })).ok;
-    if (!applied)
+    const published = await runAnsible(run, 'hub-route-darwin.yml', {
+      cwd: monitoring,
+      input: JSON.stringify({
+        beszel_tailscale_cli: cli,
+        beszel_route_port: HUB_ROUTE.port,
+        beszel_route_target: HUB_ROUTE.proxy,
+      }),
+      timeoutMs: 120_000,
+    });
+    if (!published.ok)
       return failure(
         'BESZEL_PRIVATE_ROUTE_REQUIRED',
         'Allow Tailscale Serve (HTTPS certificates) for this tailnet and approve it in the Tailscale app if asked; no tailnet policy or public ingress is changed.'
       );
   }
   const verified = await run([cli, 'serve', 'status', '--json']);
-  if (!verified.ok || inspectRoute(verified.stdout, hub) !== true)
+  if (!verified.ok || inspectRoute(verified.stdout, hub, HUB_ROUTE) !== true)
     return failure(
       'BESZEL_PRIVATE_ROUTE_UNVERIFIED',
       'The requested route was not independently observed after application. Inspect Serve permissions and configuration; installer success is insufficient.'

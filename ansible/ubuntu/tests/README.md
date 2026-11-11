@@ -93,24 +93,27 @@ terminates the VM. Keep fixture keys and raw diagnostic logs private. This is a
 single-target production transport test; multi-target promotion and manager
 restart/interruption scenarios remain separate gates.
 
-## Fresh box in a container (any host with Docker)
+## A fresh machine over SSH (any host with Docker)
 
-The fastest check that a brand-new worker needs nothing but SSH and sudo. It
-runs on amd64 and arm64 (including a Mac with Docker Desktop), needs no KVM and
-takes about three minutes:
+The fastest check that a brand-new worker needs nothing but SSH and sudo is a
+feature, [`features/fresh-box`](../../../features/fresh-box/fresh-box.feature).
+It runs on amd64 and arm64 (including a Mac with Docker Desktop), needs no KVM,
+takes about three minutes, and runs on every pull request:
 
 ```sh
-bun ansible/ubuntu/tests/fresh-box.ts
+DEVFLEET_TEST_FRESH_BOX=1 bun test features/fresh-box
 ```
 
-It starts a disposable Ubuntu 26.04 container whose only extras are a non-root
-user and `sudo` (it asserts Git, curl, Python, mise, Bun and Node are absent),
-then sends it the committed `HEAD` through the production `prepareBootstrap` and
-`bootstrapRemote` code, with the SSH hop replaced by `docker exec`. It passes
-when the box reaches node convergence: OS prerequisites, the single-commit
-source transfer, the locked toolchain and frozen dependencies all installed
-from nothing. It then repeats the run and requires the cached, warm path to
-finish within two minutes. `--keep` leaves the container for inspection.
+It starts a disposable Ubuntu 26.04 container whose only extras are an SSH
+server, a non-root user and `sudo` (it asserts Git, curl, Python, Ansible,
+mise, Bun and Node are absent). It authorizes a new key, trusts the machine's
+host key, and sends the committed `HEAD` through the production
+`prepareBootstrap` and `bootstrapRemote` code over a real SSH connection with
+the production options. It passes when the machine reaches node convergence
+with the commit, the pinned toolchain, the exact operating system packages and
+the fleet configuration in place, and when a second run transfers nothing and
+finishes within two minutes. `DEVFLEET_TEST_FRESH_BOX=keep` leaves the
+container for inspection.
 
 A container has no systemd, desktop session, Tailscale or Vault login, so the
 node checks that need them (baseline services, T3, provider accounts) are

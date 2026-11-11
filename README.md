@@ -51,6 +51,10 @@ dev-fleet is opinionated. These are part of it, not options:
 - Machine policy is **Ansible** (`ansible/`), tool versions are **mise** pins
   (`mise.toml`, `mise.lock`), monitoring is **Beszel**.
 
+What dev-fleet puts on a machine is written in tracked files and pinned to a
+version or digest. [What is declared, and where](docs/declared.md) lists it,
+and what is not pinned yet.
+
 What it does not assume is anything about you: no account, hostname, domain,
 tailnet or repository is written in this code. They live in your `fleet.json`.
 
@@ -174,9 +178,10 @@ project, and which state is not in the bucket yet.
    }
    ```
 
-3. Run `fleet-sync`. A box that has only sudo is enough: the opt-in test
-   `bun ansible/ubuntu/tests/fresh-box.ts` proves that against a bare
-   container.
+3. Run `fleet-sync`. A machine that has only an SSH server and an account
+   with sudo is enough: every pull request proves that against a bare
+   Ubuntu machine, over SSH
+   ([`fresh-box.feature`](features/fresh-box/fresh-box.feature)).
 
 Remove a machine by deleting its entry and running `fleet-sync`.
 
@@ -253,7 +258,11 @@ fleet.json contents.
   needs `devfleet cliproxy install` once more.
 - The manager is a Mac host. There is no container image of the manager.
 - `fleet-sync --schedule enable` (unattended runs on a timer) is not available
-  from the published package yet.
+  from the published package yet, so nothing re-applies the fleet until you
+  run `fleet-sync`.
+- Not everything on a machine is pinned. [What is declared, and
+  where](docs/declared.md) lists what is and what is not: most of a worker's
+  own packages, the manager's applications and every login are outside it.
 - The reference documents under `docs/` were written for the fleet this came
   from and are being revised.
 
@@ -269,6 +278,7 @@ fleet.json contents.
 | `bootstrap/` | Toolchain bootstrap and the manager and worker entry scripts      |
 | `schema/`    | JSON schemas for `fleet.json` and the private roster              |
 | `examples/`  | A complete example configuration                                  |
+| `features/`  | What dev-fleet does, as Gherkin features: the tests               |
 | `bin/`       | The entry point of the published package                          |
 
 ## Develop
@@ -288,24 +298,28 @@ commit (never to uncommitted files). The checkout's `origin` must be the
 repository `fleet.json` names under `source`. Every merge to `main` publishes a release;
 see [releasing](docs/releasing.md).
 
-`bun run check` runs formatting, typecheck, lint, the TypeScript tests and the
-proxy package's Python tests. Tests run against `examples/fleet.json` and
-never contact a real machine.
+What dev-fleet does is specified in Gherkin, under
+[`features/`](features/README.md): a `.feature` file states a rule in plain
+words and the steps beside it check it. There are no other TypeScript tests.
+`bun run check` runs formatting, typecheck, lint, every feature and the proxy
+package's Python tests. Features run against `examples/fleet.json` and never
+contact a real machine.
 
-Every pull request runs three checks ([`ci.yml`](.github/workflows/ci.yml)):
+Every pull request runs these checks ([`ci.yml`](.github/workflows/ci.yml)):
 
-| Check       | What it proves                                                                                                     |
-| ----------- | ------------------------------------------------------------------------------------------------------------------ |
-| Check       | `bun run check`                                                                                                    |
-| Fleet state | The pinned Litestream replicates the fleet state to a directory and to an S3 API, and a second manager restores it |
-| Workflows   | The workflow files pass `actionlint`                                                                               |
+| Check                 | What it proves                                                                                                                    |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Check                 | `bun run check`                                                                                                                   |
+| Fleet state           | The pinned Litestream replicates the fleet state to a directory and to an S3 API, and a second manager restores it                |
+| Fresh worker over SSH | A new Ubuntu machine with only an SSH server and sudo is bootstrapped by the production code over real SSH, on amd64 and on arm64 |
+| Workflows             | The workflow files pass `actionlint`                                                                                              |
 
-The fleet state tests that need Litestream skip where it is not installed. To
-run them all locally, start any S3-compatible service and name it:
+Some scenarios need something a laptop may not have, and are skipped there:
 
 ```sh
+DEVFLEET_TEST_FRESH_BOX=1 bun test features/fresh-box     # Docker; tests the HEAD commit
 mise install litestream
-DEVFLEET_TEST_S3=http://127.0.0.1:5000 bun test tests/state/litestream.test.ts
+DEVFLEET_TEST_S3=http://127.0.0.1:5000 bun test features/state
 ```
 
 ## License

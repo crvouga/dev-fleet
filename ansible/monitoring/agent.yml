@@ -46,7 +46,7 @@
       loop:
         - { path: /etc/personal-beszel, group: beszel, mode: '0750' }
         - {
-            path: '/usr/local/lib/personal-beszel/0.21.1',
+            path: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}',
             group: root,
             mode: '0755',
           }

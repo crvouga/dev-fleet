@@ -1,27 +1,31 @@
 import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { delimiter, join } from 'node:path';
+import { join } from 'node:path';
 import { homedir } from 'node:os';
-import macos from '../../ansible/macos/policy.json';
+import { PACKAGE_ROOT } from '../package-info';
 import type { Runner, CommandOptions, CommandResult } from '../types';
 
-/** Ubuntu provides ansible-core through APT; macOS runs the pinned release through
- * uv's isolated tool runner so no global Python environment is modified.
+/** The Ansible each machine runs playbooks with, pinned either way. A worker
+ * has the exact `ansible-core` package the Ubuntu policy names. The manager
+ * runs the project in `ansible/` (`pyproject.toml`, `uv.lock`): one release on
+ * one Python, every dependency checked against its locked hash, in a
+ * throwaway environment. No global Python environment is modified, nothing is
+ * written into the checkout, and an `ansible-playbook` that happens to be on
+ * PATH is never used.
  */
 export function ansibleCommand(
-  path = process.env['PATH'] ?? '',
-  exists: (candidate: string) => boolean = existsSync
+  platform: NodeJS.Platform = process.platform,
+  root = PACKAGE_ROOT
 ): string[] {
-  const found = path
-    .split(delimiter)
-    .filter(Boolean)
-    .some((directory) => exists(join(directory, 'ansible-playbook')));
-  return found
+  return platform === 'linux'
     ? ['ansible-playbook']
     : [
-        'uvx',
-        '--from',
-        `ansible-core==${macos.ansibleCore}`,
+        'uv',
+        'run',
+        '--project',
+        join(root, 'ansible'),
+        '--locked',
+        '--isolated',
+        '--quiet',
         'ansible-playbook',
       ];
 }

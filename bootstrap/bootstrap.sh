@@ -3,7 +3,6 @@
 # runs it on every machine from the checkout of the revision it applies;
 # nobody clones dev-fleet to use it (see README.md).
 set -euo pipefail
-MISE_VERSION=2026.10.24
 os=$(uname -s)
 case "$os" in
   Darwin) platform=macos ;;
@@ -43,6 +42,15 @@ script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 }
 checkout=$(cd "$script_dir/.." && pwd)
 cd "$checkout"
+# mise is pinned where every other tool is: `min_version` in mise.toml is the
+# version installed, and [vars] holds the digest of its release archive for
+# each platform. mise cannot read them for us before it exists.
+pin() { sed -n "s/^$1 = \"\\(.*\\)\"\$/\\1/p" "$checkout/mise.toml" | head -n 1; }
+MISE_VERSION=$(pin min_version)
+mise_sha256=$(pin "mise_${platform}_${arch}_sha256")
+[[ -n "$MISE_VERSION" && -n "$mise_sha256" ]] || {
+  echo 'mise.toml does not pin mise for this platform.' >&2; exit 1;
+}
 # Reuse an observed matching managed executable. Repeated reconciliation must
 # not download/reinstall mise solely because a previous run finished.
 installed_mise=$("$HOME/.local/bin/mise" --version 2>/dev/null | awk '{print $1}') || installed_mise=''
@@ -51,12 +59,15 @@ temp=$(mktemp -d)
 trap 'rm -rf "$temp"' EXIT
 asset="mise-v${MISE_VERSION}-${platform}-${arch}.tar.gz"
 # Alpine/musl is not part of the supported workstation baseline.
-base="https://github.com/jdx/mise/releases/download/v${MISE_VERSION}"
-curl -fsSL "$base/$asset" -o "$temp/$asset"
-curl -fsSL "$base/SHASUMS256.txt" -o "$temp/SHASUMS256.txt"
-(cd "$temp"; awk -v file="./$asset" '$2 == file { print }' SHASUMS256.txt > check.txt
-  test -s check.txt
-  if command -v sha256sum >/dev/null; then sha256sum -c check.txt; else shasum -a 256 -c check.txt; fi)
+curl -fsSL "https://github.com/jdx/mise/releases/download/v${MISE_VERSION}/$asset" -o "$temp/$asset"
+if command -v sha256sum >/dev/null; then
+  actual=$(sha256sum "$temp/$asset" | cut -d' ' -f1)
+else
+  actual=$(shasum -a 256 "$temp/$asset" | cut -d' ' -f1)
+fi
+[[ "$actual" == "$mise_sha256" ]] || {
+  echo 'The mise archive does not match the digest pinned in mise.toml.' >&2; exit 1;
+}
 tar -xzf "$temp/$asset" -C "$temp"
 mkdir -p "$HOME/.local/bin"
 install -m 0755 "$temp/mise/bin/mise" "$HOME/.local/bin/mise"

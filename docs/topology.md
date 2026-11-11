@@ -35,8 +35,9 @@ The fleet has exactly two roles, declared in
   A new singleton service is declared under `services` and placed on the
   manager; it never names a host.
 - Workers depend on it, so it never sleeps on AC power
-  (`neverSleepOnPower`, checked as `manager:power`, applied once with
-  `ansible-playbook -K ansible/macos/manager.yml`). While the
+  (`pmset` in `ansible/macos/policy.json`, checked as `manager:power`, applied
+  once by an administrator with `ansible/macos/manager.yml`; the failed check
+  prints the command). While the
   manager is asleep, closed or offline, workers have no CLI proxy and no
   dashboard; nothing fails over, because a singleton never runs twice.
 - Its state (proxy OAuth/runtime state, the hub database) is backed up off the

@@ -92,9 +92,10 @@ already has the revision receives nothing, and the toolchain setup is skipped
 while its inputs (`mise.toml`, the locks, `scripts/dev`) are unchanged since a
 successful setup within the last day. It installs missing
 Ubuntu bootstrap packages through signed APT, then uses the existing mise and
-frozen dependency installer. Bootstrap APT packages currently use the installed
-Ubuntu archive configuration; strict dependency closure/snapshot promotion is a
-remaining parity gate. The interactive manager flow can request native sudo authorization over a verified SSH terminal after the consolidated apply confirmation. It validates and installs the designated-user sudo policy; passwords are never captured or stored. Missing administrator permission, an unmanaged conflicting sudoers fragment, or unavailable terminal remains action-required. JSON and unattended runs never prompt and require existing noninteractive sudo.
+frozen dependency installer. Bootstrap APT packages use the installed Ubuntu
+archive configuration, because a new machine cannot reach the HTTPS snapshot
+before it has CA certificates; the baseline then pins each of them, Ansible
+included, to the exact version in `ansible/ubuntu/policy.json`. The interactive manager flow can request native sudo authorization over a verified SSH terminal after the consolidated apply confirmation. It validates and installs the designated-user sudo policy; passwords are never captured or stored. Missing administrator permission, an unmanaged conflicting sudoers fragment, or unavailable terminal remains action-required. JSON and unattended runs never prompt and require existing noninteractive sudo.
 
 ## Policy, ownership and private state
 

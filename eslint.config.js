@@ -22,7 +22,12 @@ export default tseslint.config(
   },
   {
     // Fixtures and entry points print on purpose.
-    files: ['**/*.test.ts', 'tests/**', 'ansible/**/tests/**', 'bootstrap/**'],
+    files: [
+      '**/*.test.ts',
+      'features/**',
+      'ansible/**/tests/**',
+      'bootstrap/**',
+    ],
     rules: { 'no-console': 'off', complexity: 'off', 'max-params': 'off' },
   }
 );
