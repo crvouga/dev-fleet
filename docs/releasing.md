@@ -21,7 +21,7 @@ it from a clone; the npm package covers the rest of the CLI.
 ## What a release is
 
 A release is a tag. Push `vX.Y.Z` and the [Release workflow](../.github/workflows/release.yml)
-checks the commit, publishes `@crvouga/dev-fleet@X.Y.Z` with provenance and
+checks the commit, publishes version `X.Y.Z` of `@crvouga/dev-fleet` with provenance and
 creates the GitHub Release. `package.json` stays at `0.0.0-development`; the
 workflow stamps the tag's version into the package it publishes, so nobody
 edits a version or runs `npm publish` by hand after the one-time setup below.
