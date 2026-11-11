@@ -1,5 +1,9 @@
 import { localCheckoutRevision } from '../machine/local-source';
-import { fleet as canonicalDefinition, reloadFleet } from '../fleet-config';
+import {
+  definitionSource,
+  fleet as canonicalDefinition,
+  reloadFleet,
+} from '../fleet-config';
 import { managerFailure } from '../manager-failure';
 import { managerText, stdoutColor } from './fleet-sync-output';
 import { managerSchedule, type ScheduleAction } from './fleet-sync-schedule';
@@ -31,15 +35,14 @@ import { FleetUsageError } from '../errors';
 import { FleetLockError } from '../machine/lock-error';
 import { selected } from './fleet-sync-remote';
 import { managerIdentity } from './fleet-sync-manager';
-import { trackedScript } from '../remote-bootstrap';
-import { rehome } from './fleet-sync-checkout';
+import { managerRunScript, rehome } from './fleet-sync-checkout';
+import { packageInfo } from '../package-info';
 import {
   forwardingDisabled,
   forwardToManager,
   type ForwardSpawn,
 } from './fleet-sync-forward';
 
-declare const PERSONAL_SOURCE_REVISION: string | null;
 export interface FleetSyncOptions {
   revision?: string;
   dryRun?: boolean;
@@ -109,16 +112,22 @@ export async function managerSync(
   if (!isRevision(revision))
     return actionRequired(
       'FLEET_REVISION_REQUIRED',
-      'Select an approved full SHA with --revision, or use a published package containing clean source provenance.'
+      'No revision to converge to. Run the published dev-fleet package (it names the commit it was built from), or select a full commit SHA with --revision.'
     );
   if (options.schedule)
     return scheduleRequest(options, revision, settings, run);
   const rehomed = await rehome(
     options,
-    { revision, workspace: settings.workspace },
+    { revision, workspace: settings.workspace, root },
     run
   );
-  if (rehomed) return rehomed;
+  if (rehomed === 'unavailable')
+    return actionRequired(
+      'FLEET_SOURCE_UNAVAILABLE',
+      `Revision ${revision} could not be taken from ${canonicalDefinition.source.repository}, so nothing was changed. Check the network and Git access to it, and that the revision is pushed there; fleet-sync never converges from the package or working tree it was started in.`,
+      revision
+    );
+  if (rehomed !== 'here') return rehomed;
   if (options.dryRun) return selected({ ...options, revision }, settings, run);
   // The bucket is the source of truth: a run starts from its version of the
   // configuration, the roster and the approval, not from a stale local copy.
@@ -181,6 +190,9 @@ function applyLocked(
   const record = runRecord(state, revision, {
     context: stateContext(run),
     standing: context.standing,
+    ...(definitionSource().kind === 'file'
+      ? { definition: JSON.stringify(canonicalDefinition, null, 2) + '\n' }
+      : {}),
   });
   return withMachineLock(root, async () => {
     record.approve();
@@ -233,12 +245,7 @@ async function offManager(
       revision ?? null
     );
   const runScript = revision
-    ? await trackedScript(
-        settings.workspace,
-        revision,
-        'bootstrap/fleet-manager-run.sh',
-        run
-      )
+    ? await managerRunScript(settings.workspace, revision, run)
     : null;
   return forwardToManager(definition, options, revision, {
     spawn: forward,
@@ -300,10 +307,11 @@ function interactive(options: FleetSyncOptions): boolean {
   );
 }
 
+/** The commit an installed package was published from: the version of
+ * dev-fleet you run is the revision the fleet moves to.
+ */
 function packageRevision(): string | undefined {
-  return typeof PERSONAL_SOURCE_REVISION === 'string'
-    ? PERSONAL_SOURCE_REVISION
-    : undefined;
+  return packageInfo().revision ?? undefined;
 }
 
 async function scheduleRequest(

@@ -2,6 +2,7 @@ import { join } from 'node:path';
 import { configureWorkspace } from '../configure';
 import { runCommand } from '../runner';
 import { FleetUsageError } from '../errors';
+import { packageInfo } from '../package-info';
 import type { Runner } from '../types';
 import type { Settings } from './settings';
 import type { CommandOutcome } from './contracts';
@@ -24,6 +25,12 @@ export async function syncNode(
       'Codex proxy node sync requires macOS/Linux/WSL. Use dev-fleet commands for native Windows configuration.'
     );
   const node = nodeId(options.id);
+  // An installed package is not a checkout, and the Git repository around it
+  // is the operator's own project: its HEAD is not a dev-fleet revision.
+  if (packageInfo().revision)
+    throw new FleetUsageError(
+      'fleet-node-sync works on a checkout of dev-fleet. Run fleet-sync instead: it converges this machine from a checkout it owns.'
+    );
   const head = await run(['git', 'rev-parse', '--verify', 'HEAD'], {
     cwd: settings.workspace,
   });

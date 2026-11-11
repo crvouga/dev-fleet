@@ -57,3 +57,17 @@ test('the fleet state check runs on every pull request and cannot skip its tests
     DEVFLEET_TEST_S3: expect.stringMatching(/^http:\/\/127\.0\.0\.1:\d+$/),
   });
 });
+
+// fleet-sync run from the package converges every machine to the commit the
+// package names, so a release that does not name one cannot move a fleet.
+test('a release stamps the commit it is published from into the package', () => {
+  const release = parse(read('.github/workflows/release.yml')) as {
+    jobs: Record<string, { steps: { name?: string; run?: string }[] }>;
+  };
+  const publish = release.jobs['release']!.steps.find(
+    (step) => step.name === 'Publish to npm'
+  )!.run!;
+  const stamp = publish.indexOf('npm pkg set gitHead="$(git rev-parse HEAD)"');
+  expect(stamp).toBeGreaterThan(-1);
+  expect(stamp).toBeLessThan(publish.indexOf('npm publish'));
+});

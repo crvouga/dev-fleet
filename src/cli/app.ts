@@ -3,13 +3,20 @@ import { resolveSettings, type Settings } from './settings';
 import { COMMANDS } from './registry';
 import { execute } from './program';
 import { parseArgs } from 'node:util';
-import manifest from '../../package.json';
+import { packageInfo } from '../package-info';
 
 /** The manifest carries `0.0.0-development` in the repository; the release
- * workflow stamps the tag's version into the package it publishes.
+ * workflow stamps the tag's version, and the commit, into the package it
+ * publishes.
  */
-export const VERSION = manifest.version;
-const RELEASE = { version: VERSION, releasedAt: null };
+const PACKAGE = packageInfo();
+export const VERSION = PACKAGE.version;
+const RELEASE = {
+  version: VERSION,
+  releasedAt: null,
+  revision: PACKAGE.revision,
+  issues: PACKAGE.issues,
+};
 
 export function wantsInteractive(
   args: string[],

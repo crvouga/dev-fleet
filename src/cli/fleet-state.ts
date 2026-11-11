@@ -1,19 +1,29 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { parseDefinition } from '../definition';
 import { FleetUsageError } from '../errors';
 import { definitionSource } from '../fleet-config';
+import { PACKAGE_ROOT, packageInfo } from '../package-info';
 import { makeReport, renderReport, reportExitCode } from '../report';
 import { runCommand } from '../runner';
 import {
+  ACCESS_KEY_ID_ENV,
+  SECRET_ACCESS_KEY_ENV,
+  bucketIdentity,
   describeBucket,
   parseBucket,
-  readBucket,
+  withCredentials,
   writeBucket,
   type Bucket,
 } from '../state/bucket';
 import { replicaCheck } from '../state/check';
+import {
+  connection,
+  environmentCredentials,
+  type Connection,
+} from '../state/connection';
 import { adoptEarlier, legacyPath, readLegacy } from '../state/legacy';
 import { bucketPath, databasePath, stateRoot } from '../state/paths';
 import {
@@ -44,6 +54,7 @@ export interface FleetStateOptions {
   directory?: string;
   import?: string;
   export?: boolean;
+  example?: boolean;
   push?: boolean;
   restore?: boolean;
   yes?: boolean;
@@ -70,22 +81,32 @@ function terminalAsk(
   };
 }
 
+const reach = (services: FleetStateServices): Connection =>
+  connection(services.env, services.home);
+
 function context(services: FleetStateServices): StateContext {
   return {
     root: stateRoot(services.env, services.home),
-    bucket: readBucket(bucketPath(services.env, services.home)),
+    bucket: reach(services).bucket,
     run: services.run,
   };
 }
 
-const ACTIONS = ['init', 'import', 'export', 'push', 'restore'] as const;
+const ACTIONS = [
+  'init',
+  'import',
+  'export',
+  'example',
+  'push',
+  'restore',
+] as const;
 type Action = (typeof ACTIONS)[number];
 
 function action(options: FleetStateOptions): Action | 'status' {
   const chosen = ACTIONS.filter((name) => options[name]);
   if (chosen.length > 1)
     throw new FleetUsageError(
-      'Choose one of --init, --import, --export, --push or --restore.'
+      'Choose one of --init, --import, --export, --example, --push or --restore.'
     );
   const settings = ['bucket', 'endpoint', 'region', 'prefix', 'directory'];
   if (
@@ -110,12 +131,11 @@ function definitionCheck(
 ): Check {
   const id = 'state:definition';
   const source = definitionSource(services.env, services.home);
-  if (source.kind === 'file')
+  if (source.kind === 'file' && existsSync(source.path))
     return {
       id,
       status: 'pass',
-      summary:
-        'The fleet configuration is the file DEVFLEET_CONFIG names; it is kept outside the fleet state.',
+      summary: `The fleet configuration is ${source.path}. fleet-sync records the one it applies in the fleet state, for runs started anywhere else.`,
     };
   if (existsSync(source.path))
     return {
@@ -132,7 +152,7 @@ function definitionCheck(
     summary: 'This machine has no fleet configuration.',
     remedy: {
       action:
-        'Restore it from your bucket (devfleet fleet-state --init --bucket NAME --endpoint https://HOST), or start one: edit a copy of examples/fleet.json and run devfleet fleet-state --import PATH.',
+        'Run devfleet from the project that holds your fleet.json; devfleet fleet-state --example prints one to start from. A bucket that already holds a configuration restores it: devfleet fleet-state --init --bucket NAME --endpoint https://HOST.',
     },
   };
 }
@@ -146,7 +166,7 @@ function documentCheck(
   const stored = listDocuments(
     databasePath(stateRoot(services.env, services.home))
   ).find((document) => document.name === name);
-  // A file named with DEVFLEET_CONFIG is what runs, whatever is stored.
+  // The project's file is what runs, whatever is stored.
   const named =
     name === 'definition' &&
     definitionSource(services.env, services.home).kind === 'file';
@@ -174,24 +194,55 @@ function documentCheck(
   };
 }
 
-function bucketCheck(bucket: Bucket | null): Check {
+const CREDENTIALS: Record<NonNullable<Connection['credentials']>, string> = {
+  environment: `the credentials in ${ACCESS_KEY_ID_ENV} and ${SECRET_ACCESS_KEY_ENV}`,
+  saved: 'the credentials saved in bucket.json on this machine',
+  ambient: 'the standard AWS environment or profile',
+};
+
+function bucketCheck({ bucket, location, credentials }: Connection): Check {
   if (!bucket)
     return {
       id: 'state:bucket',
       status: 'warn',
-      summary: 'No bucket is configured on this machine.',
+      summary: 'No bucket is configured.',
       remedy: {
-        action:
-          'devfleet fleet-state --init --bucket NAME --endpoint https://HOST (docs/state.md lists the settings).',
+        action: `Name it under "state" in fleet.json and pass its credentials in ${ACCESS_KEY_ID_ENV} and ${SECRET_ACCESS_KEY_ENV}. Without a fleet.json, connect one on this machine: devfleet fleet-state --init --bucket NAME --endpoint https://HOST (docs/state.md lists the settings).`,
       },
     };
+  const named =
+    location === 'configuration'
+      ? 'named in the fleet configuration'
+      : 'saved in bucket.json on this machine';
   return {
     id: 'state:bucket',
     status: 'pass',
     summary:
       bucket.kind === 'directory'
-        ? `The fleet state replicates to the directory ${bucket.path}.`
-        : `The fleet state replicates to the bucket ${bucket.bucket} under ${bucket.prefix}/.`,
+        ? `The fleet state replicates to the directory ${bucket.path} (${named}).`
+        : `The fleet state replicates to the bucket ${bucket.bucket} under ${bucket.prefix}/ (${named}), with ${CREDENTIALS[credentials ?? 'ambient']}.`,
+  };
+}
+
+/** What a report may say about the connection: never a credential. */
+function describeConnection(reached: Connection): Record<string, unknown> {
+  return {
+    ...describeBucket(reached.bucket),
+    ...(reached.location
+      ? {
+          location:
+            reached.location === 'configuration' ? 'fleet.json' : 'bucket.json',
+        }
+      : {}),
+    ...(reached.credentials
+      ? {
+          credentials: {
+            environment: 'environment',
+            saved: 'bucket.json',
+            ambient: 'aws',
+          }[reached.credentials],
+        }
+      : {}),
   };
 }
 
@@ -199,9 +250,9 @@ function report(
   services: FleetStateServices,
   input: { standing: Standing; done?: string[]; missing?: 'warn' }
 ): CommandOutcome {
-  const target = context(services);
+  const reached = reach(services);
   const checks = [
-    bucketCheck(target.bucket),
+    bucketCheck(reached),
     replicaCheck(input.standing),
     ...DOCUMENTS.map((name) =>
       documentCheck(name, services, input.missing ?? 'fail')
@@ -209,8 +260,8 @@ function report(
   ];
   const data = {
     ...makeReport('fleet-state', [{ node: 'state', checks }]),
-    root: target.root,
-    bucket: describeBucket(target.bucket),
+    root: stateRoot(services.env, services.home),
+    bucket: describeConnection(reached),
     standing: input.standing,
     ...(input.done ? { done: input.done } : {}),
   };
@@ -221,27 +272,29 @@ function report(
   };
 }
 
+/** The credentials for a bucket being saved: the ones passed to this
+ * command, or the answers to a prompt. Null to use the standard AWS
+ * environment or profile.
+ */
 async function credentials(
   services: FleetStateServices
 ): Promise<{ accessKeyId: string; secretAccessKey: string } | null> {
   const { env, ask } = services;
-  const accessKeyId =
-    env['DEVFLEET_BUCKET_ACCESS_KEY_ID'] ??
-    (await ask?.(
-      'Bucket access key ID (empty to use the AWS environment or profile)'
-    ));
+  const given = environmentCredentials(env);
+  if (given) return given;
+  const accessKeyId = await ask?.(
+    'Bucket access key ID (empty to use the AWS environment or profile)'
+  );
   if (!accessKeyId) return null;
-  const secretAccessKey =
-    env['DEVFLEET_BUCKET_SECRET_ACCESS_KEY'] ??
-    (await ask?.('Bucket secret access key'));
+  const secretAccessKey = await ask?.('Bucket secret access key');
   if (!secretAccessKey)
     throw new FleetUsageError(
-      'A bucket access key ID needs its secret: set DEVFLEET_BUCKET_SECRET_ACCESS_KEY or answer the prompt. Credentials are never taken from arguments.'
+      `A bucket access key ID needs its secret: set ${SECRET_ACCESS_KEY_ENV} or answer the prompt. Credentials are never taken from arguments.`
     );
   return { accessKeyId, secretAccessKey };
 }
 
-/** The bucket named on the command line, or null to keep the saved one. */
+/** The bucket named on the command line, or null when none is. */
 async function namedBucket(
   options: FleetStateOptions,
   services: FleetStateServices
@@ -265,14 +318,51 @@ async function namedBucket(
   });
 }
 
+/** The bucket the fleet configuration names, with credentials to save beside
+ * it so that runs this machine starts by itself (the schedule, a hand-off
+ * from a worker) reach it too. Null when there is nothing new to save: the
+ * configuration names no bucket, or names a directory, or this machine
+ * already holds credentials for it and none were passed.
+ */
+async function declaredBucket(
+  services: FleetStateServices
+): Promise<Bucket | null> {
+  const reached = reach(services);
+  const { bucket } = reached;
+  if (reached.location !== 'configuration' || bucket?.kind !== 's3')
+    return null;
+  if (reached.credentials === 'saved') return null;
+  const given = await credentials(services);
+  return given ? withCredentials(bucket, given) : null;
+}
+
+/** What `--init` saves on this machine, or null to keep what is there. */
+async function bucketToSave(
+  options: FleetStateOptions,
+  services: FleetStateServices
+): Promise<Bucket | null> {
+  const named = await namedBucket(options, services);
+  const reached = reach(services);
+  if (!named) return declaredBucket(services);
+  if (
+    reached.location === 'configuration' &&
+    reached.bucket &&
+    bucketIdentity(reached.bucket) !== bucketIdentity(named)
+  )
+    throw new FleetUsageError(
+      'The fleet configuration names another bucket under "state". Change it there, or run --init without --bucket, --endpoint, --region, --prefix and --directory to connect that one.'
+    );
+  return named;
+}
+
 async function init(
   options: FleetStateOptions,
   services: FleetStateServices
 ): Promise<CommandOutcome> {
   const done: string[] = [];
-  const named = await namedBucket(options, services);
-  if (named) {
-    writeBucket(bucketPath(services.env, services.home), named);
+  const saved = await bucketToSave(options, services);
+  if (saved) {
+    writeBucket(bucketPath(services.env, services.home), saved);
     done.push(
       `Saved the bucket settings to ${bucketPath(services.env, services.home)}.`
     );
@@ -305,7 +395,7 @@ async function importDefinition(
     value = JSON.parse(await readFile(path, 'utf8'));
   } catch {
     throw new FleetUsageError(
-      '--import needs a readable JSON file such as an edited copy of examples/fleet.json.'
+      '--import needs a readable JSON file: a fleet.json such as the one devfleet fleet-state --example prints.'
     );
   }
   const body = JSON.stringify(parseDefinition(value), null, 2) + '\n';
@@ -341,6 +431,24 @@ function exportDefinition(services: FleetStateServices): CommandOutcome {
   };
 }
 
+/** A configuration to start a project from: the packaged example, with its
+ * schema named where an installed dev-fleet keeps it.
+ */
+async function exampleDefinition(): Promise<CommandOutcome> {
+  const example = JSON.parse(
+    await readFile(join(PACKAGE_ROOT, 'examples/fleet.json'), 'utf8')
+  ) as Record<string, unknown>;
+  const definition = {
+    ...example,
+    $schema: `./node_modules/${packageInfo().name}/schema/fleet.schema.json`,
+  };
+  return {
+    exitCode: 0,
+    data: { version: 1, command: 'fleet-state', ok: true, definition },
+    text: JSON.stringify(definition, null, 2),
+  };
+}
+
 async function restore(
   options: FleetStateOptions,
   services: FleetStateServices
@@ -348,7 +456,7 @@ async function restore(
   const target = context(services);
   if (!target.bucket)
     throw new FleetUsageError(
-      'No bucket is configured, so there is nothing to restore from. Run devfleet fleet-state --init --bucket NAME --endpoint https://HOST.'
+      'No bucket is configured, so there is nothing to restore from. Name it under "state" in fleet.json, or run devfleet fleet-state --init --bucket NAME --endpoint https://HOST.'
     );
   if (pending(target) && !options.yes)
     throw new FleetUsageError(
@@ -382,6 +490,7 @@ export async function fleetState(
   if (chosen === 'init') return init(options, services);
   if (chosen === 'import') return importDefinition(options.import!, services);
   if (chosen === 'export') return exportDefinition(services);
+  if (chosen === 'example') return exampleDefinition();
   if (chosen === 'restore') return restore(options, services);
   const target = context(services);
   if (chosen === 'push')

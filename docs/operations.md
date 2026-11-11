@@ -87,7 +87,8 @@ remains the sole cloud resource owner; fleet creates no networks, hosts or secre
   vscode. Set vscode on editor/manager machines, not just on headless targets.
   `[]` still checks checkout/dependencies/SSH. Unknown fields fail closed.
 
-The manager reference defaults to this repository checkout. `--workspace PATH`
+The manager reference defaults to where the CLI runs from: the published
+package, or the dev-fleet checkout a source run is started in. `--workspace PATH`
 changes that reference/local sync target. Nodes are compared to **that checkout**,
 including uncommitted lockfile edits, not an implicitly fetched origin/main.
 Manager capabilities default to all five; headless managers can pass

@@ -14,9 +14,10 @@ import { FleetLockError } from '../machine/lock-error';
 import { withMachineLock } from '../machine/state';
 import { runCommand } from '../runner';
 import type { Runner } from '../types';
-import { bucketIdentity, readBucket, type Bucket } from './bucket';
+import { bucketIdentity, type Bucket } from './bucket';
+import { connection } from './connection';
 import { replicate, restore } from './litestream';
-import { bucketPath, databasePath, replicatedPath, stateRoot } from './paths';
+import { databasePath, replicatedPath, stateRoot } from './paths';
 import { readHead, type Head } from './store';
 
 export interface StateContext {
@@ -31,7 +32,7 @@ export function stateContext(
 ): StateContext {
   return {
     root: stateRoot(env),
-    bucket: readBucket(bucketPath(env)),
+    bucket: connection(env).bucket,
     run,
   };
 }

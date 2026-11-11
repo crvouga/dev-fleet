@@ -13,6 +13,14 @@ export interface Release {
   version: string;
   /** ISO timestamp recorded when this distribution was built; null for source runs. */
   releasedAt: string | null;
+  /** The commit a published package was built from: what fleet-sync run from
+   * it converges every machine to. Absent for source runs.
+   */
+  revision?: string | null;
+  /** The issue tracker of the package: where its users report a defect or
+   * ask for a feature.
+   */
+  issues?: string | null;
 }
 
 export const GLOBAL_OPTIONS = [
@@ -23,7 +31,8 @@ export const GLOBAL_OPTIONS = [
   { flag: '--non-interactive', description: 'Never open interactive prompts' },
   {
     flag: '--workspace <path>',
-    description: 'Existing manager checkout; does not clone or change it',
+    description:
+      'A dev-fleet checkout to run from instead of this package (development); does not clone or change it',
   },
   { flag: '--config <path>', description: 'Local, secret-free fleet roster' },
 ];
@@ -34,8 +43,10 @@ export const SOURCE_VERSION = '0.0.0-development';
 export function releaseLabel(release: Release): string {
   if (release.releasedAt)
     return `${release.version} (released ${release.releasedAt})`;
-  return release.version === SOURCE_VERSION
-    ? `${release.version} (unreleased source build)`
+  if (release.version === SOURCE_VERSION)
+    return `${release.version} (unreleased source build)`;
+  return release.revision
+    ? `${release.version} (commit ${release.revision})`
     : release.version;
 }
 
@@ -66,6 +77,11 @@ function createProgram(
       'Apply on invocation (--dry-run previews): fleet-node-sync, t3-apply, t3-cleanup. fleet-sync confirms interactively or with --apply --yes.',
       'Preview until --apply --yes: fleet-repair, fleet-node-add. --json does not make a command read-only.',
       'Agents: devfleet commands --json. Menu: devfleet --interactive.',
+      ...(release.issues
+        ? [
+            `Bugs and feature requests: ${release.issues}. Report them there; never patch the installed package.`,
+          ]
+        : []),
     ].join('\n')
   );
   return program;

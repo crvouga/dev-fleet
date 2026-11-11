@@ -204,9 +204,13 @@ function publishSeed(exec: Exec, target: Target): boolean {
     );
     const file = join(checkout, 'package.json');
     const manifest = JSON.parse(readFileSync(file, 'utf8')) as object;
+    // As the Release workflow does: the package names the commit it is.
+    const gitHead = exec
+      .capture(['git', 'rev-parse', 'HEAD'], checkout)
+      .stdout.trim();
     writeFileSync(
       file,
-      `${JSON.stringify({ ...manifest, version: SEED_VERSION }, null, 2)}\n`
+      `${JSON.stringify({ ...manifest, version: SEED_VERSION, gitHead }, null, 2)}\n`
     );
     return exec.interactive(['npm', 'publish', '--access', 'public'], checkout);
   } finally {

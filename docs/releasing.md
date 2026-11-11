@@ -1,11 +1,13 @@
 # Releasing
 
-dev-fleet is published to npm as `@crvouga/dev-fleet`, so any machine or project
-with Node can run it:
+dev-fleet is published to npm as `@crvouga/dev-fleet`. The package is how
+dev-fleet is used: a fleet is a project that depends on it and runs `devfleet`
+from there (see the [README](../README.md#how-you-use-it)). Nobody clones this
+repository to run a fleet.
 
 ```sh
-npx @crvouga/dev-fleet commands --json
-npx @crvouga/dev-fleet fleet-status --local
+npm install --save-dev --save-exact @crvouga/dev-fleet
+npx devfleet fleet-sync
 ```
 
 The package ships the TypeScript sources, the Ansible policy, the bootstrap
@@ -14,9 +16,15 @@ will not run TypeScript from `node_modules`, so the `devfleet` entry is a small
 JavaScript launcher (`bin/devfleet.mjs`) that runs the CLI on the Bun this
 release pins (a dependency of the package), falling back to a Bun on `PATH`.
 
-`fleet-sync` pins a git revision of this repository and rebuilds every machine
-from it, so it still needs a clone of the repository. Use `--workspace` or run
-it from a clone; the npm package covers the rest of the CLI.
+Machines do not run the package. `fleet-sync` rebuilds every machine from one
+git commit of this repository, and the package says which: the Release
+workflow writes the commit it publishes from into the package's `package.json`
+as `gitHead` ([`src/package-info.ts`](../src/package-info.ts) reads it). Run
+from the package, `fleet-sync` fetches that commit from the repository
+`fleet.json` names under `source` into a cache the manager owns, and converges
+the manager and every worker from checkouts of it. So a version of the package
+is a revision of the fleet, and the commit a release names must stay reachable
+in the source repository.
 
 ## What a release is
 
@@ -33,9 +41,10 @@ Release. The commit messages choose the bump:
 | otherwise any `feat:`                          | minor                                |
 | otherwise                                      | patch                                |
 
-`package.json` stays at `0.0.0-development`; the workflow stamps the version
-into the package it publishes, so nobody edits a version or runs `npm publish`
-by hand after the one-time setup below. Merges that land while a release runs
+`package.json` stays at `0.0.0-development` and carries no `gitHead`; the
+workflow stamps the version and the commit into the package it publishes, so
+nobody edits a version or runs `npm publish` by hand after the one-time setup
+below. Merges that land while a release runs
 wait, and the newest one releases everything since the last tag. Re-running a
 release whose version is already on npm skips the publish and finishes the tag
 and GitHub Release.

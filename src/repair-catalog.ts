@@ -47,7 +47,7 @@ export const REPAIR_RECIPES: RepairRecipe[] = [
     owner: 'dev-fleet',
     automatic: true,
     action:
-      'Links ~/.local/bin/devfleet to this checkout. Nothing is copied and no configuration is changed.',
+      'Links ~/.local/bin/devfleet to this checkout of dev-fleet (refused for an installed package, which is not one). Nothing is copied and no configuration is changed.',
     commands: [['sh', 'bootstrap/install-launcher.sh']],
   },
   {

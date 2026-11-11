@@ -173,7 +173,7 @@ function registerSync({ program, defaults, complete }: Registration) {
     )
     .option(
       '--revision <sha>',
-      'Approve an exact source commit; defaults to published release or current canonical checkout'
+      'Converge to an exact source commit; defaults to the commit the dev-fleet package you run was published from'
     )
     .option(
       '--node <id>',
@@ -237,9 +237,12 @@ function registerState({ program, complete }: Registration) {
     )
     .option(
       '--init',
-      'Connect the bucket: restore the fleet state from it, or seed it from this machine'
+      'Connect the bucket: restore the fleet state from it, or seed it from this machine, and save its credentials for runs this machine starts by itself'
     )
-    .option('--bucket <name>', 'With --init: S3-compatible bucket name')
+    .option(
+      '--bucket <name>',
+      'With --init, when no fleet.json names the bucket: S3-compatible bucket name'
+    )
     .option(
       '--endpoint <url>',
       'With --init: https origin of the S3 service; omit for AWS S3'
@@ -252,9 +255,13 @@ function registerState({ program, complete }: Registration) {
     )
     .option(
       '--import <path>',
-      'Store a fleet configuration (an edited examples/fleet.json)'
+      'Store a fleet configuration without running fleet-sync'
     )
-    .option('--export', 'Print the stored fleet configuration')
+    .option(
+      '--export',
+      'Print the stored fleet configuration: the one fleet-sync last applied'
+    )
+    .option('--example', 'Print an example fleet.json to start a project from')
     .option('--push', 'Upload this machine’s changes to the bucket')
     .option(
       '--restore',
@@ -263,7 +270,7 @@ function registerState({ program, complete }: Registration) {
     .option('--yes', 'With --restore: discard changes the bucket does not hold')
     .addHelpText(
       'after',
-      '\nRead-only without a flag. Bucket credentials are read from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY or asked for on the terminal, never taken from arguments.'
+      '\nRead-only without a flag. The bucket is the one named under "state" in fleet.json. Every command reads its credentials from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY; --init also asks on the terminal. They are never taken from arguments.'
     )
     .action(async (_options, command: Command) => {
       complete(await fleetState(command.optsWithGlobals<FleetStateOptions>()));

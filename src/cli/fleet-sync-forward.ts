@@ -91,7 +91,7 @@ export function managerCommand(
           revision,
           ...forwardedFlags(options, undefined),
         ]
-      : ['personal', 'fleet-sync', ...forwardedFlags(options, revision)];
+      : ['devfleet', 'fleet-sync', ...forwardedFlags(options, revision)];
   const color = process.stdout.isTTY && !process.env['NO_COLOR'];
   // A login shell gives the manager's normal PATH (mise, Docker, Tailscale).
   const script = `export ${NO_FORWARD_ENV}=1${color ? ' FORCE_COLOR=1' : ''}; exec ${args.map(shellQuote).join(' ')}`;

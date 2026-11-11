@@ -2,7 +2,7 @@ import type { Check, Status } from '../types';
 import { DIVERGED_REMEDY, type Standing } from './sync';
 
 const INIT =
-  'Connect a bucket: devfleet fleet-state --init --bucket NAME --endpoint https://HOST (see docs/state.md). Until then a lost manager loses the fleet configuration, the roster and the approved revision.';
+  'Name a bucket under "state" in fleet.json and pass its credentials in DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY (see docs/state.md); without a fleet.json, devfleet fleet-state --init --bucket NAME --endpoint https://HOST. Until then a lost manager loses the roster, the approved revision and the configuration last applied.';
 
 const FINDINGS: Record<
   Standing,
@@ -22,7 +22,7 @@ const FINDINGS: Record<
     status: 'warn',
     summary: 'Neither this machine nor the bucket holds any fleet state yet.',
     action:
-      'Start from the example: devfleet fleet-state --import examples/fleet.json after editing a copy for your machines.',
+      'Run devfleet fleet-sync from the project that holds your fleet.json: it records the configuration, the roster and the approved revision. devfleet fleet-state --example prints a fleet.json to start from.',
   },
   unpublished: {
     status: 'warn',
@@ -47,7 +47,7 @@ const FINDINGS: Record<
     summary:
       'The bucket did not answer, so the fleet state could not be compared or uploaded.',
     action:
-      'Check the network, the bucket settings and its credentials (bucket.json), then run devfleet fleet-state --push, which also installs the pinned Litestream when it is missing. Details are withheld to protect credentials.',
+      'Check the network, the bucket named under "state" in fleet.json (or saved in bucket.json) and its credentials: DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY for this command, or the ones devfleet fleet-state --init saved on this machine. Then run devfleet fleet-state --push, which also installs the pinned Litestream when it is missing (that needs mise, which the first fleet-sync on a machine installs). Details are withheld to protect credentials.',
   },
   diverged: {
     status: 'fail',

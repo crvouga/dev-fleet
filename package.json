@@ -5,6 +5,9 @@
   "license": "MIT",
   "repository": "github:crvouga/dev-fleet",
   "homepage": "https://github.com/crvouga/dev-fleet#readme",
+  "bugs": {
+    "url": "https://github.com/crvouga/dev-fleet/issues"
+  },
   "type": "module",
   "bin": {
     "devfleet": "./bin/devfleet.mjs"

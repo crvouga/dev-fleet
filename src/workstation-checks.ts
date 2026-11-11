@@ -22,7 +22,7 @@ export async function workstationChecks(
           summary: 'The devfleet launcher is missing.',
           remedy: {
             action:
-              'Run fleet-sync from the manager, or sh bootstrap/install-launcher.sh in the dev-fleet checkout on this computer.',
+              'Run fleet-sync from the manager: it links the launcher to the checkout of the revision it applies.',
           },
         },
   ];

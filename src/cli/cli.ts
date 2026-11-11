@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { main } from './app';
+import { useProjectConfig } from './project';
 import { actAsOperator } from '../state/operator';
 import { databasePath } from '../state/paths';
 import { readDocument } from '../state/store';
 
 actAsOperator((root) => readDocument(databasePath(root), 'definition'));
+useProjectConfig();
 
 try {
   process.exitCode = await main();

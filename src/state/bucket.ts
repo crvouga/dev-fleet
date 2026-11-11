@@ -112,6 +112,42 @@ export function parseBucket(value: unknown): Bucket {
   return value['directory'] !== undefined ? directory(value) : s3(value);
 }
 
+/** The environment a devfleet command takes the bucket's credentials from. */
+export const ACCESS_KEY_ID_ENV = 'DEVFLEET_BUCKET_ACCESS_KEY_ID';
+export const SECRET_ACCESS_KEY_ENV = 'DEVFLEET_BUCKET_SECRET_ACCESS_KEY';
+
+/** Where a fleet configuration says its state is kept: a bucket's location
+ * without credentials, which never belong in a file kept in Git.
+ */
+export type BucketLocation =
+  | { bucket: string; endpoint?: string; region?: string; prefix?: string }
+  | { directory: string };
+
+const LOCATION = ['bucket', 'endpoint', 'region', 'prefix', 'directory'];
+
+/** The `state` block of a fleet configuration. */
+export function parseLocation(value: unknown): Bucket {
+  if (!record(value)) return invalid('expected a JSON object.');
+  if ('accessKeyId' in value || 'secretAccessKey' in value)
+    invalid(
+      `credentials do not belong in the fleet configuration. Set ${ACCESS_KEY_ID_ENV} and ${SECRET_ACCESS_KEY_ENV} instead.`
+    );
+  if (Object.keys(value).some((key) => !LOCATION.includes(key)))
+    invalid('unknown setting.');
+  return parseBucket(value);
+}
+
+type S3Bucket = Extract<Bucket, { kind: 's3' }>;
+
+/** The same bucket, reached with these credentials instead of its own. */
+export function withCredentials(
+  bucket: S3Bucket,
+  given: { accessKeyId?: string; secretAccessKey?: string }
+): S3Bucket {
+  const { accessKeyId: _id, secretAccessKey: _secret, ...place } = bucket;
+  return { ...place, ...credentials(given) };
+}
+
 /** Null when this machine has no bucket. The file holds credentials, so one
  * that other users can read is refused rather than used.
  */
@@ -161,7 +197,6 @@ export function describeBucket(bucket: Bucket | null): Record<string, unknown> {
     ...(bucket.endpoint ? { endpoint: bucket.endpoint } : {}),
     ...(bucket.region ? { region: bucket.region } : {}),
     prefix: bucket.prefix,
-    credentials: bucket.accessKeyId ? 'bucket.json' : 'environment',
   };
 }
 
