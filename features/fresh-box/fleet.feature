@@ -83,7 +83,7 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
   Scenario: A toolchain setup killed midway completes on the next run, and leaves no installer behind
     Given every machine has been bootstrapped
     And "fleet-b" must set its toolchain up again
-    When the toolchain setup on "fleet-b" is killed while it runs
+    When every process of the toolchain setup on "fleet-b" is killed while it runs
     Then the interrupted bootstrap did not reach node convergence
     And the next bootstrap of "fleet-b" reaches node convergence
     And no installer is left running on "fleet-b"

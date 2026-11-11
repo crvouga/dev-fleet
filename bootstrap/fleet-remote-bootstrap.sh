@@ -142,7 +142,8 @@ if [ -n "$missing" ]; then
   # An installation this script started and that was interrupted (the shell
   # killed, the machine powered off) leaves dpkg half-configured. Finishing
   # our own transaction is safe; one fleet-sync did not start is reported.
-  if [ -n "$(dpkg --audit 2>/dev/null)" ]; then
+  # dpkg reads its database lock even to audit, which needs root.
+  if [ -n "$(sudo -n dpkg --audit 2>/dev/null)" ]; then
     [ -f "$pending" ] || die DPKG_INTERRUPTED
     # shellcheck disable=SC2024
     sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C dpkg --configure -a >"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED

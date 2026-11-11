@@ -347,6 +347,8 @@ export async function lockHeld(machine: Box): Promise<boolean> {
 export function reachedConvergence(checks: Check[]): boolean {
   return (
     checks.length > 0 &&
-    !checks.some((check) => /^(bootstrap|ssh):/.test(check.id))
+    !checks.some(
+      (check) => /^(bootstrap|ssh):/.test(check.id) && check.status !== 'pass'
+    )
   );
 }

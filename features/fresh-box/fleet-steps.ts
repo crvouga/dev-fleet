@@ -93,12 +93,12 @@ const answer = (stdout: string): CommandResult => ({
   stderr: '',
   reason: 'exit',
 });
-const peer = (name: string, self = false) => ({
+const peer = (name: string, address: number, self = false) => ({
   ID: name,
   HostName: name,
   DNSName: `${name}.fleet.test.`,
   OS: self ? 'macOS' : 'linux',
-  TailscaleIPs: [],
+  TailscaleIPs: [`100.64.0.${address}`],
   Online: true,
 });
 const withTailnet: Runner = (command, options) =>
@@ -107,9 +107,12 @@ const withTailnet: Runner = (command, options) =>
         answer(
           JSON.stringify({
             BackendState: 'Running',
-            Self: peer('manager', true),
+            Self: peer('manager', 1, true),
             Peer: Object.fromEntries(
-              tailnetMachines.map((name) => [name, peer(name)])
+              tailnetMachines.map((name, index) => [
+                name,
+                peer(name, index + 2),
+              ])
             ),
           })
         )
@@ -493,7 +496,7 @@ Given(
 );
 
 When(
-  'the toolchain setup on {string} is killed while it runs',
+  'every process of the toolchain setup on {string} is killed while it runs',
   async (world, name: string) => {
     const machine = named(world, name);
     world.machine = machine;
@@ -507,9 +510,12 @@ When(
         300_000
       )
     ).toBe(true);
+    // Every process of the operation stops at once, as when the machine
+    // loses power: each one holding the operation lock, and the setup's
+    // whole process group.
     const killed = await asRoot(
       machine,
-      'group=$(ps -o pgid= -p "$(pgrep -f \'bootstrap/[b]ootstrap.sh --worker\' | head -1)" | tr -d \' \'); pkill -KILL -f \'fleet-[b]ootstrap\'; [ -z "$group" ] || kill -KILL -- "-$group"; true'
+      'group=$(ps -o pgid= -p "$(pgrep -f \'bootstrap/[b]ootstrap.sh --worker\' | head -1)" | tr -d \' \'); [ -z "$group" ] || kill -KILL -- "-$group"; for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null | grep -q \'remote-operation[.]lock\' && kill -KILL "${p#/proc/}"; done; true'
     );
     expect(killed.ok).toBe(true);
     world.bootstrap = await interrupted;
