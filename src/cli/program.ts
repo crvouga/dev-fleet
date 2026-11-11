@@ -28,10 +28,15 @@ export const GLOBAL_OPTIONS = [
   { flag: '--config <path>', description: 'Local, secret-free fleet roster' },
 ];
 
+/** The version a checkout carries; a published package has a real one. */
+export const SOURCE_VERSION = '0.0.0-development';
+
 export function releaseLabel(release: Release): string {
-  return release.releasedAt
-    ? `${release.version} (released ${release.releasedAt})`
-    : `${release.version} (unreleased source build)`;
+  if (release.releasedAt)
+    return `${release.version} (released ${release.releasedAt})`;
+  return release.version === SOURCE_VERSION
+    ? `${release.version} (unreleased source build)`
+    : release.version;
 }
 
 function createProgram(

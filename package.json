@@ -1,16 +1,37 @@
 {
-  "name": "dev-fleet",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@crvouga/dev-fleet",
+  "version": "0.0.0-development",
   "description": "Keeps a set of development machines in sync: one manager and many workers",
   "license": "MIT",
   "repository": "github:crvouga/dev-fleet",
+  "homepage": "https://github.com/crvouga/dev-fleet#readme",
   "type": "module",
   "bin": {
-    "devfleet": "./bootstrap/devfleet"
+    "devfleet": "./bin/devfleet.mjs"
+  },
+  "files": [
+    "bin",
+    "src",
+    "agents",
+    "ansible",
+    "bootstrap",
+    "cliproxy",
+    "schema",
+    "examples",
+    ".mise",
+    "mise.toml",
+    "mise.lock",
+    "!**/*.test.ts",
+    "!**/test_*.py",
+    "!**/tests",
+    "!**/__pycache__"
+  ],
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "devfleet": "bun src/cli/cli.ts",
+    "bootstrap": "bun bootstrap/npm.ts",
     "tc": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0",
     "format": "prettier --check .",
@@ -22,6 +43,7 @@
   "dependencies": {
     "@inquirer/prompts": "8.7.5",
     "boxen": "9.0.0",
+    "bun": "1.4.4",
     "chalk": "6.0.1",
     "cli-table3": "0.6.5",
     "commander": "15.0.0",
