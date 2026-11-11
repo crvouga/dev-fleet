@@ -9,6 +9,7 @@ Python package keeps its own under `cliproxy/tests`.
 bun test                                 # every feature
 bun test features/state                  # one area
 DEVFLEET_TEST_FRESH_BOX=1 bun test features/fresh-box
+DEVFLEET_TEST_AGENT_BOX=1 bun test features/monitoring
 ```
 
 ## Layout
@@ -85,6 +86,7 @@ skipped where it cannot.
 | ------------- | ---------------------------------------------------------------------------- |
 | `@slow`       | With ten times the area's timeout                                            |
 | `@fresh-box`  | When `DEVFLEET_TEST_FRESH_BOX` is set; needs Docker and an SSH client        |
+| `@agent-box`  | When `DEVFLEET_TEST_AGENT_BOX` is set; needs Docker that can run systemd     |
 | `@litestream` | Where the pinned Litestream is installed; required in CI                     |
 | `@s3`         | Where `DEVFLEET_TEST_S3` names a throwaway S3 service                        |
 | `@required`   | Only where `DEVFLEET_TEST_LITESTREAM=required`, to prove nothing was skipped |
