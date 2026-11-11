@@ -512,11 +512,13 @@ When(
         'i=0',
         'until pid=$(pgrep -f \'^bash bootstrap/[b]ootstrap.sh --worker\' | head -1) && [ -n "$pid" ]; do i=$((i + 1)); [ $i -lt 6000 ] || exit 1; sleep 0.05; done',
         'group=$(ps -o pgid= -p "$pid" | tr -d \' \')',
-        'kill -KILL -- "-$group"',
+        'pkill -KILL -g "$group"',
         'for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null | grep -q \'remote-operation[.]lock\' && kill -KILL "${p#/proc/}"; done',
         'true',
       ].join('\n'),
-      400_000
+      400_000,
+      // Only the account's own processes show their open files to it.
+      'fleettest'
     );
     const interrupted = bootstrap(machine);
     expect((await killer).ok).toBe(true);
