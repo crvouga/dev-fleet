@@ -210,9 +210,14 @@ test('bare invocation is help; the command index carries the agent contract and 
   expect((await execute(['--version'], base, release)).text).toBe(
     '1.2.3 (released 2026-01-02T03:04:05.000Z)'
   );
-  expect((await execute(['--version'], base, '1.2.3')).text).toContain(
-    'unreleased source build'
-  );
+  expect(
+    (
+      await execute(['--version'], base, {
+        version: '0.0.0-development',
+        releasedAt: null,
+      })
+    ).text
+  ).toContain('unreleased source build');
   const catalog = await execute(['commands', '--json'], base, release);
   expect((await execute(['--json'], base, release)).data).toEqual(catalog.data);
   const data = catalog.data as {

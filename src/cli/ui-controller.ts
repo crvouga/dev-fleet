@@ -1,4 +1,5 @@
 import type { InteractiveOptions } from './contracts';
+import { releaseLabel } from './program';
 import { runCommand } from './ui-actions';
 import { clean, commandChoices, isCancellation } from './ui-data';
 import { addNode } from './ui-wizard';
@@ -35,7 +36,7 @@ export async function runInteractive(
 
 function showHeader(session: Session): void {
   session.display.panel(
-    `personal · ${clean(session.options.version)} · ${session.options.releasedAt ? `released ${clean(session.options.releasedAt)}` : 'unreleased source build'}`,
+    `personal · ${clean(releaseLabel(session.options))}`,
     [
       'Your developer fleet, without the guesswork.',
       `Workspace: ${clean(session.workspace ?? session.options.workspace)}`,
