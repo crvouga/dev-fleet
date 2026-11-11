@@ -25,7 +25,9 @@ let box: Promise<Box> | undefined;
 async function must(command: string[], timeoutMs = 600_000): Promise<string> {
   const result = await runCommand(command, { cwd: root, timeoutMs });
   if (!result.ok)
-    throw new Error(`${command.slice(0, 4).join(' ')} failed: ${result.stderr}`);
+    throw new Error(
+      `${command.slice(0, 4).join(' ')} failed: ${result.stderr}`
+    );
   return result.stdout.trim();
 }
 
@@ -118,8 +120,9 @@ async function apply(world: MonitoringWorld, playbook: string): Promise<void> {
 }
 
 const mainPid = async (container: string) =>
-  (await on(container, 'systemctl show -p MainPID --value beszel-agent'))
-    .stdout.trim();
+  (
+    await on(container, 'systemctl show -p MainPID --value beszel-agent')
+  ).stdout.trim();
 
 Given(
   'a disposable Ubuntu {float} machine booted with systemd',
@@ -127,7 +130,9 @@ Given(
     box ??= createBox();
     world.box = (await box).container;
     expect(
-      (await on(world.box, '. /etc/os-release && echo "$VERSION_ID"')).stdout.trim()
+      (
+        await on(world.box, '. /etc/os-release && echo "$VERSION_ID"')
+      ).stdout.trim()
     ).toBe(release.toFixed(2));
   }
 );
@@ -149,7 +154,12 @@ Given(
   "someone changed {string} to {string} in the agent's unit",
   async (world, from: string, to: string) => {
     expect(
-      (await on(world.box, `sed -i 's/${from}/${to}/' ${UNIT} && grep -q '${to}' ${UNIT}`)).ok
+      (
+        await on(
+          world.box,
+          `sed -i 's/${from}/${to}/' ${UNIT} && grep -q '${to}' ${UNIT}`
+        )
+      ).ok
     ).toBe(true);
   }
 );
@@ -215,7 +225,9 @@ Then(
 
 Then('nobody is signed in', async (world) => {
   expect(
-    (await on(world.box, 'ls /run/systemd/sessions 2>/dev/null | wc -l')).stdout.trim()
+    (
+      await on(world.box, 'ls /run/systemd/sessions 2>/dev/null | wc -l')
+    ).stdout.trim()
   ).toBe('0');
 });
 

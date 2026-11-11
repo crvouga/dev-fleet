@@ -43,6 +43,11 @@ export class MonitoringWorld extends CommandWorld {
   viewer: Check | undefined;
   backups: Check | undefined;
   workerHome = '';
+
+  // A disposable machine the agent's playbook runs on.
+  box = '';
+  pid = '';
+  changed: number | undefined;
 }
 
 export const monitoring = steps<MonitoringWorld>();
