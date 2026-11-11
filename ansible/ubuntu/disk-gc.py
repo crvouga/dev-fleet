@@ -23,7 +23,9 @@ a volume. Every decision is one JSON line on stdout.
 Usage: disk-gc.py --home H [--path P ...] [--idle-days N] [--pressure-mib N]
                   [--pressure-idle-hours N] [--docker-age-hours N]
                   [--pressure-docker-age-hours N] [--pressure-cache DIR ...]
-                  [--max-depth N] [--proc DIR] [--dry-run]
+                  [--max-depth N] [--proc DIR] [--home-only] [--dry-run]
+
+--home-only skips the machine-wide Docker and apt steps.
 """
 import argparse
 import json
@@ -300,6 +302,7 @@ def main(argv):
     parser.add_argument('--pressure-cache', action='append', default=[])
     parser.add_argument('--max-depth', type=int, default=4)
     parser.add_argument('--proc', default='/proc')
+    parser.add_argument('--home-only', action='store_true')
     parser.add_argument('--dry-run', action='store_true')
     args = parser.parse_args(argv)
     home = os.path.realpath(args.home)
@@ -317,11 +320,12 @@ def main(argv):
     if pressure:
         for cache in args.pressure_cache:
             freed += collect_cache(os.path.join(home, cache), idle, now, args.dry_run)
-    command(['docker', 'image', 'prune', '--all', '--force', '--filter',
-             f'until={docker_age}h'], args.dry_run, 'docker_images')
-    command(['docker', 'builder', 'prune', '--all', '--force', '--filter',
-             f'until={docker_age}h'], args.dry_run, 'docker_build_cache')
-    command(['apt-get', 'clean'], args.dry_run, 'apt_cache')
+    if not args.home_only:
+        command(['docker', 'image', 'prune', '--all', '--force', '--filter',
+                 f'until={docker_age}h'], args.dry_run, 'docker_images')
+        command(['docker', 'builder', 'prune', '--all', '--force', '--filter',
+                 f'until={docker_age}h'], args.dry_run, 'docker_build_cache')
+        command(['apt-get', 'clean'], args.dry_run, 'apt_cache')
 
     after = {p: free_bytes(p) for p in paths}
     log(event='finished', checkout_mib=freed // MIB, dry_run=args.dry_run,

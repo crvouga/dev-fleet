@@ -79,6 +79,8 @@ function run(home: string, proc: string, ...extra: string[]) {
     '0',
     '--proc',
     proc,
+    // Never prune the test machine's Docker or apt cache.
+    '--home-only',
     ...extra,
   ]);
   expect(out.exitCode).toBe(0);
