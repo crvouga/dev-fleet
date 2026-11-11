@@ -48,6 +48,34 @@ Feature: Every fleet-sync on the manager runs through the manager run script
       When the run script is started for the revision "main" with "--json"
       Then the run script exits with 2
 
+  Rule: A preview changes nothing outside dev-fleet's own caches
+
+    Scenario: A preview runs on the revision's locked Bun and never sets up the toolchain
+      The toolchain setup publishes the global mise configuration and edits
+      shell profiles. A preview of a revision nobody approved yet must not.
+      Given the manager has its own copy of the source repository
+      When the run script is started for the commit "first" with "--dry-run --json"
+      Then the run script exits with 0
+      And the run script ran "mise install --locked bun"
+      And this time the run script ran nothing that names "bootstrap.sh"
+      And the last thing the run script ran is "mise exec --locked bun -- bun src/cli/cli.ts fleet-sync --revision {first} --dry-run --json", where {first} is that commit
+
+    Scenario: A preview leaves older run checkouts for the next apply to prune
+      Given the manager has its own copy of the source repository
+      And these run checkouts, each with its "node_modules", were left behind by an earlier clone:
+        | name                                     | last used  |
+        | 1111111111111111111111111111111111111111 | 2020-01-01 |
+        | 2222222222222222222222222222222222222222 | 2020-01-02 |
+        | 3333333333333333333333333333333333333333 | 2020-01-03 |
+        | 4444444444444444444444444444444444444444 | 2020-01-04 |
+      When the run script is started for the commit "first" with "--dry-run"
+      Then the run script exits with 0
+      And the run checkouts that remain are that of the commit "first" and:
+        | 1111111111111111111111111111111111111111 |
+        | 2222222222222222222222222222222222222222 |
+        | 3333333333333333333333333333333333333333 |
+        | 4444444444444444444444444444444444444444 |
+
   Rule: Only the most recent run checkouts are kept
 
     Scenario: Older run checkouts are pruned, also the ones an earlier clone made
