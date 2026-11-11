@@ -1,0 +1,70 @@
+config-version: 8
+server:
+  host: '0.0.0.0'
+  port: 8317
+  max-request-body-bytes: 33554432
+  trusted-proxies: []
+  discovery:
+    enabled: false
+management:
+  allow-remote: true
+  secret-key: REPLACE_MANAGEMENT_KEY
+  disable-control-panel: false
+  disable-auto-update-panel: true
+  panel-github-repository: https://github.com/router-for-me/Cli-Proxy-API-Management-Center
+access:
+  api-keys:
+    - REPLACE_CLIENT_KEY
+oauth:
+  auth-dir: /state/auths
+  # Fleet-owned (applied by `ops declared`): the Antigravity CLI sends its
+  # catalog ids; serve them from the Antigravity account's matching models.
+  model-alias:
+    antigravity:
+      - name: gemini-3.8-flash-high
+        alias: gemini-3.8-flash
+        fork: true
+      - name: gemini-3.1-flash-lite
+        alias: gemini-3.1-flash-lite-preview
+        fork: true
+routing:
+  # Fill first: use one account until its quota is exhausted (it then cools down), then the next.
+  # Sessions stay bound to their account while it is available; new sessions start on the first
+  # available account, so usage is not spread across accounts.
+  strategy: fill-first
+  session-affinity: true
+  retry:
+    request-retry: 2
+    # 0 tries every eligible credential, so exhausting several accounts still reaches the next one.
+    max-retry-credentials: 0
+    max-retry-interval: 30
+  cooldown:
+    disable-cooling: false
+    save-cooldown-status: true
+upstream:
+  claude:
+    # Fleet-owned (applied by `ops declared`): the proxy presents itself to
+    # Anthropic as this Claude Code version, and Anthropic refuses newer models
+    # to an older one. fleet-sync replaces the version with the `claude` pin in
+    # mise.toml on every run, so it follows the harness every node runs.
+    header-defaults:
+      user-agent: 'claude-cli/2.1.314 (external, cli)'
+      # T3 runs Claude Code under its own entrypoint label.
+      native-entrypoints: ['t3-code']
+# Legacy compatibility field intentionally retained: never switch model capability/cost.
+quota-exceeded:
+  switch-project: true
+  switch-preview-model: false
+observability:
+  logs:
+    debug: false
+    logging-to-file: false
+    request-log: false
+    logs-max-total-size-mb: 50
+    error-logs-max-files: 2
+  usage:
+    usage-statistics-enabled: true
+  pprof:
+    enable: false
+plugins:
+  enabled: false

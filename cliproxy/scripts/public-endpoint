@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+"""Run the OpenTofu-owned public connector; never provision cloud resources."""
+
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+import fleet_config
+
+import importlib.util
+import json
+import os
+import pathlib
+import subprocess
+import urllib.error
+import urllib.request
+
+
+def save_token(path, value):
+    """Atomically refreshes the credential; returns whether it changed."""
+    if not isinstance(value, str) or not value.strip() or "\n" in value.strip():
+        raise ValueError("Missing or invalid connector credential")
+    try:
+        if path.read_text() == value.strip() + "\n":
+            return False
+    except OSError:
+        pass
+    temporary = path.with_name(path.name + ".new")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(descriptor, "w") as file:
+        file.write(value.strip() + "\n")
+    temporary.chmod(0o600)
+    if os.geteuid() == 0:
+        os.chown(temporary, 1000, 1000)
+    os.replace(temporary, path)
+    return True
+
+
+def connector_running(compose):
+    result = subprocess.run(
+        compose + ["ps", "--status", "running", "--quiet", "cloudflared"],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode == 0 and bool(result.stdout.strip())
+
+
+def verify(root, endpoint):
+    def request(path, key=None):
+        headers = {"User-Agent": "cliproxy-fleet/1.0"}
+        if key:
+            headers["Authorization"] = "Bearer " + key
+        try:
+            with urllib.request.urlopen(
+                urllib.request.Request(endpoint + path, headers=headers), timeout=30
+            ) as response:
+                return response.status, response.read()
+        except urllib.error.HTTPError as error:
+            return error.code, b""
+
+    client = (root / "state/secrets/client-key").read_text().strip()
+    admin = (root / "state/secrets/management-key").read_text().strip()
+    assert request("/v1/models")[0] == 401
+    status, body = request("/v1/models", client)
+    assert status == 200 and json.loads(body).get("data")
+    assert request("/v0/management/config")[0] in (401, 403)
+    assert request("/v0/management/config", client)[0] in (401, 403)
+    assert request("/v0/management/config", admin)[0] == 200
+    assert request("/management.html")[0] == 200
+    print(
+        "PASS: public HTTPS, authenticated models, separate management key and dashboard."
+    )
+
+
+def main():
+    os.umask(0o077)
+    root = cliproxy_host.default_root()
+    command = sys.argv[1] if len(sys.argv) == 2 else "verify"
+    if command not in ["enable", "start", "disable", "verify"]:
+        raise ValueError("Use enable, start, disable or verify")
+    marker = root / "state/public-endpoint-enabled"
+    if command == "verify":
+        verify(root, fleet_config.endpoint())
+        return
+    compose = [str(root / "scripts/docker"), "compose", "--profile", "public-endpoint"]
+    if command == "disable":
+        subprocess.run(compose + ["stop", "cloudflared"], check=True)
+        marker.unlink(missing_ok=True)
+        return
+    spec = importlib.util.spec_from_file_location(
+        "vault_access", root / "scripts/vault-access.py"
+    )
+    vault = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vault)
+    vault.renew()
+    location = fleet_config.vault()
+    value = vault.request(location["tunnel"], vault.token())["data"]["data"][
+        location["tunnel_field"]
+    ]
+    changed = save_token(root / "state/secrets/tunnel-token", value)
+    # Recreate only when the bind mount must see a refreshed credential (or the
+    # connector is down): a needless recreate drops the public endpoint on
+    # every proxy start or update.
+    if changed or not connector_running(compose):
+        subprocess.run(
+            compose + ["up", "-d", "--force-recreate", "cloudflared"], check=True
+        )
+    if command == "enable":
+        marker.touch(mode=0o600)
+        if os.geteuid() == 0:
+            os.chown(marker, 1000, 1000)
+    print(
+        "Public connector running at " + fleet_config.endpoint() + "; credential withheld."
+    )
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:
+        raise SystemExit(
+            "Public endpoint operation failed; check Vault access, deployment and DNS. Secret values suppressed."
+        ) from None

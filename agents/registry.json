@@ -1,0 +1,209 @@
+{
+  "$schema": "./registry.schema.json",
+  "version": 1,
+  "defaults": {
+    "codex": {
+      "model": "gpt-6.1-sol"
+    },
+    "claude": {
+      "model": "sonnet"
+    },
+    "opencode": {
+      "model": "openrouter/auto"
+    },
+    "gemini": {
+      "model": "auto"
+    },
+    "grok": {
+      "model": "grok-4.7"
+    },
+    "antigravity": {
+      "model": "gemini-3.8-flash"
+    }
+  },
+  "proxy": {
+    "models": {
+      "codex": "gpt-6.1-sol",
+      "claude": "claude-sonnet-4-6",
+      "opencode": "gpt-6.1-sol",
+      "gemini": "gemini-3-flash",
+      "grok": "grok-4.7",
+      "antigravity": "gemini-3.8-flash"
+    },
+    "accounts": {
+      "claude": {
+        "provider": "claude",
+        "models": ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
+      },
+      "codex": {
+        "provider": "codex",
+        "models": ["gpt-6.1-sol"]
+      },
+      "opencode": {
+        "provider": "antigravity",
+        "models": ["gemini-3.8-flash"]
+      }
+    },
+    "routes": {
+      "claude": {
+        "model": "claude-sonnet-4-6",
+        "native": "claude",
+        "harness": "opencode"
+      },
+      "codex": {
+        "model": "gpt-6.1-sol",
+        "native": "codex",
+        "harness": "opencode"
+      },
+      "gemini": {
+        "model": "gemini-3-flash",
+        "native": "gemini",
+        "harness": "opencode"
+      },
+      "grok": {
+        "model": "grok-4.7",
+        "native": "grok",
+        "harness": "opencode"
+      },
+      "muse": {
+        "model": "devin/muse-wonder-1-0",
+        "native": null,
+        "harness": "opencode"
+      },
+      "antigravity": {
+        "model": "gemini-3.8-flash",
+        "native": "antigravity",
+        "harness": "opencode"
+      }
+    }
+  },
+  "nodes": {},
+  "tools": {
+    "codex": {
+      "binary": "codex",
+      "config": "CODEX_HOME/config.toml",
+      "authentication": "Independent codex login for direct; Vault environment key for proxy",
+      "proxy": "responses",
+      "source": "https://learn.chatgpt.com/docs/config-file/config-reference",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": true
+      }
+    },
+    "claude": {
+      "binary": "claude",
+      "config": "--settings FILE",
+      "authentication": "Independent claude auth login for direct; ANTHROPIC_AUTH_TOKEN for proxy",
+      "proxy": "messages",
+      "source": "https://code.claude.com/docs/en/llm-gateway-connect",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": true
+      }
+    },
+    "opencode": {
+      "binary": "opencode",
+      "config": "OPENCODE_CONFIG",
+      "authentication": "Existing dev-fleet opencode sync/Vault; runtime environment key for proxy",
+      "proxy": "responses",
+      "source": "https://opencode.ai/docs/config/",
+      "directEndpoint": "Existing dev-fleet OpenCode provider catalog and OpenRouter auto policy",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": true
+      }
+    },
+    "gemini": {
+      "binary": "gemini",
+      "config": "GEMINI_CLI_HOME/.gemini/settings.json",
+      "authentication": "Native Google login for direct; supported gateway authentication with runtime Vault key for proxy",
+      "proxy": "generateContent",
+      "source": "https://github.com/google-gemini/gemini-cli/blob/v0.66.0/packages/core/src/core/contentGenerator.ts",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": true
+      }
+    },
+    "t3": {
+      "binary": "t3",
+      "config": "T3CODE_HOME/userdata/settings.json providerInstances",
+      "authentication": "Independent t3 up --connect and peer pairing",
+      "proxy": null,
+      "source": "Installed T3 contracts/settings.ts and providerInstance.ts; see audit.md",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": false
+      }
+    },
+    "cursor": {
+      "binary": "cursor",
+      "config": "OS-specific Cursor User/settings.json and .cursor/mcp.json",
+      "authentication": "Interactive Cursor Settings > Models; credentials stay in application storage",
+      "proxy": null,
+      "source": "https://prod.cursor.com/help/models-and-usage/api-keys",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": false
+      }
+    },
+    "antigravity": {
+      "binary": "antigravity",
+      "config": "Profile --gemini-dir (antigravity-cli/settings.json, modelProvider gemini)",
+      "authentication": "Shared CLI proxy: GEMINI_API_KEY (Vault) with GOOGLE_GEMINI_BASE_URL; no Google sign-in",
+      "proxy": "generateContent",
+      "source": "https://antigravity.google/docs/install/",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": true
+      }
+    },
+    "copilot": {
+      "binary": "copilot",
+      "config": "Native config and repository .github/copilot-instructions.md",
+      "authentication": "Independent native GitHub login",
+      "proxy": null,
+      "source": "https://docs.github.com/en/copilot/how-tos/copilot-cli",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": false
+      }
+    },
+    "grok": {
+      "binary": "grok",
+      "config": "GROK_HOME/config.toml",
+      "authentication": "Shared CLI proxy: custom [model.*] entry with env_key CLIPROXY_API_KEY (Vault); no grok login",
+      "proxy": "chat_completions",
+      "source": "https://docs.x.ai/build/settings/reference",
+      "directEndpoint": "Native vendor/account configuration; no portable endpoint override is applied",
+      "capabilities": {
+        "streaming": "unverified on fleet nodes",
+        "toolCalls": "unverified on fleet nodes",
+        "usageTracking": "independent native/runtime state",
+        "unattendedProfile": true
+      }
+    }
+  }
+}

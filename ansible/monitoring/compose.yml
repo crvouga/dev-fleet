@@ -1,0 +1,74 @@
+# Run on the manager only, through hub-darwin.yml from the verified checkout.
+# Never copy the hub data to a worker or run a second copy of its identity.
+name: personal-beszel
+services:
+  hub:
+    image: henrygd/beszel:0.21.1@sha256:8514a69d9bbbcb74f371a3205561ee231fc0289739cea64e8131f341d695b770
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:8090:8090'
+    environment:
+      APP_URL: '${BESZEL_APP_URL:-${BESZEL_HUB_URL:?private HTTPS hub URL required}}'
+      DISABLE_SSH: 'true'
+      CHECK_UPDATES: 'false'
+      # Single-operator private hub: fleet-registered systems are visible to every login.
+      SHARE_ALL_SYSTEMS: 'true'
+      # Visitors are signed in automatically as this read-only viewer account
+      # (never the fleet admin), so the dashboard needs no login. Empty keeps
+      # the normal login page.
+      AUTO_LOGIN: '${BESZEL_AUTO_LOGIN:-}'
+      # First start only (empty data directory): Beszel creates the fleet login
+      # as a verified user and superuser. hub-darwin.yml sets these just once.
+      USER_EMAIL: '${BESZEL_BOOTSTRAP_EMAIL:-}'
+      USER_PASSWORD: '${BESZEL_BOOTSTRAP_PASSWORD:-}'
+    volumes:
+      - type: bind
+        source: '${BESZEL_DATA_DIR:?per-user hub data directory required}'
+        target: /beszel_data
+        bind:
+          create_host_path: false
+    logging:
+      driver: local
+      options:
+        max-size: '10m'
+        max-file: '3'
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 128
+    stop_grace_period: 30s
+  # Outbound-only Cloudflare Tunnel for the public dashboard hostname. The
+  # connector token is delivered from the manager's Vault session to a 0600
+  # per-user file by hub-darwin.yml.
+  cloudflared:
+    profiles: [public-endpoint]
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    user: '1000:1000'
+    restart: unless-stopped
+    command:
+      [
+        'tunnel',
+        '--no-autoupdate',
+        'run',
+        '--token-file',
+        '/run/secrets/tunnel-token',
+      ]
+    volumes:
+      - type: bind
+        source: '${BESZEL_TUNNEL_TOKEN_FILE:?per-user connector token file required}'
+        target: /run/secrets/tunnel-token
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      - hub
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ['no-new-privileges:true']
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    logging:
+      driver: local
+      options:
+        max-size: '5m'
+        max-file: '2'

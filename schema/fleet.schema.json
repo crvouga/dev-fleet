@@ -1,0 +1,364 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Fleet topology: one manager (the human's machine, which runs every singleton service) and stateless Linux workers. Local paths remain in roster overrides.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "manager",
+    "workers",
+    "services",
+    "ubuntu",
+    "source",
+    "secrets"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 3
+    },
+    "manager": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "The singleton manager: the human's machine that runs fleet-sync and hosts every singleton service (CLI proxy, Beszel hub).",
+      "required": ["id", "os", "network", "neverSleepOnPower"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]{0,62}$"
+        },
+        "os": {
+          "const": "macOS"
+        },
+        "network": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tailscaleName", "user"],
+          "properties": {
+            "tailscaleName": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[a-z_][a-z0-9_.-]{0,31}$"
+            }
+          }
+        },
+        "neverSleepOnPower": {
+          "const": true,
+          "description": "Workers depend on the manager's singleton services, so it never sleeps on AC power."
+        }
+      }
+    },
+    "workers": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ssh", "os"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "ssh": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+          },
+          "os": {
+            "const": "linux",
+            "description": "Workers are the Linux boxes: stateless, replaceable, never hosting a singleton service."
+          },
+          "network": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["tailscaleName", "user", "sshPort", "t3Port"],
+            "properties": {
+              "tailscaleName": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+              },
+              "user": {
+                "type": "string",
+                "pattern": "^[a-z_][a-z0-9_-]{0,31}$"
+              },
+              "sshPort": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              },
+              "t3Port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535
+              }
+            }
+          }
+        }
+      }
+    },
+    "services": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["proxy", "monitoring"],
+      "description": "Singleton services. Every one runs on the manager; workers are clients only.",
+      "properties": {
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["endpoint"],
+          "properties": {
+            "endpoint": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]+$",
+              "description": "Public HTTPS origin of the CLI proxy every node uses."
+            }
+          }
+        },
+        "monitoring": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "hubPort",
+            "publicUrl",
+            "managerAccount",
+            "viewerAccount"
+          ],
+          "properties": {
+            "hubPort": {
+              "const": 8443
+            },
+            "publicUrl": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]+$",
+              "description": "Public dashboard origin."
+            },
+            "managerAccount": {
+              "type": "string",
+              "format": "email",
+              "description": "Beszel account the manager enrolls nodes with."
+            },
+            "viewerAccount": {
+              "type": "string",
+              "format": "email",
+              "description": "Read-only Beszel account visitors are signed in as."
+            }
+          }
+        }
+      }
+    },
+    "ubuntu": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["release", "architectures"],
+      "properties": {
+        "release": {
+          "const": "26.04"
+        },
+        "architectures": {
+          "const": ["amd64", "arm64"]
+        }
+      }
+    },
+    "worker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requiredCapabilities",
+        "githubLogin",
+        "vaultUser",
+        "toolchain",
+        "agentProfile",
+        "unattendedSudo",
+        "persistentT3",
+        "neverSleep"
+      ],
+      "properties": {
+        "requiredCapabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "github",
+              "vault",
+              "t3",
+              "toolchain",
+              "workstation",
+              "worker"
+            ]
+          }
+        },
+        "githubLogin": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9-]{1,39}$"
+        },
+        "vaultUser": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9_.-]{1,64}$"
+        },
+        "toolchain": {
+          "const": "mise.lock"
+        },
+        "agentProfile": {
+          "const": "proxy"
+        },
+        "unattendedSudo": {
+          "const": true
+        },
+        "persistentT3": {
+          "const": true
+        },
+        "neverSleep": {
+          "const": true
+        }
+      }
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["repository"],
+      "description": "The Git repository that holds this fleet's configuration and pins. Nodes only accept source from it.",
+      "properties": {
+        "repository": {
+          "type": "string",
+          "pattern": "^https://[A-Za-z0-9.-]+/[A-Za-z0-9._/-]+\\.git$"
+        }
+      }
+    },
+    "secrets": {
+      "description": "Where this fleet keeps its secrets. env: DEVFLEET_SECRET_<NAME>; file: one file per secret; sops: one encrypted document; vault: a KV v2 location per secret.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider"],
+          "properties": {
+            "provider": {
+              "const": "env"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider"],
+          "properties": {
+            "provider": {
+              "const": "file"
+            },
+            "directory": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "file"],
+          "properties": {
+            "provider": {
+              "const": "sops"
+            },
+            "file": {
+              "type": "string"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["provider", "address", "mount", "locations"],
+          "properties": {
+            "provider": {
+              "const": "vault"
+            },
+            "address": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]+$"
+            },
+            "mount": {
+              "type": "string"
+            },
+            "locations": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "proxy-client-key",
+                "monitoring-account-password",
+                "monitoring-tunnel-token",
+                "proxy-tunnel-token"
+              ],
+              "properties": {
+                "proxy-client-key": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  }
+                },
+                "monitoring-account-password": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  }
+                },
+                "monitoring-tunnel-token": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  }
+                },
+                "proxy-tunnel-token": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

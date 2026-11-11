@@ -1,0 +1,527 @@
+#!/usr/bin/env python3
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import accounts
+import cliproxy_host
+
+import fcntl, json, os, pathlib, shutil, subprocess, sys, tempfile, time, urllib.request, urllib.error
+
+root = cliproxy_host.default_root().resolve()
+# tools/bin holds the pinned python3 + PyYAML venv. LaunchAgents already put it
+# first; interactive installs must too, or validate-config gets a system python3.
+os.environ["PATH"] = os.pathsep.join(
+    [str(root / "scripts"), str(root / "tools/bin"), os.environ["PATH"]]
+)
+os.umask(0o077)
+os.chdir(root)
+
+
+def run(args, **kw):
+    return subprocess.run(args, check=True, **kw)
+
+
+def compose(*args, **kw):
+    return run(["docker", "compose", *args], **kw)
+
+
+def validate():
+    if (root / "state/recovery-incomplete").exists():
+        raise ValueError("Interrupted cache recovery must be resolved before startup")
+    run([str(root / "scripts/validate-config")])
+    compose("config", "--quiet")
+
+
+def request(path, key=None, data=None, base="http://127.0.0.1:8317", method=None):
+    headers = {}
+    if key:
+        headers["Authorization"] = "Bearer " + key
+    if data is not None:
+        headers["Content-Type"] = "application/json"
+    req = urllib.request.Request(
+        base + path,
+        data=json.dumps(data).encode() if data is not None else None,
+        headers=headers,
+        method=method,
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            return r.status, r.read()
+    except urllib.error.HTTPError as e:
+        return e.code, e.read()
+
+
+def health():
+    key = (root / "state/secrets/client-key").read_text().strip()
+    assert request("/v1/models")[0] == 401, (
+        "Anonymous inference accepted or unavailable"
+    )
+    code, body = request("/v1/models", key)
+    assert code == 200, "Authenticated model listing failed"
+    assert request("/v0/management/config", key)[0] in (401, 403), (
+        "Client key accessed management"
+    )
+    admin = (root / "state/secrets/management-key").read_text().strip()
+    assert request("/v0/management/config", admin)[0] == 200, (
+        "Management authentication failed"
+    )
+    assert request("/management.html")[0] == 200, "Official dashboard unavailable"
+    models = json.loads(body).get("data", [])
+    if not isinstance(models, list) or not models:
+        raise ValueError("No usable provider models")
+    print(
+        "PASS: anonymous rejected; client models OK; separate management key enforced; dashboard available."
+    )
+    print("Available model count:", len(models))
+    return models
+
+
+def wait():
+    for _ in range(30):
+        try:
+            health()
+            return
+        except Exception:
+            time.sleep(2)
+    sys.exit(
+        "Health did not recover in 60 seconds. Inspect status; use rollback if upgrading."
+    )
+
+
+# Runtime config keys owned by config.template.yaml (everything else in the
+# live config, such as keys and accounts, is runtime state and preserved).
+DECLARED = [("oauth", "model-alias"), ("upstream", "claude")]
+
+
+def claude_version():
+    """`--claude-version X.Y.Z`: the Claude Code version every node runs."""
+    import re
+
+    for index, argument in enumerate(sys.argv):
+        if argument == "--claude-version":
+            version = sys.argv[index + 1] if index + 1 < len(sys.argv) else ""
+            if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+                raise ValueError("Invalid Claude Code version")
+            return version
+    return None
+
+
+def declared_template():
+    """The tracked template; its Claude client version follows the fleet pin."""
+    import re, yaml
+
+    text = (root / "config.template.yaml").read_text()
+    version = claude_version()
+    if version:
+        text = re.sub(r"claude-cli/\d+\.\d+\.\d+", "claude-cli/" + version, text)
+    return yaml.safe_load(text)
+
+
+def declared_candidate():
+    """The live config with the declared settings from the template, or None."""
+    import yaml
+
+    template = declared_template()
+    live = yaml.safe_load((root / "state/runtime/config.yaml").read_text())
+    changed = False
+    for section, key in DECLARED:
+        want = (template.get(section) or {}).get(key)
+        have = (live.get(section) or {}).get(key)
+        if want == have:
+            continue
+        changed = True
+        live.setdefault(section, {})
+        if want is None:
+            live[section].pop(key, None)
+        else:
+            live[section][key] = want
+    return yaml.safe_dump(live, sort_keys=False) if changed else None
+
+
+def apply_config(candidate, restart=True):
+    run([str(root / "scripts/validate-config"), str(candidate), "--require-fill-first"])
+    staging(candidate)
+    shutil.copy2(
+        root / "state/runtime/config.yaml",
+        root / "state/runtime/config.yaml.previous",
+    )
+    shutil.copyfile(candidate, root / "state/runtime/config.yaml.new")
+    os.chmod(root / "state/runtime/config.yaml.new", 0o600)
+    os.replace(
+        root / "state/runtime/config.yaml.new", root / "state/runtime/config.yaml"
+    )
+    if restart:
+        compose("restart", "proxy")
+    wait()
+
+
+def declared_aliases():
+    """Client-visible model ids the declared aliases must add."""
+    import yaml
+
+    template = yaml.safe_load((root / "config.template.yaml").read_text())
+    aliases = ((template.get("oauth") or {}).get("model-alias") or {}).values()
+    return {entry["alias"] for entries in aliases for entry in entries or []}
+
+
+def hot_reloaded(expected):
+    """The proxy watches its config file; wait for the reload to serve it."""
+    for _ in range(15):
+        try:
+            served = {model.get("id") for model in health()}
+            if expected <= served:
+                return True
+        except Exception:
+            pass
+        time.sleep(2)
+    return False
+
+
+def pending_prefixes():
+    """Credentials that lack their account's model prefix."""
+    return accounts.pending(root / "state/runtime/auths")
+
+
+def apply_prefixes(prefixes):
+    # The proxy owns its credential files (it rewrites them on token refresh),
+    # so the prefix is set through its own API, never by editing a file.
+    admin = (root / "state/secrets/management-key").read_text().strip()
+    for name, prefix in prefixes:
+        code, _ = request(
+            "/v0/management/auth-files/fields",
+            admin,
+            {"name": name, "prefix": prefix},
+            method="PATCH",
+        )
+        assert code == 200, "Credential prefix update failed"
+    for _ in range(15):
+        if not pending_prefixes():
+            return
+        time.sleep(2)
+    sys.exit("The proxy did not record the declared account prefixes.")
+
+
+def lock():
+    f = open(root / "state/status/operation.lock", "w")
+    if os.geteuid() == 0:
+        os.chown(root / "state/status/operation.lock", 1000, 1000)
+    fcntl.flock(f, fcntl.LOCK_EX)
+    return f
+
+
+def staging(config):
+    # No provider credential files are mounted; isolated port and temporary state.
+    import yaml
+
+    with tempfile.TemporaryDirectory(prefix="cliproxy-stage-") as d:
+        stage = pathlib.Path(d)
+        stage.chmod(0o755)
+        cfg = yaml.safe_load(pathlib.Path(config).read_text())
+        cfg["server"]["port"] = 8317
+        cfg["oauth"] = {"auth-dir": "/stage/auths"}
+        cfg["management"]["disable-control-panel"] = True
+        for field in [
+            "api-keys",
+            "gemini-api-key",
+            "claude-api-key",
+            "codex-api-key",
+            "openai-compatibility",
+            "xai-api-key",
+            "meta-api-key",
+        ]:
+            cfg.pop(field, None)
+        cfg["management"]["disable-auto-update-panel"] = True
+        (stage / "auths").mkdir(mode=0o700)
+        (stage / "config.yaml").write_text(yaml.safe_dump(cfg))
+        (stage / "config.yaml").chmod(0o600)
+        image = dict(
+            line.split("=", 1) for line in (root / ".env").read_text().splitlines()
+        )["CLI_PROXY_IMAGE"]
+        name = "cliproxy-validate-" + str(os.getpid())
+        try:
+            run(
+                [
+                    "docker",
+                    "run",
+                    "-d",
+                    "--name",
+                    name,
+                    "--user",
+                    "%d:%d" % cliproxy_host.runtime_ids(),
+                    "--cap-drop=ALL",
+                    "--security-opt=no-new-privileges",
+                    "--memory=512m",
+                    "--pids-limit=128",
+                    "-v",
+                    str(stage) + ":/stage",
+                    "-p",
+                    "127.0.0.1::8317",
+                    image,
+                    "/CLIProxyAPI/CLIProxyAPI",
+                    "-config",
+                    "/stage/config.yaml",
+                ],
+                stdout=subprocess.DEVNULL,
+            )
+            mapping = subprocess.check_output(
+                ["docker", "port", name, "8317/tcp"], text=True
+            ).strip()
+            for _ in range(20):
+                try:
+                    assert request("/v1/models", base="http://" + mapping)[0] == 401
+                    key = cfg["access"]["api-keys"][0]
+                    assert (
+                        request("/v1/models", key, base="http://" + mapping)[0] == 200
+                    )
+                    print("Isolated runtime validation passed.")
+                    return
+                except Exception:
+                    time.sleep(1)
+            raise RuntimeError("staging failed")
+        finally:
+            run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL)
+
+
+command = sys.argv[1] if len(sys.argv) > 1 else "status"
+try:
+    if command == "validate":
+        validate()
+        staging(root / "state/runtime/config.yaml")
+    elif command == "start":
+        operation_lock = lock()
+        validate()
+        compose("up", "-d", "--wait")
+        health()
+        if (root / "state/endpoint.json").exists():
+            compose("--profile", "portable-endpoint", "up", "-d", "tailnet")
+        if (root / "state/public-endpoint-enabled").exists():
+            run([str(root / "scripts/public-endpoint"), "start"])
+    elif command == "stop":
+        operation_lock = lock()
+        compose(
+            "--profile", "portable-endpoint", "--profile", "public-endpoint", "stop"
+        )
+    elif command == "restart":
+        operation_lock = lock()
+        validate()
+        compose("restart", "proxy")
+        wait()
+    elif command == "health":
+        health()
+    elif command == "status":
+        compose("--profile", "portable-endpoint", "--profile", "public-endpoint", "ps")
+        health()
+        for f in [
+            "backup-success.json",
+            "backup-failed",
+            "backup-check-failed",
+            "backup-operation-failed",
+            "monitor-failed",
+            "gc-failed",
+            "gc-success.json",
+        ]:
+            p = root / "state/status" / f
+            if p.exists():
+                print(f, p.read_text().strip())
+    elif command == "models":
+        for m in health():
+            print(m["id"])
+    elif command == "logs":
+        # Avoid emitting unreviewed upstream logs: redact every known credential, then token patterns.
+        import re, yaml
+
+        data = subprocess.check_output(
+            ["docker", "compose", "logs", "--no-color", "--tail", "100", "proxy"],
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        config = yaml.safe_load((root / "state/runtime/config.yaml").read_text())
+        values = []
+
+        def visit(obj):
+            if isinstance(obj, dict):
+                for k, v in obj.items():
+                    if isinstance(v, str) and any(
+                        x in k.lower() for x in ["key", "token", "secret", "password"]
+                    ):
+                        values.append(v)
+                    visit(v)
+            elif isinstance(obj, list):
+                for v in obj:
+                    visit(v)
+
+        visit(config)
+        values.extend(config["access"]["api-keys"])
+        for f in (root / "state/secrets").iterdir():
+            if f.is_file() and f.stat().st_size < 10000:
+                try:
+                    text = f.read_text().strip()
+                    if f.suffix == ".json":
+                        visit(json.loads(text))
+                    else:
+                        values.append(text)
+                except Exception:
+                    pass
+        for f in (root / "state/runtime/auths").glob("*.json"):
+            try:
+                visit(json.loads(f.read_text()))
+            except Exception:
+                pass
+        for value in sorted(set(values), key=len, reverse=True):
+            if len(value) >= 6:
+                data = data.replace(value, "[REDACTED]")
+        data = re.sub(r'(?i)(bearer\s+)[^\s"\']+', r"\1[REDACTED]", data)
+        data = re.sub(r"(?:sk-|eyJ)[A-Za-z0-9_.-]{15,}", "[REDACTED]", data)
+        print(data)
+    elif command == "apply":
+        operation_lock = lock()
+        apply_config(pathlib.Path(sys.argv[2]).resolve())
+    elif command == "declared":
+        # Fleet-owned settings: template config keys and one model prefix per
+        # signed-in account. Check exits 3 when the live proxy differs;
+        # --apply replaces only those settings.
+        candidate = declared_candidate()
+        prefixes = pending_prefixes()
+        if candidate is None and not prefixes:
+            print("Declared settings match the live config.")
+        elif "--apply" not in sys.argv[2:]:
+            print("Declared settings differ from the live config.")
+            sys.exit(3)
+        else:
+            operation_lock = lock()
+            if candidate is not None:
+                with tempfile.NamedTemporaryFile(
+                    "w", dir=root / "state/runtime", suffix=".yaml", delete=False
+                ) as file:
+                    file.write(candidate)
+                try:
+                    os.chmod(file.name, 0o600)
+                    # Restart-free: the proxy hot-reloads config.yaml. Restart
+                    # only if the reload never serves the declared settings.
+                    apply_config(pathlib.Path(file.name), restart=False)
+                    if not hot_reloaded(declared_aliases()):
+                        compose("restart", "proxy")
+                        wait()
+                finally:
+                    pathlib.Path(file.name).unlink(missing_ok=True)
+            if prefixes:
+                apply_prefixes(prefixes)
+    elif command in ["upgrade", "rollback"]:
+        sys.exit(
+            "Install a reviewed Git revision with bun run cliproxy install --revision REV; use --rollback for the recorded previous revision."
+        )
+    elif command == "add-account":
+        operation_lock = lock()
+        provider = sys.argv[2]
+        flags = {
+            "codex": "-codex-device-login",
+            "claude": "-claude-login",
+            "gemini": "-login",
+            "antigravity": "-antigravity-login",
+            "kimi": "-kimi-login",
+            "xai": "-xai-login",
+            "meta": "-meta-login",
+            "devin": "-devin-login",
+        }
+        if provider == "gemini":
+            sys.exit(
+                "This release has no Gemini CLI login flag. Use official dashboard OAuth/API key configuration."
+            )
+        flag = flags[provider]
+        compose(
+            "exec",
+            "proxy",
+            "/CLIProxyAPI/CLIProxyAPI",
+            "-config",
+            "/state/config.yaml",
+            flag,
+            "-no-browser",
+        )
+    elif command == "inference":
+        protocol, model = sys.argv[2:4]
+        key = (root / "state/secrets/client-key").read_text().strip()
+        if protocol == "responses":
+            path = "/v1/responses"
+            body = {
+                "model": model,
+                "input": "Reply only OK",
+                "stream": True,
+                "max_output_tokens": 32,
+            }
+        elif protocol == "messages":
+            path = "/v1/messages"
+            body = {
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply only OK"}],
+                "stream": True,
+                "max_tokens": 16,
+            }
+        else:
+            path = "/v1/chat/completions"
+            body = {
+                "model": model,
+                "messages": [{"role": "user", "content": "Reply only OK"}],
+                "stream": True,
+                "max_tokens": 16,
+            }
+        code, data = request(path, key, body)
+        assert code == 200 and b"data:" in data, (
+            "Streaming inference failed (response suppressed)"
+        )
+        print(
+            "Streaming transport returned SSE. Check protocol completion and tools with the actual client before production use."
+        )
+    elif command == "portable-login":
+        compose("--profile", "portable-endpoint", "up", "-d", "tailnet")
+        compose(
+            "exec",
+            "tailnet",
+            "tailscale",
+            "--socket=/tmp/tailscaled.sock",
+            "up",
+            "--hostname=cliproxy-fleet",
+            "--advertise-tags=tag:ai-proxy",
+            "--accept-dns=false",
+        )
+    elif command == "activate":
+        health()
+        compose(
+            "exec",
+            "tailnet",
+            "tailscale",
+            "--socket=/tmp/tailscaled.sock",
+            "serve",
+            "--service=svc:ai-proxy",
+            "--https=443",
+            "http://proxy:8317",
+        )
+        compose(
+            "exec",
+            "tailnet",
+            "tailscale",
+            "--socket=/tmp/tailscaled.sock",
+            "serve",
+            "status",
+        )
+    elif command == "drain":
+        compose(
+            "exec",
+            "tailnet",
+            "tailscale",
+            "--socket=/tmp/tailscaled.sock",
+            "serve",
+            "drain",
+            "svc:ai-proxy",
+        )
+    else:
+        sys.exit(
+            "Commands: start stop restart status health models logs validate apply FILE declared [--apply] add-account PROVIDER inference PROTOCOL MODEL portable-login activate drain"
+        )
+except Exception:
+    sys.exit(
+        "Operation failed; secrets and upstream error responses suppressed. Check sanitized logs and service status."
+    )

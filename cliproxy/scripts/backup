@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+
+import datetime, json, os, pathlib, subprocess, sys, tempfile, fcntl, importlib.util
+import checkpoint
+import retention
+
+root = cliproxy_host.default_root().resolve()
+os.umask(0o077)
+os.environ["PATH"] = str(root / "scripts") + ":" + os.environ["PATH"]
+state = root / "state"
+status = state / "status"
+status.mkdir(parents=True, exist_ok=True)
+lock = open(status / "operation.lock", "w")
+if os.geteuid() == 0:
+    os.chown(status / "operation.lock", 1000, 1000)
+fcntl.flock(lock, fcntl.LOCK_EX)
+command = sys.argv[1] if len(sys.argv) > 1 else "backup"
+failure = status / (
+    "backup-failed"
+    if command == "backup"
+    else "backup-check-failed"
+    if command in ["check", "check-full"]
+    else "gc-failed"
+    if command == "gc"
+    else "backup-operation-failed"
+)
+
+
+def run(args, **kw):
+    return subprocess.run(args, check=True, **kw)
+
+
+def write(path, text):
+    path.write_text(text)
+    if os.geteuid() == 0:
+        os.chown(path, 1000, 1000)
+
+
+try:
+    retention.staging(root)
+    spec = importlib.util.spec_from_file_location(
+        "vault_access", root / "scripts/vault-access.py"
+    )
+    vault = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vault)
+    vault.renew()
+    cfg = vault.credentials()
+    identity = {k: cfg[k] for k in ["S3_ENDPOINT", "S3_BUCKET", "S3_REGION"]}
+    destination = state / "repository.json"
+    if destination.exists() and json.loads(destination.read_text()) != identity:
+        sys.exit(
+            "Vault repository location changed. Review and update state/repository.json explicitly; refusing to silently switch repositories."
+        )
+    if not destination.exists() and command != "restore-cache":
+        write(destination, json.dumps(identity) + "\n")
+    if not cfg["S3_ENDPOINT"].startswith("https://"):
+        raise ValueError("Storage endpoint must use TLS")
+    env = os.environ.copy()
+    env.update(
+        AWS_ACCESS_KEY_ID=cfg["S3_ACCESS_KEY_ID"],
+        AWS_SECRET_ACCESS_KEY=cfg["S3_SECRET_ACCESS_KEY"],
+        AWS_DEFAULT_REGION=cfg["S3_REGION"],
+        RESTIC_REPOSITORY="s3:"
+        + cfg["S3_ENDPOINT"].rstrip("/")
+        + "/"
+        + cfg["S3_BUCKET"]
+        + "/cliproxy-fleet/restic",
+        RESTIC_PASSWORD_FILE=str(state / "secrets/restic-password"),
+    )
+
+    def restic(*args, **kw):
+        return run(
+            ["restic", "-o", "s3.bucket-lookup=path", *args, "--no-cache"],
+            env=env,
+            **kw,
+        )
+
+    if command == "init":
+        restic("init")
+    elif command == "check":
+        restic("check", "--read-data-subset=10%")
+    elif command == "check-full":
+        restic("check", "--read-data")
+    elif command == "gc":
+        retention.prune(restic)
+        removed = retention.revisions(root)
+        write(
+            status / "gc-success.json",
+            json.dumps(
+                {
+                    "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "retired_worktrees": removed,
+                }
+            )
+            + "\n",
+        )
+        print(
+            "Cloud garbage collected and integrity checked; retired clean worktrees removed:",
+            removed,
+        )
+    elif command == "snapshots":
+        restic("snapshots")
+    elif command == "restore":
+        if len(sys.argv) != 4:
+            sys.exit("Usage: backup restore SNAPSHOT EMPTY_DIRECTORY")
+        target = pathlib.Path(sys.argv[3]).resolve()
+        if target.exists() and any(target.iterdir()):
+            sys.exit("Restore target must be empty.")
+        target.mkdir(parents=True, exist_ok=True)
+        restic("restore", sys.argv[2], "--target", str(target), "--verify")
+    elif command == "restore-cache":
+        if sys.argv[2:] != ["--previous-node-stopped"]:
+            raise ValueError("Explicit previous-node-stopped acknowledgement required")
+        # This local check complements operator fencing of the previous machine.
+        active = subprocess.check_output(
+            [
+                "docker",
+                "compose",
+                "--profile",
+                "portable-endpoint",
+                "--profile",
+                "public-endpoint",
+                "ps",
+                "--status",
+                "running",
+                "--services",
+            ],
+            cwd=root,
+            text=True,
+        ).strip()
+        if active:
+            raise ValueError("Stop the local stack before recovery")
+        with tempfile.TemporaryDirectory(
+            prefix="restore-", dir=root / "recovery"
+        ) as temporary:
+            target = pathlib.Path(temporary)
+            restic(
+                "restore",
+                "latest",
+                "--tag",
+                "cliproxy-checkpoint-v1",
+                "--host",
+                "cliproxy-primary",
+                "--target",
+                str(target),
+                "--verify",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            payload = checkpoint.locate(target)
+            saved_destination = payload / "state/repository.json"
+            if (
+                not saved_destination.exists()
+                or json.loads(saved_destination.read_text()) != identity
+            ):
+                raise ValueError("Recovered repository identity differs from Vault")
+            checkpoint.hydrate(payload, state)
+        print(
+            "Cloud checkpoint recovered into empty cache. No services started. Run install, then health verification."
+        )
+    elif command == "backup":
+        if not (state / "secrets/recovery-confirmed").exists():
+            sys.exit(
+                "Store Restic password independently; then create state/secrets/recovery-confirmed."
+            )
+
+        recovery = root / "recovery"
+        recovery.mkdir(mode=0o700, exist_ok=True)
+        if os.geteuid() == 0:
+            os.chown(recovery, 1000, 1000)
+        with tempfile.TemporaryDirectory(
+            prefix="checkpoint-", dir=recovery
+        ) as temporary:
+            captured = pathlib.Path(temporary) / "payload"
+            # The stack keeps running: a live, verified-stable copy.
+            checkpoint.capture(root, captured)
+            result = restic(
+                "backup",
+                "--json",
+                str(captured),
+                "--tag",
+                "cliproxy-fleet",
+                "--tag",
+                "cliproxy-checkpoint-v1",
+                "--host",
+                "cliproxy-primary",
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            summaries = [json.loads(line) for line in result.stdout.splitlines()]
+            summary = next(
+                item
+                for item in reversed(summaries)
+                if item.get("message_type") == "summary"
+            )
+            snapshot = summary["snapshot_id"]
+            if not isinstance(snapshot, str) or not snapshot:
+                raise ValueError("Missing snapshot acknowledgement")
+            print("Complete encrypted checkpoint saved:", snapshot)
+        retention.forget(restic)
+        write(
+            status / "backup-success.json",
+            json.dumps(
+                {
+                    "snapshot": snapshot,
+                    "time": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "destination": "configured R2 bucket / cliproxy-fleet/restic",
+                }
+            )
+            + "\n",
+        )
+    else:
+        sys.exit(
+            "Use init, backup, gc, snapshots, check, check-full, restore SNAPSHOT EMPTY_DIRECTORY, or restore-cache --previous-node-stopped."
+        )
+except (Exception, SystemExit):
+    write(failure, datetime.datetime.now(datetime.timezone.utc).isoformat() + "\n")
+    sys.exit(
+        "Backup operation failed. Inspect systemd unit status; credentials suppressed."
+    )
+else:
+    failure.unlink(missing_ok=True)
+
+finally:
+    lock.close()

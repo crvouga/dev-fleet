@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+
+import importlib.util, pathlib, sys, os
+
+root = cliproxy_host.default_root().resolve()
+spec = importlib.util.spec_from_file_location(
+    "vault_access", root / "scripts/vault-access.py"
+)
+v = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(v)
+try:
+    v.renew()
+    (root / "state/status/vault-failed").unlink(missing_ok=True)
+    print("Vault token valid; renewal checked.")
+except Exception:
+    f = root / "state/status/vault-failed"
+    f.write_text("Vault login/renewal required.\n")
+    if os.geteuid() == 0:
+        os.chown(f, 1000, 1000)
+    sys.exit(
+        "Vault token unavailable, expired, or unable to renew. Run vault-backup-login."
+    )

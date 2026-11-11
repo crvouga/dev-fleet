@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "labels": ["deps"],
+  "lockFileMaintenance": { "enabled": true },
+  "packageRules": [
+    {
+      "description": "Agent CLIs are what every node runs; review each bump on its own.",
+      "matchManagers": ["mise"],
+      "groupName": null
+    },
+    { "matchManagers": ["github-actions"], "groupName": "actions" }
+  ]
+}

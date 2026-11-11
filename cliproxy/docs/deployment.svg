@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1120" viewBox="0 0 1440 1120" role="img" aria-labelledby="title description">
+  <title id="title">CLIProxyAPI deployment and integrations</title>
+  <desc id="description">Clients reach Cloudflare HTTPS with API keys. An outbound tunnel connects to cloudflared and CLIProxyAPI on the workstation. CLIProxyAPI calls the upstream AI provider. GitHub supplies tracked runtime code and OpenTofu cloud configuration. Vault supplies credentials; Restic sends encrypted backups to R2. A private Tailscale endpoint also reaches the proxy.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#667897"/></marker>
+    <marker id="blue-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2563eb"/></marker>
+    <style>
+      text { font-family: Inter, Arial, sans-serif; fill: #15243b; }
+      .heading { font-size: 32px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #53637b; }
+      .label { font-size: 18px; font-weight: 700; }
+      .detail { font-size: 15px; fill: #53637b; }
+      .edge-label { font-size: 14px; fill: #53637b; }
+      .box { fill: white; stroke: #ccd7e6; stroke-width: 1.5; }
+      .traffic { fill: none; stroke: #2563eb; stroke-width: 3; marker-end: url(#blue-arrow); }
+      .control { fill: none; stroke: #667897; stroke-width: 2; stroke-dasharray: 7 6; marker-end: url(#arrow); }
+      .storage { fill: none; stroke: #667897; stroke-width: 2; marker-end: url(#arrow); }
+    </style>
+  </defs>
+  <rect width="1440" height="1120" rx="24" fill="#f5f8fc"/>
+  <text x="54" y="65" class="heading">CLIProxyAPI · deployment &amp; integrations</text>
+  <text x="54" y="96" class="subtitle">Stable public HTTPS · API-key authentication · GitHub-owned configuration</text>
+
+  <rect x="54" y="130" width="1332" height="104" rx="16" class="box"/>
+  <text x="80" y="164" class="label">YOUR CLIENTS</text>
+  <text x="80" y="196" class="detail">Codex CLI · Claude Code · OpenCode · other API clients</text>
+  <text x="900" y="164" class="label">MANAGEMENT DASHBOARD</text>
+  <text x="900" y="196" class="detail">Browser + separate management key</text>
+
+  <path d="M 720 234 V 290" class="traffic"/>
+  <text x="742" y="269" class="edge-label">HTTPS + client API key / management key</text>
+  <rect x="395" y="290" width="650" height="110" rx="16" fill="#eaf1ff" stroke="#9dbaf5" stroke-width="1.5"/>
+  <text x="720" y="328" text-anchor="middle" class="label">cli-proxy.example.com</text>
+  <text x="720" y="359" text-anchor="middle" class="detail">Cloudflare DNS + HTTPS + managed Tunnel</text>
+  <text x="720" y="383" text-anchor="middle" class="detail">API: /v1 · Dashboard: /management.html</text>
+
+  <rect x="330" y="462" width="770" height="392" rx="20" fill="#edf5ff" stroke="#9dbaf5" stroke-width="1.5"/>
+  <text x="356" y="499" class="label">THIS WORKSTATION</text>
+  <text x="356" y="523" class="detail">systemd + Docker Compose · pinned Git code</text>
+
+  <path d="M 720 400 V 560" class="traffic"/>
+  <rect x="550" y="419" width="340" height="27" rx="6" fill="#f5f8fc"/>
+  <text x="720" y="438" text-anchor="middle" class="edge-label">Encrypted tunnel · initiated outbound by host</text>
+  <rect x="550" y="560" width="330" height="82" rx="13" class="box"/>
+  <text x="715" y="592" text-anchor="middle" class="label">cloudflared container</text>
+  <text x="715" y="619" text-anchor="middle" class="detail">Private token file · no added host port</text>
+  <path d="M 715 642 V 686" class="traffic"/>
+  <text x="735" y="669" class="edge-label">Docker network</text>
+  <rect x="550" y="686" width="330" height="85" rx="13" fill="#2563eb"/>
+  <text x="715" y="720" text-anchor="middle" style="fill:white;font-size:21px;font-weight:700">CLIProxyAPI</text>
+  <text x="715" y="748" text-anchor="middle" style="fill:#dbeafe;font-size:15px">Port 8317 · authentication + API routing</text>
+  <rect x="355" y="686" width="161" height="85" rx="13" class="box"/>
+  <text x="435" y="720" text-anchor="middle" class="label">Working cache</text>
+  <text x="435" y="746" text-anchor="middle" class="detail">OAuth + config</text>
+  <path d="M 550 728 H 516" class="storage" marker-start="url(#arrow)"/>
+  <text x="356" y="818" class="detail">Health monitoring · Vault renewal · cloud checkpoint every 15 minutes</text>
+
+  <rect x="1140" y="686" width="246" height="104" rx="15" class="box"/>
+  <text x="1263" y="719" text-anchor="middle" class="label">AI provider</text>
+  <text x="1263" y="746" text-anchor="middle" class="detail">Currently: Codex OAuth</text>
+  <text x="1263" y="771" text-anchor="middle" class="detail">Streaming + tool calls</text>
+  <path d="M 880 729 H 1140" class="traffic" marker-start="url(#blue-arrow)"/>
+  <text x="1008" y="714" text-anchor="middle" class="edge-label">Provider authentication</text>
+
+  <rect x="54" y="540" width="235" height="110" rx="15" class="box"/>
+  <text x="171" y="574" text-anchor="middle" class="label">Vault</text>
+  <text x="171" y="601" text-anchor="middle" class="detail">Tunnel, API + backup keys</text>
+  <text x="171" y="626" text-anchor="middle" class="detail">Current S3 credentials</text>
+  <path d="M 289 580 H 550" class="control"/>
+  <rect x="345" y="557" width="170" height="24" rx="5" fill="#edf5ff"/>
+  <text x="430" y="574" text-anchor="middle" class="edge-label">Token on startup</text>
+
+  <rect x="1140" y="540" width="246" height="110" rx="15" class="box"/>
+  <text x="1263" y="574" text-anchor="middle" class="label">Tailscale endpoint</text>
+  <text x="1263" y="601" text-anchor="middle" class="detail">Existing private alternative</text>
+  <text x="1263" y="626" text-anchor="middle" class="detail">ai-proxy.tail0a1b2c.ts.net</text>
+  <path d="M 1140 600 H 1048 V 704 H 880" class="storage"/>
+
+  <rect x="54" y="903" width="330" height="112" rx="15" class="box"/>
+  <text x="219" y="938" text-anchor="middle" class="label">GitHub · crvouga/dev-fleet</text>
+  <text x="219" y="967" text-anchor="middle" class="detail">Tracked runtime code + OpenTofu</text>
+  <text x="219" y="992" text-anchor="middle" class="detail">Reviewed main-branch CI deployment</text>
+  <path d="M 384 935 H 470 V 854" class="control"/>
+  <text x="488" y="900" class="edge-label">Pinned code install</text>
+  <path d="M 105 903 H 35 V 345 H 395" class="control"/>
+  <text x="122" y="330" class="edge-label">OpenTofu owns DNS + tunnel</text>
+  <path d="M 219 903 V 650" class="control"/>
+  <rect x="129" y="828" width="179" height="43" rx="6" fill="#f5f8fc"/>
+  <text x="219" y="847" text-anchor="middle" class="edge-label">OpenTofu owns</text>
+  <text x="219" y="865" text-anchor="middle" class="edge-label">credential delivery</text>
+
+  <rect x="680" y="903" width="220" height="112" rx="15" class="box"/>
+  <text x="790" y="938" text-anchor="middle" class="label">Restic</text>
+  <text x="790" y="967" text-anchor="middle" class="detail">15-minute checkpoints</text>
+  <text x="790" y="992" text-anchor="middle" class="detail">Runtime state + revision</text>
+  <path d="M 790 854 V 903" class="storage"/>
+  <rect x="1140" y="903" width="246" height="112" rx="15" class="box"/>
+  <text x="1263" y="938" text-anchor="middle" class="label">Cloudflare R2</text>
+  <text x="1263" y="967" text-anchor="middle" class="detail">Durable recovery source</text>
+  <text x="1263" y="992" text-anchor="middle" class="detail">cliproxy-fleet/restic</text>
+  <path d="M 900 959 H 1140" class="storage"/>
+  <text x="1020" y="941" text-anchor="middle" class="edge-label">S3-compatible API</text>
+
+  <path d="M 55 1065 H 107" class="traffic"/>
+  <text x="120" y="1070" class="detail">Inference traffic · responses return along the same path</text>
+  <path d="M 710 1065 H 762" class="control"/>
+  <text x="775" y="1070" class="detail">Configuration / credential delivery</text>
+  <text x="54" y="1100" class="detail">The public URL stays stable when the primary host moves. This workstation must remain online to serve requests.</text>
+</svg>

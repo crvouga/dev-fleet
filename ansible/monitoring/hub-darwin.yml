@@ -1,0 +1,102 @@
+---
+# The Beszel hub runs only on the manager (the human's macOS machine) under
+# Docker Desktop, as that user: no become, per-user data and credential paths.
+# Runtime variables arrive through a private 0600 variables file, never argv.
+- name: Converge the Beszel hub on the manager
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+  vars:
+    beszel_lock: "{{ lookup('ansible.builtin.file', 'lock.json') | from_json }}"
+    beszel_compose:
+      - docker
+      - compose
+      - '-f'
+      - '{{ playbook_dir }}/compose.yml'
+    beszel_environment:
+      BESZEL_HUB_URL: '{{ beszel_hub_url }}'
+      BESZEL_APP_URL: '{{ beszel_public_url | default(beszel_hub_url) }}'
+      BESZEL_DATA_DIR: '{{ beszel_data_dir }}'
+      BESZEL_AUTO_LOGIN: '{{ beszel_auto_login | default("") }}'
+      BESZEL_TUNNEL_TOKEN_FILE: '{{ beszel_tunnel_dir }}/token'
+  tasks:
+    - name: Require the macOS manager and private dashboard policy
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'Darwin'
+          - beszel_hub_url is match('^https://[a-z0-9.-]+\.ts\.net:8443$')
+          - beszel_data_dir is match('^/Users/[^/]+/Library/Application Support/personal-beszel$')
+          - beszel_tunnel_dir is match('^/Users/[^/]+/Library/Application Support/personal-beszel-tunnel$')
+        fail_msg: BESZEL_NOT_MANAGER; the hub runs only on the macOS manager with per-user data.
+    - name: Require a running Docker Desktop engine with Compose
+      ansible.builtin.command:
+        argv: [docker, compose, version]
+      changed_when: false
+    - name: Inspect an existing hub image before any upgrade
+      ansible.builtin.command:
+        argv:
+          [
+            docker,
+            inspect,
+            '--format',
+            '{{ "{{.Config.Image}}" }}',
+            personal-beszel-hub-1,
+          ]
+      changed_when: false
+      failed_when: false
+      register: existing_hub
+    - name: Require explicit maintenance for a different existing image
+      ansible.builtin.assert:
+        that: existing_hub.rc != 0 or existing_hub.stdout == beszel_lock.image
+        fail_msg: BESZEL_HUB_UPGRADE_PENDING; take and verify a backup before an explicit maintenance upgrade.
+    - name: Create per-user hub data and connector directories without replacing data
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop:
+        - '{{ beszel_data_dir }}'
+        - '{{ beszel_tunnel_dir }}'
+    - name: Write the public dashboard connector token for the current user only
+      ansible.builtin.copy:
+        dest: '{{ beszel_tunnel_dir }}/token'
+        content: '{{ beszel_tunnel_token }}'
+        mode: '0600'
+      when: beszel_tunnel_token | default('') | length > 0
+      no_log: true
+    - name: Detect a hub that has never started (no database yet)
+      ansible.builtin.stat:
+        path: '{{ beszel_data_dir }}/data.db'
+      register: hub_database
+    - name: Start pinned stock Compose service
+      ansible.builtin.command:
+        argv: "{{ beszel_compose + ['up', '-d', '--pull', 'missing', 'hub'] }}"
+      # A fresh hub creates the fleet login itself on first start, so no one
+      # has to create the account by hand. Existing data is never changed.
+      environment: >-
+        {{ beszel_environment | combine({
+             'BESZEL_BOOTSTRAP_EMAIL': beszel_fleet_identity,
+             'BESZEL_BOOTSTRAP_PASSWORD': beszel_fleet_password
+           } if (not hub_database.stat.exists
+                 and beszel_fleet_password | default('') | length > 0)
+           else {}) }}
+      no_log: true
+      register: hub_apply
+      changed_when: "'Started' in hub_apply.stderr or 'Created' in hub_apply.stderr or 'Recreated' in hub_apply.stderr"
+    - name: Start the public connector when its credential is present
+      ansible.builtin.command:
+        argv: "{{ beszel_compose + ['--profile', 'public-endpoint', 'up', '-d', '--pull', 'missing'] }}"
+      environment: '{{ beszel_environment }}'
+      when: beszel_tunnel_token | default('') | length > 0
+      register: tunnel_apply
+      changed_when: "'Started' in tunnel_apply.stderr or 'Created' in tunnel_apply.stderr or 'Recreated' in tunnel_apply.stderr"
+    - name: Independently verify the local hub health endpoint
+      ansible.builtin.uri:
+        url: http://127.0.0.1:8090/api/health
+        status_code: 200
+        return_content: false
+      retries: 10
+      delay: 2
+      register: hub_health
+      until: hub_health.status == 200

@@ -1,0 +1,134 @@
+---
+- name: Converge the native Beszel agent without replacing runtime identity
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: true
+  vars:
+    beszel_lock: "{{ lookup('ansible.builtin.file', 'lock.json') | from_json }}"
+    beszel_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}.get(ansible_facts.architecture, 'unsupported') }}"
+  tasks:
+    - name: Require supported platform and private hub policy
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - beszel_arch in beszel_lock.agents
+          - beszel_node is match('^[a-z][a-z0-9-]{0,62}$')
+          - beszel_hub_url is match('^https://[a-z0-9.-]+\.ts\.net:8443$')
+    - name: Inspect existing native service ownership
+      ansible.builtin.stat:
+        path: /etc/systemd/system/beszel-agent.service
+        checksum_algorithm: sha256
+      register: existing_service
+    - name: Read existing service ownership marker
+      ansible.builtin.slurp:
+        src: /etc/systemd/system/beszel-agent.service
+      register: existing_unit
+      when: existing_service.stat.exists
+    - name: Require explicit adoption of any previously unmanaged service
+      ansible.builtin.assert:
+        that:
+          - "not existing_service.stat.exists or (existing_unit.content | default('') | b64decode).startswith('# Managed by personal Fleet: packages/')"
+        fail_msg: Unmanaged Beszel unit exists. Review a source-controlled migration before replacing it.
+    - name: Create unprivileged service account
+      ansible.builtin.user:
+        name: beszel
+        system: true
+        create_home: false
+        shell: /usr/sbin/nologin
+    - name: Create restricted configuration and version directories
+      ansible.builtin.file:
+        path: '{{ item.path }}'
+        state: directory
+        owner: root
+        group: '{{ item.group }}'
+        mode: '{{ item.mode }}'
+      loop:
+        - { path: /etc/personal-beszel, group: beszel, mode: '0750' }
+        - {
+            path: '/usr/local/lib/personal-beszel/0.21.1',
+            group: root,
+            mode: '0755',
+          }
+    - name: Deliver node-specific token through private stdin, never command arguments
+      ansible.builtin.copy:
+        dest: '/etc/personal-beszel/{{ item.name }}'
+        content: '{{ item.value }}'
+        owner: root
+        group: beszel
+        mode: '0640'
+      loop:
+        - { name: hub-key, value: '{{ beszel_public_key }}' }
+        - { name: agent-token, value: '{{ beszel_agent_token }}' }
+      no_log: true
+      notify: Restart agent
+    - name: Require credentials delivered through the approved secret owner
+      ansible.builtin.stat:
+        path: '/etc/personal-beszel/{{ item }}'
+      loop: [hub-key, agent-token]
+      register: credentials
+      no_log: true
+    - name: Fail closed without node-specific credentials
+      ansible.builtin.assert:
+        that: item.stat.exists and item.stat.isreg and item.stat.size > 0
+        fail_msg: Beszel credentials missing; resume enrollment through Fleet.
+      loop: '{{ credentials.results }}'
+      no_log: true
+    - name: Restrict credential permissions
+      ansible.builtin.file:
+        path: '/etc/personal-beszel/{{ item }}'
+        owner: root
+        group: beszel
+        mode: '0640'
+      loop: [hub-key, agent-token]
+    - name: Download pinned native artifact with signature-preserving HTTPS and checksum
+      ansible.builtin.get_url:
+        url: 'https://github.com/henrygd/beszel/releases/download/v{{ beszel_lock.version }}/beszel-agent_linux_{{ beszel_arch }}.tar.gz'
+        dest: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/agent.tar.gz'
+        checksum: 'sha256:{{ beszel_lock.agents[beszel_arch] }}'
+        mode: '0644'
+        timeout: 60
+    - name: Extract the pinned executable and repair file drift
+      ansible.builtin.unarchive:
+        src: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}/agent.tar.gz'
+        dest: '/usr/local/lib/personal-beszel/{{ beszel_lock.version }}'
+        remote_src: true
+      notify: Restart agent
+    - name: Install nonsecret node connection settings
+      ansible.builtin.copy:
+        dest: /etc/personal-beszel/agent.env
+        content: |
+          HUB_URL={{ beszel_hub_url }}
+          SYSTEM_NAME={{ beszel_node }}
+        owner: root
+        group: beszel
+        mode: '0640'
+        backup: true
+      notify: Restart agent
+    - name: Install source-owned systemd service
+      ansible.builtin.copy:
+        src: beszel-agent.service
+        backup: true
+        dest: /etc/systemd/system/beszel-agent.service
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart agent
+    - name: Enable agent at boot
+      ansible.builtin.systemd_service:
+        name: beszel-agent.service
+        enabled: true
+        state: started
+        daemon_reload: true
+    - name: Complete any required agent restart before verification
+      ansible.builtin.meta: flush_handlers
+    - name: Independently check agent service postcondition
+      ansible.builtin.command:
+        argv: [systemctl, is-active, beszel-agent.service]
+      changed_when: false
+  handlers:
+    - name: Restart agent
+      ansible.builtin.systemd_service:
+        name: beszel-agent.service
+        state: restarted
+        daemon_reload: true

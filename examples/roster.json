@@ -1,0 +1,13 @@
+{
+  "$schema": "./schema.json",
+  "version": 1,
+  "nodes": [
+    {
+      "id": "dev-linux",
+      "ssh": "dev-linux",
+      "workspace": "/home/developer/workspace",
+      "runtime": "/home/developer/.local/share/mise/shims/node",
+      "required": ["github", "vault", "t3", "toolchain"]
+    }
+  ]
+}

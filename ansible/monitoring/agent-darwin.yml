@@ -1,0 +1,198 @@
+---
+# The manager's own Beszel agent, so the manager is always a monitored system
+# on its own hub. It runs as the signed-in user (no become, like hub-darwin.yml)
+# as an always-on per-user launchd agent: fleet-sync stays unattended and never
+# needs the manager's sudo password. Credentials arrive through private
+# variables, never argv.
+- name: Converge the manager's native Beszel agent as a per-user launchd agent
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+  vars_files:
+    - ../macos/policy.json
+  vars:
+    beszel_lock: "{{ lookup('ansible.builtin.file', 'lock.json') | from_json }}"
+    beszel_arch: "{{ {'arm64': 'darwin-arm64', 'x86_64': 'darwin-amd64'}.get(ansible_facts.architecture, 'unsupported') }}"
+    beszel_home: '{{ ansible_facts.env.HOME }}'
+    beszel_base: '{{ beszel_home }}/Library/Application Support/personal-beszel-agent'
+    beszel_root: '{{ beszel_base }}/{{ beszel_lock.version }}'
+    beszel_secrets: '{{ beszel_base }}/credentials'
+    beszel_data: '{{ beszel_base }}/data'
+    beszel_plist: '{{ beszel_home }}/Library/LaunchAgents/{{ beszelDaemon }}.plist'
+    beszel_domain: 'gui/{{ ansible_facts.user_uid }}'
+  tasks:
+    - name: Require supported platform and private hub policy
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'Darwin'
+          - beszel_arch in beszel_lock.agents
+          - beszel_node is match('^[a-z][a-z0-9-]{0,62}$')
+          - beszel_hub_url is match('^https://[a-z0-9.-]+\.ts\.net:8443$')
+    - name: Inspect a legacy system-wide daemon with the same label
+      ansible.builtin.stat:
+        path: '/Library/LaunchDaemons/{{ beszelDaemon }}.plist'
+      register: legacy_daemon
+    - name: Refuse to run two agents for one system
+      ansible.builtin.assert:
+        that: not legacy_daemon.stat.exists
+        fail_msg: BESZEL_LEGACY_DAEMON; remove the root LaunchDaemon once (sudo launchctl bootout system/{{ beszelDaemon }}) before the per-user agent replaces it.
+    - name: Inspect existing agent ownership
+      ansible.builtin.stat:
+        path: '{{ beszel_plist }}'
+      register: existing_plist
+    - name: Read existing agent ownership marker
+      ansible.builtin.slurp:
+        src: '{{ beszel_plist }}'
+      register: existing_agent
+      when: existing_plist.stat.exists
+    # The marker's package path is informational: ownership must survive the
+    # owning directory being moved.
+    - name: Require explicit adoption of any previously unmanaged agent
+      ansible.builtin.assert:
+        that:
+          - "not existing_plist.stat.exists or 'Managed by personal Fleet: packages/' in (existing_agent.content | default('') | b64decode)"
+        fail_msg: Unmanaged Beszel launch agent exists. Review a source-controlled migration before replacing it.
+    - name: Create private configuration, version and state directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop:
+        - '{{ beszel_base }}'
+        - '{{ beszel_root }}'
+        - '{{ beszel_secrets }}'
+        - '{{ beszel_data }}'
+        - '{{ beszel_home }}/Library/LaunchAgents'
+    - name: Deliver node-specific credentials through private variables, never command arguments
+      ansible.builtin.copy:
+        dest: '{{ beszel_secrets }}/{{ item.name }}'
+        content: '{{ item.value }}'
+        mode: '0600'
+      loop:
+        - { name: hub-key, value: '{{ beszel_public_key }}' }
+        - { name: agent-token, value: '{{ beszel_agent_token }}' }
+      no_log: true
+      notify: Restart agent
+    - name: Download pinned native artifact with checksum verification
+      ansible.builtin.get_url:
+        url: 'https://github.com/henrygd/beszel/releases/download/v{{ beszel_lock.version }}/beszel-agent_{{ beszel_arch | replace("-", "_") }}.tar.gz'
+        dest: '{{ beszel_root }}/agent.tar.gz'
+        checksum: 'sha256:{{ beszel_lock.agents[beszel_arch] }}'
+        mode: '0644'
+        timeout: 60
+      register: agent_archive
+    - name: Inspect the extracted executable
+      ansible.builtin.stat:
+        path: '{{ beszel_root }}/beszel-agent'
+      register: agent_binary
+    # ansible.builtin.unarchive requires GNU tar; macOS ships BSD tar, which
+    # extracts this checksum-verified archive natively.
+    - name: Extract the pinned executable when new or missing
+      ansible.builtin.command:
+        argv:
+          [
+            /usr/bin/tar,
+            -xzf,
+            '{{ beszel_root }}/agent.tar.gz',
+            -C,
+            '{{ beszel_root }}',
+            beszel-agent,
+          ]
+      when: agent_archive.changed or not agent_binary.stat.exists or not agent_binary.stat.executable
+      changed_when: true
+      notify: Restart agent
+    - name: Install the source-owned always-on launch agent
+      ansible.builtin.copy:
+        dest: '{{ beszel_plist }}'
+        mode: '0644'
+        backup: true
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!-- Managed by personal Fleet: ansible/monitoring -->
+          <plist version="1.0"><dict>
+            <key>Label</key><string>{{ beszelDaemon }}</string>
+            <key>ProgramArguments</key><array>
+              <string>{{ beszel_root }}/beszel-agent</string>
+            </array>
+            <key>EnvironmentVariables</key><dict>
+              <key>HUB_URL</key><string>{{ beszel_hub_url }}</string>
+              <key>SYSTEM_NAME</key><string>{{ beszel_node }}</string>
+              <key>DATA_DIR</key><string>{{ beszel_data }}</string>
+              <key>KEY_FILE</key><string>{{ beszel_secrets }}/hub-key</string>
+              <key>TOKEN_FILE</key><string>{{ beszel_secrets }}/agent-token</string>
+              <key>DISABLE_SSH</key><string>true</string>
+            </dict>
+            <key>RunAtLoad</key><true/>
+            <key>KeepAlive</key><true/>
+            <key>ProcessType</key><string>Background</string>
+            <key>ThrottleInterval</key><integer>20</integer>
+            <key>Umask</key><integer>63</integer>
+            <key>StandardOutPath</key><string>{{ beszel_data }}/agent.log</string>
+            <key>StandardErrorPath</key><string>{{ beszel_data }}/agent.log</string>
+          </dict></plist>
+      notify: Reload agent definition
+    - name: Inspect whether the agent is loaded
+      ansible.builtin.command:
+        argv: [/bin/launchctl, print, '{{ beszel_domain }}/{{ beszelDaemon }}']
+      changed_when: false
+      failed_when: false
+      register: agent_loaded
+    - name: Load the agent at login and now
+      ansible.builtin.command:
+        argv:
+          [
+            /bin/launchctl,
+            bootstrap,
+            '{{ beszel_domain }}',
+            '{{ beszel_plist }}',
+          ]
+      when: agent_loaded.rc != 0
+      changed_when: true
+    - name: Complete any required agent restart before verification
+      ansible.builtin.meta: flush_handlers
+    - name: Independently check the agent postcondition
+      ansible.builtin.command:
+        argv: [/bin/launchctl, print, '{{ beszel_domain }}/{{ beszelDaemon }}']
+      changed_when: false
+      register: agent_state
+      retries: 5
+      delay: 2
+      until: "'state = running' in agent_state.stdout"
+  handlers:
+    # launchd caches a loaded definition: a changed plist needs a reload.
+    - name: Unload the stale agent definition
+      ansible.builtin.command:
+        argv:
+          [/bin/launchctl, bootout, '{{ beszel_domain }}/{{ beszelDaemon }}']
+      listen: Reload agent definition
+      failed_when: false
+      changed_when: true
+    - name: Load the current agent definition
+      ansible.builtin.command:
+        argv:
+          [
+            /bin/launchctl,
+            bootstrap,
+            '{{ beszel_domain }}',
+            '{{ beszel_plist }}',
+          ]
+      listen: Reload agent definition
+      register: agent_reload
+      # bootout completes asynchronously; retry until the label is free.
+      until: agent_reload.rc == 0
+      retries: 5
+      delay: 2
+      changed_when: true
+    - name: Restart agent
+      ansible.builtin.command:
+        argv:
+          [
+            /bin/launchctl,
+            kickstart,
+            -k,
+            '{{ beszel_domain }}/{{ beszelDaemon }}',
+          ]
+      failed_when: false
+      changed_when: true

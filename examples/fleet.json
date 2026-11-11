@@ -1,0 +1,95 @@
+{
+  "$schema": "../schema/fleet.schema.json",
+  "version": 3,
+  "source": {
+    "repository": "https://github.com/crvouga/dev-fleet.git"
+  },
+  "secrets": {
+    "provider": "vault",
+    "address": "https://vault.example.com",
+    "mount": "secret",
+    "locations": {
+      "proxy-client-key": {
+        "path": "fleet/prd",
+        "field": "CLIPROXY_FLEET_CLIENT_API_KEY"
+      },
+      "monitoring-account-password": {
+        "path": "fleet/prd",
+        "field": "BESZEL_FLEET_AUTH"
+      },
+      "monitoring-tunnel-token": {
+        "path": "beszel/tunnel",
+        "field": "TUNNEL_TOKEN"
+      },
+      "proxy-tunnel-token": {
+        "path": "cliproxy-fleet/tunnel",
+        "field": "TUNNEL_TOKEN"
+      }
+    }
+  },
+  "manager": {
+    "id": "manager-mac",
+    "os": "macOS",
+    "network": {
+      "tailscaleName": "manager-mac-1.tail0a1b2c.ts.net",
+      "user": "dev"
+    },
+    "neverSleepOnPower": true
+  },
+  "workers": [
+    {
+      "id": "worker-one",
+      "ssh": "worker-one",
+      "os": "linux",
+      "network": {
+        "tailscaleName": "worker-one.tail0a1b2c.ts.net",
+        "sshPort": 22,
+        "user": "dev",
+        "t3Port": 3773
+      }
+    },
+    {
+      "id": "worker-two",
+      "ssh": "worker-two",
+      "os": "linux",
+      "network": {
+        "tailscaleName": "worker-two.tail0a1b2c.ts.net",
+        "sshPort": 22,
+        "user": "dev",
+        "t3Port": 3773
+      }
+    }
+  ],
+  "services": {
+    "proxy": {
+      "endpoint": "https://cli-proxy.example.com"
+    },
+    "monitoring": {
+      "hubPort": 8443,
+      "publicUrl": "https://beszel.example.com",
+      "managerAccount": "fleet-manager@example.com",
+      "viewerAccount": "public-viewer@example.com"
+    }
+  },
+  "ubuntu": {
+    "release": "26.04",
+    "architectures": ["amd64", "arm64"]
+  },
+  "worker": {
+    "requiredCapabilities": [
+      "github",
+      "vault",
+      "t3",
+      "toolchain",
+      "workstation",
+      "worker"
+    ],
+    "githubLogin": "example-user",
+    "vaultUser": "example-user",
+    "toolchain": "mise.lock",
+    "agentProfile": "proxy",
+    "unattendedSudo": true,
+    "persistentT3": true,
+    "neverSleep": true
+  }
+}

@@ -1,0 +1,7 @@
+[Unit]
+Description=Check Vault token renewal every 15 minutes
+[Timer]
+OnBootSec=1m
+OnUnitActiveSec=15m
+[Install]
+WantedBy=timers.target

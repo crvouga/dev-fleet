@@ -1,0 +1,60 @@
+#!/usr/bin/env python3
+"""Validate restored data with trusted repository code, without activating credentials."""
+
+import hashlib
+import importlib.util
+import json
+import pathlib
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+root = pathlib.Path(sys.argv[1]).resolve()
+source = pathlib.Path(__file__).resolve().parent
+if not (root / "state/runtime/config.yaml").is_file():
+    import checkpoint
+    root = checkpoint.locate(root)
+if (root / "CHECKPOINT.json").exists():
+    import checkpoint
+    checkpoint.validate(root)
+if not (root / "state/runtime/config.yaml").is_file():
+    sys.exit("Pass the restored deployment root containing state/runtime/config.yaml.")
+subprocess.run(
+    [
+        sys.executable,
+        "-B",
+        str(source / "validate-config"),
+        str(root / "state/runtime/config.yaml"),
+    ],
+    check=True,
+)
+count = 0
+for file in (root / "state/runtime/auths").glob("*.json"):
+    try:
+        json.loads(file.read_text())
+        count += 1
+    except Exception:
+        sys.exit("Restored credential JSON is invalid; contents suppressed.")
+manifest = root / "INSTALLATION.json"
+if manifest.exists():
+    metadata = json.loads(manifest.read_text())
+    spec = importlib.util.spec_from_file_location("install", source / "install.py")
+    installer = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(installer)
+    _, files = installer.source_files(source.parents[1], metadata["revision"])
+    expected = {
+        name: hashlib.sha256(data).hexdigest() for name, (_, data) in files.items()
+    }
+    if expected != metadata["files"]:
+        sys.exit("Restored source manifest differs from its Git commit.")
+    locks = json.loads(files["image.lock.json"][1])
+else:
+    locks = json.loads((root / "image.lock.json").read_text())
+assert all("@sha256:" in image for image in locks.values())
+assert (root / "state/runtime/static/management.html").is_file()
+print(
+    "Restored config, Git source metadata, dashboard and",
+    count,
+    "credential files validated offline.",
+)
+print("No restored credentials or code were activated.")

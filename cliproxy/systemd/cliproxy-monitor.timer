@@ -1,0 +1,7 @@
+[Unit]
+Description=Check CLIProxyAPI health and backup freshness every 5 minutes
+[Timer]
+OnBootSec=2m
+OnUnitActiveSec=5m
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Verify CLIProxyAPI encrypted backup integrity
+After=network-online.target
+[Service]
+Environment=PYTHONDONTWRITEBYTECODE=1
+Type=oneshot
+ExecStart=/opt/cliproxy-fleet/scripts/backup check
+UMask=0077
+Nice=10
+TimeoutStartSec=4h

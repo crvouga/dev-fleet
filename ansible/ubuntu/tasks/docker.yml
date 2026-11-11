@@ -1,0 +1,31 @@
+---
+- name: Rotate container logs by default (new containers, after the next Docker restart)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    force: false
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": { "max-size": "{{ resourceSafety.dockerLogMaxSize }}", "max-file": "{{ resourceSafety.dockerLogMaxFiles }}" }
+      }
+    validate: dockerd --validate --config-file %s
+- name: Start the native Docker engine without restarting existing workloads
+  ansible.builtin.systemd_service:
+    name: docker.service
+    enabled: true
+    state: started
+- name: Grant the designated developer access to the local Docker engine
+  ansible.builtin.user:
+    name: '{{ development_user }}'
+    groups: docker
+    append: true
+- name: Verify native Docker Compose and Buildx installation
+  ansible.builtin.command:
+    argv: '{{ item }}'
+  loop:
+    - [docker, compose, version]
+    - [docker, buildx, version]
+  changed_when: false

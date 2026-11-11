@@ -1,0 +1,17 @@
+[Unit]
+Description=CLIProxyAPI fleet proxy (Docker Compose)
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+[Service]
+Environment=PYTHONDONTWRITEBYTECODE=1
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/cliproxy-fleet
+ExecStart=/opt/cliproxy-fleet/scripts/service-start
+ExecStop=/opt/cliproxy-fleet/scripts/ops stop
+TimeoutStartSec=180
+TimeoutStopSec=120
+UMask=0077
+[Install]
+WantedBy=multi-user.target

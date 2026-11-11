@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# Invoked as INSTALL_ROOT/scripts/service-start by systemd (Linux) or launchd (macOS).
+cd "$(dirname "$0")/.."
+export CLIPROXY_ROOT="$PWD"
+./scripts/audit.py
+exec ./scripts/ops start

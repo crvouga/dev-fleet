@@ -1,0 +1,56 @@
+#!/usr/bin/env python3
+"""Read existing recovery secrets; all Vault writes belong to the OpenTofu root."""
+
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+import fleet_config
+
+
+import hmac
+import importlib.util
+import os
+import pathlib
+import sys
+
+root = cliproxy_host.default_root().resolve()
+spec = importlib.util.spec_from_file_location(
+    "vault_access", root / "scripts/vault-access.py"
+)
+vault = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(vault)
+os.umask(0o077)
+try:
+    if sys.argv[1:] not in [["recover"], ["verify"]]:
+        sys.exit(
+            "Usage: vault-recovery recover|verify. Manage secret values through bun run vault:edit."
+        )
+    secret = vault.request(fleet_config.vault()["shared"], vault.token())["data"]["data"][
+        "CLIPROXY_FLEET_RESTIC_PASSWORD"
+    ]
+    local = root / "state/secrets/restic-password"
+    if sys.argv[1] == "recover":
+        if local.exists() and not hmac.compare_digest(
+            local.read_text().strip(), secret
+        ):
+            sys.exit("Local recovery password differs; refusing to overwrite it.")
+        local.write_text(secret + "\n")
+        local.chmod(0o600)
+        if os.geteuid() == 0:
+            os.chown(local, 1000, 1000)
+    if not hmac.compare_digest(local.read_text().strip(), secret):
+        sys.exit("Recovery password mismatch; values suppressed.")
+    marker = root / "state/secrets/recovery-confirmed"
+    marker.write_text("Verified existing independent Vault recovery copy.\n")
+    if os.geteuid() == 0:
+        os.chown(marker, 1000, 1000)
+    print("Independent Vault recovery copy verified; no secrets printed.")
+except Exception:
+    sys.exit(
+        "Vault recovery failed. Check login, registered key and read access; response suppressed."
+    )

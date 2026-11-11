@@ -1,0 +1,120 @@
+---
+- name: Inspect existing designated-user sudo policy ownership
+  ansible.builtin.stat:
+    path: '/etc/sudoers.d/personal-fleet-{{ development_user }}'
+  register: sudo_owned_file
+- name: Read existing designated-user sudo policy for ownership validation
+  ansible.builtin.slurp:
+    src: '/etc/sudoers.d/personal-fleet-{{ development_user }}'
+  when: sudo_owned_file.stat.exists
+  register: sudo_previous
+  no_log: true
+- name: Preserve conflicting sudo policy until a reviewed migration
+  ansible.builtin.assert:
+    that:
+      - not sudo_owned_file.stat.islnk | default(false)
+      - "not sudo_owned_file.stat.exists or (sudo_previous.content | b64decode).startswith('# Managed by personal Fleet: designated development user')"
+    fail_msg: SUDOERS_OWNERSHIP_CONFLICT; preserve and review the existing fragment before adoption.
+- name: Validate and install designated-user sudo policy
+  ansible.builtin.copy:
+    dest: '/etc/sudoers.d/personal-fleet-{{ development_user }}'
+    content: |
+      # Managed by personal Fleet: designated development user
+      {{ development_user }} ALL=(ALL:ALL) NOPASSWD: ALL
+    owner: root
+    group: root
+    mode: '0440'
+    validate: /usr/sbin/visudo -cf %s
+    backup: true
+- name: Enable lingering without requiring an open desktop session
+  ansible.builtin.command:
+    argv: [loginctl, enable-linger, '{{ development_user }}']
+    creates: '/var/lib/systemd/linger/{{ development_user }}'
+- name: Check whether GNOME settings schemas are installed
+  ansible.builtin.stat:
+    path: /usr/share/glib-2.0/schemas/org.gnome.desktop.screensaver.gschema.xml
+  register: gnome_schema
+- name: Check whether the GNOME power plugin schema is installed
+  ansible.builtin.stat:
+    path: /usr/share/glib-2.0/schemas/org.gnome.settings-daemon.plugins.power.gschema.xml
+  register: gnome_power_schema
+- name: Ensure user configuration directory exists
+  ansible.builtin.file:
+    path: '{{ development_home }}/.config'
+    state: directory
+    owner: '{{ development_user }}'
+    mode: '0700'
+  when: gnome_schema.stat.exists
+- name: Inspect designated-user GNOME lock and idle policy
+  become: true
+  become_user: '{{ development_user }}'
+  ansible.builtin.command:
+    argv:
+      [
+        dbus-run-session,
+        '--',
+        gsettings,
+        get,
+        '{{ item.schema }}',
+        '{{ item.key }}',
+      ]
+  environment:
+    HOME: '{{ development_home }}'
+    XDG_CONFIG_HOME: '{{ development_home }}/.config'
+  loop: '{{ gnome_session_settings + (gnome_power_settings if gnome_power_schema.stat.exists else []) }}'
+  vars:
+    gnome_session_settings:
+      - {
+          schema: org.gnome.desktop.screensaver,
+          key: lock-enabled,
+          value: 'false',
+          observed: 'false',
+        }
+      - {
+          schema: org.gnome.desktop.session,
+          key: idle-delay,
+          value: '0',
+          observed: 'uint32 0',
+        }
+    gnome_power_settings:
+      - {
+          schema: org.gnome.settings-daemon.plugins.power,
+          key: sleep-inactive-ac-type,
+          value: 'nothing',
+          observed: "'nothing'",
+        }
+      - {
+          schema: org.gnome.settings-daemon.plugins.power,
+          key: sleep-inactive-battery-type,
+          value: 'nothing',
+          observed: "'nothing'",
+        }
+      - {
+          schema: org.gnome.settings-daemon.plugins.power,
+          key: idle-dim,
+          value: 'false',
+          observed: 'false',
+        }
+  when: gnome_schema.stat.exists
+  changed_when: false
+  register: gnome_settings
+- name: Repair only changed designated-user settings
+  become: true
+  become_user: '{{ development_user }}'
+  ansible.builtin.command:
+    argv:
+      [
+        dbus-run-session,
+        '--',
+        gsettings,
+        set,
+        '{{ item.item.schema }}',
+        '{{ item.item.key }}',
+        '{{ item.item.value }}',
+      ]
+  environment:
+    HOME: '{{ development_home }}'
+    XDG_CONFIG_HOME: '{{ development_home }}/.config'
+  loop: '{{ gnome_settings.results }}'
+  when: gnome_schema.stat.exists and item.stdout | default('') != item.item.observed
+  changed_when: true

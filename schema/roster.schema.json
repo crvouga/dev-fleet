@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Developer fleet roster (not infrastructure inventory)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "nodes"],
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "version": {
+      "const": 1
+    },
+    "nodes": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "ssh", "workspace"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$"
+          },
+          "ssh": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$"
+          },
+          "workspace": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^/[^\\u0000-\\u001f\\u007f]*$"
+          },
+          "runtime": {
+            "type": "string",
+            "maxLength": 4096,
+            "pattern": "^/[^\\u0000-\\u001f\\u007f]*$"
+          },
+          "required": {
+            "type": "array",
+            "uniqueItems": true,
+            "default": ["github", "vault", "t3", "toolchain"],
+            "items": {
+              "enum": [
+                "github",
+                "vault",
+                "t3",
+                "vscode",
+                "toolchain",
+                "codex",
+                "claude",
+                "services",
+                "workstation",
+                "worker"
+              ]
+            }
+          },
+          "tailscaleId": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9:_-]{1,128}$",
+            "description": "Explicitly enrolled stable Tailscale device ID; replacements require reenrollment."
+          },
+          "bootstrapViaSsh": {
+            "type": "boolean",
+            "description": "Explicit permission to bootstrap an enrolled node over its trusted SSH route while Tailscale is unavailable; does not accept host keys or replace device identities."
+          },
+          "t3EnvironmentId": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$"
+          }
+        }
+      }
+    }
+  }
+}

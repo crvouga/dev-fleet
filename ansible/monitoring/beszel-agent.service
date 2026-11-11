@@ -1,0 +1,42 @@
+# Managed by personal Fleet: ansible/monitoring
+[Unit]
+Description=Personal Fleet Beszel agent
+Wants=network-online.target tailscaled.service
+After=network-online.target tailscaled.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=beszel
+Group=beszel
+EnvironmentFile=/etc/personal-beszel/agent.env
+Environment=DATA_DIR=/var/lib/beszel-agent
+Environment=KEY_FILE=/etc/personal-beszel/hub-key
+Environment=TOKEN_FILE=/etc/personal-beszel/agent-token
+Environment=DISABLE_SSH=true
+Environment=SKIP_SYSTEMD_LOGS=true
+Environment=SERVICE_PATTERNS=ssh.service,tailscaled.service,t3code-desktop.service,personal-fleet-sync.service
+ExecStart=/usr/local/lib/personal-beszel/0.21.1/beszel-agent
+StateDirectory=beszel-agent
+StateDirectoryMode=0700
+Restart=always
+RestartSec=20
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=256M
+CPUQuota=25%
+TasksMax=128
+UMask=0077
+LogRateLimitIntervalSec=60
+LogRateLimitBurst=100
+
+[Install]
+WantedBy=multi-user.target

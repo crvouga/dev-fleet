@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""Materialize local state from existing cloud secrets; never seed Vault."""
+
+import sys
+
+sys.dont_write_bytecode = True
+
+import pathlib as _pathlib
+
+sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
+import cliproxy_host
+import fleet_config
+
+
+import hashlib
+import importlib.util
+import json
+import os
+import pathlib
+import urllib.request
+
+root = cliproxy_host.default_root().resolve()
+os.umask(0o077)
+state = root / "state"
+for directory in ["status", "secrets"]:
+    (state / directory).mkdir(parents=True, exist_ok=True)
+fields = {
+    "client-key": "CLIPROXY_FLEET_CLIENT_API_KEY",
+    "management-key": "CLIPROXY_FLEET_MANAGEMENT_KEY",
+    "restic-password": "CLIPROXY_FLEET_RESTIC_PASSWORD",
+}
+missing = [name for name in fields if not (state / "secrets" / name).exists()]
+if missing:
+    spec = importlib.util.spec_from_file_location(
+        "vault_access", root / "scripts/vault-access.py"
+    )
+    vault = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(vault)
+    try:
+        data = vault.request(fleet_config.vault()["shared"], vault.token())["data"]["data"]
+        for name in missing:
+            if not data.get(fields[name]):
+                raise ValueError("Required registered secret missing")
+        for name in missing:
+            (state / "secrets" / name).write_text(data[fields[name]] + "\n")
+    except Exception:
+        raise SystemExit(
+            "Existing Vault secrets required. Run vault-backup-login, and manage key values through the OpenTofu Vault workflow; response suppressed."
+        )
+config = state / "runtime/config.yaml"
+if not config.exists():
+    raise SystemExit(
+        "Runtime cache missing. Recover from the cloud checkpoint with restore-cache; refusing to seed an empty deployment."
+    )
+panel = state / "runtime/static/management.html"
+if not panel.exists():
+    metadata = json.load(
+        urllib.request.urlopen(
+            "https://api.github.com/repos/router-for-me/Cli-Proxy-API-Management-Center/releases/tags/v1.27.2",
+            timeout=30,
+        )
+    )
+    asset = next(
+        asset for asset in metadata["assets"] if asset["name"] == "management.html"
+    )
+    data = urllib.request.urlopen(asset["browser_download_url"], timeout=60).read()
+    if (
+        hashlib.sha256(data).hexdigest()
+        != "2f6cf57a8ca4ace1fadde0280cbd41084f56999738d0e692a30b135420f7fc30"
+    ):
+        raise SystemExit("Dashboard checksum mismatch")
+    panel.write_bytes(data)
+for file in state.rglob("*"):
+    if file.is_symlink():
+        continue
+    file.chmod(0o700 if file.is_dir() else 0o600)
+    if os.geteuid() == 0:
+        os.chown(file, 1000, 1000)
+if os.geteuid() == 0:
+    os.chown(state, 1000, 1000)
+state.chmod(0o700)
+print(
+    "Initialized local state from existing cloud credentials; live configuration preserved."
+)

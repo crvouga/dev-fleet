@@ -1,0 +1,5 @@
+{
+  "eceasy/cli-proxy-api": "eceasy/cli-proxy-api@sha256:afe1135e8d8752867b73d717c1ca8ed27c44bfe8c6e1a2bebf228dba98889eac",
+  "tailscale/tailscale": "tailscale/tailscale@sha256:ed6480b33c6eb67c9cbd203ed42b9fb57e361986725b6856def71b7a3d9e276c",
+  "cloudflare/cloudflared": "cloudflare/cloudflared@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c"
+}
