@@ -48,6 +48,10 @@ version in `package.json` is the commit every machine runs.
 - **Previews are safe; applies are not.** `--dry-run`, `fleet-status`,
   `fleet-state` (without flags) and `commands --json` change nothing.
   `fleet-sync` without `--dry-run` changes every machine.
+- **Use the command, never the code.** dev-fleet has no library API: do not
+  import anything from `node_modules/@crvouga/dev-fleet/`. The project's own
+  tools go in the project's `mise.toml`; the global mise configuration on a
+  fleet machine is dev-fleet's.
 - **Use JSON.** Every diagnostic command takes `--json` and
   `--non-interactive`. Read the check IDs and `remedy.action` from the
   output; do not parse the human table.

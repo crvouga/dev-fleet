@@ -98,10 +98,15 @@ export function agentGuide(release: Release) {
     },
     safety: SAFETY,
     support: support(release),
+    toolchain:
+      'On a fleet machine the global mise configuration belongs to dev-fleet: fleet-sync publishes it, and fleet-status fails tool:global-mise-config when anything replaced it. A project pins its own tools in a project mise.toml (mise install --locked in its checkout) and never publishes a global one.',
+    library:
+      'None. The package is the devfleet command: it declares no main or exports, and nothing under src/ is a supported import; any release may change it. Ask for a command in an issue instead.',
     fleetSync: {
       command: 'devfleet fleet-sync',
       preview: 'devfleet fleet-sync --dry-run --json',
-      approval: 'Applies on invocation without a prompt; --dry-run previews',
+      approval:
+        'Applies on invocation without a prompt; --dry-run previews and changes no machine: on the manager it only checks the release out into dev-fleet’s cache and installs the Bun it pins, never the toolchain, the global mise configuration or shell profiles',
       scope:
         'Whole enrolled Ubuntu fleet over verified SSH; --node filters diagnostics/rollout',
       state:

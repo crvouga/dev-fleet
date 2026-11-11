@@ -17,6 +17,11 @@
   (`support` in `src/cli/agent-guide.ts`). Keep that text true when the way a
   change is requested changes. Issues are public and come from other fleets:
   never copy a hostname, account or domain from one into a tracked file.
+- **The package is a command, not a library.** It declares no `main` or
+  `exports` and nothing under `src/` is a supported import
+  (`features/rules/package.feature`). A consumer that needs a building block
+  asks for a command. On a fleet machine the global mise configuration is
+  dev-fleet's; a project pins its tools in its own `mise.toml`.
 - **No fleet's identity in this repository.** No account, email, hostname,
   domain, tailnet name or consumer repository in tracked files; they belong in
   the consumer's `fleet.json`, read only through `src/fleet-config.ts`

@@ -676,6 +676,27 @@ Then('it contains:', (world, table: DataTable) => {
   for (const path of table.list()) expect(world.packed).toContain(path);
 });
 
+const manifest = (): Record<string, unknown> =>
+  JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as Record<
+    string,
+    unknown
+  >;
+
+Then(
+  'the package manifest declares the command {string}',
+  (_world, name: string) => {
+    expect(Object.keys(manifest()['bin'] as object)).toEqual([name]);
+  }
+);
+
+Then(
+  'the package manifest declares none of these fields:',
+  (_world, table: DataTable) => {
+    for (const field of table.list())
+      expect(manifest()).not.toHaveProperty(field);
+  }
+);
+
 Then('it contains no test file, no test directory and no feature', (world) => {
   expect(
     world.packed.filter((path) =>

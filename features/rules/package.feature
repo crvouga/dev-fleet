@@ -28,6 +28,17 @@ Feature: The published package is the whole CLI and nothing else
       | docs/consumer-setup.md |
       | docs/state.md          |
 
+  Scenario: The package is a command and declares no library entry point
+    Nothing under src/ is a supported import: a consumer that imported it
+    would break on any release, and nobody would know before it upgraded.
+    Then the package manifest declares the command "devfleet"
+    And the package manifest declares none of these fields:
+      | main    |
+      | module  |
+      | exports |
+      | types   |
+      | typings |
+
   Scenario: The package carries no tests
     When the package is packed
     Then it contains no test file, no test directory and no feature
