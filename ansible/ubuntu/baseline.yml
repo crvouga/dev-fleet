@@ -44,7 +44,7 @@
         that:
           - item.freeMiB >= minimumFreeDiskMiB
           - item.freeInodes >= minimumFreeInodes
-        fail_msg: RESOURCE_CAPACITY_REQUIRED; inspect disk space and inodes on the reported filesystem. Preserve developer work; no automatic cleanup or process killing.
+        fail_msg: RESOURCE_CAPACITY_REQUIRED; inspect disk space and inodes on the reported filesystem. Preserve developer work; the disk GC removes only build output and caches, so what remains needs a person.
       loop: '{{ capacity.stdout | from_json }}'
     - name: Inspect installed packages
       ansible.builtin.package_facts:

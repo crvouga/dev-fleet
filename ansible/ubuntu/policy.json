@@ -37,6 +37,12 @@
     "diskGuardFloorMiB": 3072,
     "diskGuardWriteMiB": 32,
     "diskGuardIntervalSeconds": 5,
+    "diskGcIdleDays": 7,
+    "diskGcPressureMiB": 15360,
+    "diskGcPressureIdleHours": 12,
+    "diskGcDockerAgeHours": 168,
+    "diskGcPressureDockerAgeHours": 24,
+    "diskGcPressureCaches": [".bun/install/cache"],
     "dockerLogMaxSize": "50m",
     "dockerLogMaxFiles": "3"
   }
