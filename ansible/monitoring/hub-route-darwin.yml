@@ -8,7 +8,14 @@
   connection: local
   gather_facts: false
   vars:
-    beszel_serve: ['{{ beszel_tailscale_cli }}', serve, --bg, '--https={{ beszel_route_port }}', '{{ beszel_route_target }}']
+    beszel_serve:
+      [
+        '{{ beszel_tailscale_cli }}',
+        serve,
+        --bg,
+        '--https={{ beszel_route_port }}',
+        '{{ beszel_route_target }}',
+      ]
   tasks:
     - name: Require the declared loopback target and port
       ansible.builtin.assert:

@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { record } from '../config';
 import { privateHub } from './beszel';
+import lock from '../../ansible/monitoring/lock.json';
 
 export type HubRequest = (path: string, body?: object) => Promise<unknown>;
 export interface AgentEnrollment {
@@ -101,7 +102,7 @@ async function hubInfo(
   const info = await request('/api/beszel/info');
   if (
     !record(info) ||
-    info['v'] !== '0.21.1' ||
+    info['v'] !== lock.version ||
     typeof info['key'] !== 'string' ||
     !info['key'].startsWith('ssh-ed25519 ')
   )

@@ -4,18 +4,21 @@
   connection: local
   become: true
   gather_facts: true
+  # The approved version and the signing key's digest: `tailscale` in policy.json.
+  vars_files:
+    - policy.json
   tasks:
     - name: Require supported Ubuntu
       ansible.builtin.assert:
         that:
           - ansible_facts.distribution == 'Ubuntu'
-          - ansible_facts.distribution_version == '26.04'
+          - ansible_facts.distribution_version == release
     - name: Inspect installed packages before possible network interruption
       ansible.builtin.package_facts:
         manager: apt
     - name: Require maintenance for an installed version change
       ansible.builtin.assert:
-        that: "'tailscale' not in ansible_facts.packages or ansible_facts.packages.tailscale[0].version == '1.104.5'"
+        that: "'tailscale' not in ansible_facts.packages or ansible_facts.packages.tailscale[0].version == tailscale.version"
         fail_msg: TAILSCALE_UPGRADE_PENDING; upgrading an active VPN can disconnect SSH. Review an explicit maintenance operation.
     - name: Inspect existing package-source ownership before writing
       ansible.builtin.find:
@@ -34,7 +37,7 @@
       ansible.builtin.get_url:
         url: https://pkgs.tailscale.com/stable/ubuntu/resolute.noarmor.gpg
         dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
-        checksum: sha256:3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39
+        checksum: 'sha256:{{ tailscale.keySha256 }}'
         owner: root
         group: root
         mode: '0644'
@@ -48,11 +51,11 @@
       register: tailscale_source
     - name: Install the approved version only when absent
       ansible.builtin.apt:
-        name: tailscale=1.104.5
+        name: 'tailscale={{ tailscale.version }}'
         state: present
         update_cache: true
         cache_valid_time: 0
-        lock_timeout: 120
+        lock_timeout: '{{ aptLockTimeoutSeconds }}'
         allow_downgrade: false
         allow_unauthenticated: false
       when: "'tailscale' not in ansible_facts.packages"

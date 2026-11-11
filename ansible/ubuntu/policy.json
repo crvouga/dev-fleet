@@ -16,13 +16,16 @@
     "git": "1:2.53.0-1ubuntu1.1",
     "python3": "3.14.3-0ubuntu2",
     "unzip": "6.0-29ubuntu1",
-    "xz-utils": "5.8.3-1ubuntu0.1"
+    "xz-utils": "5.8.3-1ubuntu0.1",
+    "ansible-core": "2.20.1-1"
+  },
+  "tailscale": {
+    "version": "1.104.5",
+    "keySha256": "3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39"
   },
   "aptLockTimeoutSeconds": 120,
   "minimumFreeDiskMiB": 4096,
   "minimumFreeInodes": 10000,
-  "serviceStartLimitBurst": 5,
-  "serviceStartLimitIntervalSeconds": 300,
   "alwaysOnServices": ["ssh", "tailscaled", "docker", "beszel-agent"],
   "resourceSafety": {
     "swapFileMiB": 8192,

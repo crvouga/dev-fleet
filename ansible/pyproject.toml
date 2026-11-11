@@ -1,0 +1,12 @@
+# The Ansible the manager runs these playbooks with: one release, on one
+# Python, with every dependency hash-locked in uv.lock. A worker runs the
+# exact ansible-core package ubuntu/policy.json names instead. Change the
+# version here, then run `uv lock` in this directory.
+[project]
+name = "dev-fleet-ansible"
+version = "0"
+requires-python = "==3.13.16"
+dependencies = ["ansible-core==2.19.9"]
+
+[tool.uv]
+package = false

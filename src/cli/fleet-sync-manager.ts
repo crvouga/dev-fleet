@@ -11,6 +11,11 @@ import { enrollManagerMonitoring } from './fleet-sync-monitoring';
 import { installConfig } from '../fleet-config';
 import { machineProviders } from '../t3/providers';
 import { providerNames } from '../t3/names-check';
+import macos from '../../ansible/macos/policy.json';
+import { ansibleCommand } from '../platform/ansible';
+import { PACKAGE_ROOT } from '../package-info';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 /** The manager converges itself locally (never over SSH) before any worker:
  * it must be the declared manager, stay awake on AC power, and host every
@@ -32,7 +37,8 @@ export async function convergeManager(
   if (identity.status === 'pass') {
     // Launchers and scheduled jobs on the manager read the installed copy.
     if (input.apply) installConfig();
-    checks.push(await managerPower(run));
+    checks.push(await managerPower(run, input.workspace));
+    checks.push(await managerDocker(run));
     checks.push(await machineProviders(id, input.workspace, input.apply));
     checks.push(await providerNames(id, input.workspace, input.apply));
     if (input.apply) {
@@ -170,12 +176,22 @@ export async function managerIdentity(id: string, run: Runner): Promise<Check> {
       };
 }
 
-/** Workers depend on the manager's services, so it never sleeps on AC power. */
-export async function managerPower(run: Runner): Promise<Check> {
+/** Workers depend on the manager's services, so it never sleeps on AC power.
+ * Measures every setting `ansible/macos/manager.yml` declares, from the same
+ * policy file the playbook applies.
+ */
+export async function managerPower(
+  run: Runner,
+  workspace = '.'
+): Promise<Check> {
   const result = await run(['pmset', '-g', 'custom']);
   const ac = result.ok ? (result.stdout.split('AC Power:')[1] ?? '') : '';
-  const sleep = /^\s*sleep\s+(\d+)/m.exec(ac)?.[1];
-  return sleep === '0'
+  const observed = (key: string) =>
+    new RegExp(`^\\s*${key}\\s+(\\S+)`, 'm').exec(ac)?.[1];
+  const drifted = Object.entries(macos.pmset)
+    .filter(([key, value]) => observed(key) !== value)
+    .map(([key]) => key);
+  return drifted.length === 0
     ? {
         id: 'manager:power',
         status: 'pass',
@@ -184,10 +200,50 @@ export async function managerPower(run: Runner): Promise<Check> {
     : {
         id: 'manager:power',
         status: 'fail',
-        summary: 'MANAGER_SLEEPS_ON_POWER',
+        summary: drifted.includes('sleep')
+          ? 'MANAGER_SLEEPS_ON_POWER'
+          : `MANAGER_POWER_POLICY_DRIFT ${drifted.join(' ')}`,
         remedy: {
-          action:
-            'Workers lose the CLI proxy and Beszel hub while the manager sleeps. Apply the manager power policy once: ansible-playbook -K ansible/macos/manager.yml',
+          action: `Workers lose the CLI proxy and Beszel hub while the manager sleeps. Apply the manager power policy once, as an administrator: cd ${workspace} && ${ansibleCommand().join(' ')} -K ansible/macos/manager.yml`,
         },
       };
+}
+
+/** The Docker Desktop release `mise.toml` pins, as the engine names itself. */
+export function pinnedDockerDesktop(root = PACKAGE_ROOT): string {
+  const { vars } = Bun.TOML.parse(
+    readFileSync(join(root, 'mise.toml'), 'utf8')
+  ) as { vars: Record<string, string> };
+  return `Docker Desktop ${vars['docker_desktop_version']} (${vars['docker_desktop_build']})`;
+}
+
+/** The manager's services run in Docker Desktop, which no playbook installs
+ * and which updates itself: the pinned release is measured, and a different
+ * one warns instead of failing the run.
+ */
+export async function managerDocker(
+  run: Runner,
+  pinned = pinnedDockerDesktop()
+): Promise<Check> {
+  const result = await run(
+    ['docker', 'version', '--format', '{{.Server.Platform.Name}}'],
+    { timeoutMs: 20_000 }
+  );
+  const observed = result.ok ? result.stdout.trim() : '';
+  if (observed === pinned)
+    return {
+      id: 'manager:docker',
+      status: 'pass',
+      summary: `The manager runs the pinned ${pinned}.`,
+    };
+  return {
+    id: 'manager:docker',
+    status: 'warn',
+    summary: observed
+      ? 'MANAGER_DOCKER_DESKTOP_DRIFT'
+      : 'MANAGER_DOCKER_DESKTOP_UNOBSERVED',
+    remedy: {
+      action: `The manager's services are tested on ${pinned}. Install that release and turn off its automatic updates, or expect differences; fleet-sync does not install or replace Docker Desktop.`,
+    },
+  };
 }

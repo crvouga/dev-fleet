@@ -31,12 +31,15 @@ export async function auditUbuntu(run: Runner): Promise<UbuntuAudit> {
   }
   const version =
     /^VERSION_ID="?([0-9]+\.[0-9]+)"?$/m.exec(release.stdout)?.[1] ?? null;
-  const architecture = /^(amd64|arm64)\s*$/.exec(arch.stdout)?.[1] ?? null;
+  const reported = arch.stdout.trim();
+  const architecture = policy.architectures.includes(reported)
+    ? reported
+    : null;
   return {
     supported:
       release.ok &&
       /^ID=ubuntu$/m.test(release.stdout) &&
-      version === '26.04' &&
+      version === policy.release &&
       architecture !== null,
     release: version,
     architecture,

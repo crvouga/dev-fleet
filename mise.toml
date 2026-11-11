@@ -1,5 +1,7 @@
 # Shared workstation toolchain. Bootstrap installs this globally; projects may override it.
-# See bootstrap/README.md. Commit mise.lock whenever changing these pins.
+# Commit mise.lock whenever changing these pins.
+# min_version is also the exact mise bootstrap/bootstrap.sh installs; bump the
+# mise_*_sha256 digests under [vars] with it.
 min_version = "2026.10.24"
 
 [settings]
@@ -79,6 +81,13 @@ GROK_DISABLE_AUTOUPDATER = "1"
 AGY_CLI_DISABLE_AUTO_UPDATE = "true"
 
 [vars]
+# mise itself, installed by bootstrap/bootstrap.sh before mise can read this
+# file: the version is min_version above, these are its release archives
+# (SHASUMS256.txt of that release).
+mise_linux_x64_sha256 = "9a6c9c55f5c6372d0af70a9979fe6d742aea3793267a929e1738022143c466cc"
+mise_linux_arm64_sha256 = "8c8f5d7f748bf3aef431dc50f0ad776270f36025c788aa21c74e2fabdbbd6d3e"
+mise_macos_x64_sha256 = "83a36355bf6ee7c1660300e12dd94464de5c672dab1b8cc33ec4d19356e7ddac"
+mise_macos_arm64_sha256 = "aa2fc59242db108f97ea9fb2d2e2cb42ff1467fcafe3c91e48d51c841ba67a65"
 # Official native Ubuntu server distribution; bootstrap/native-t3.ts owns installation.
 t3_version = "0.1.8-nightly.20261106.4262"
 t3_linux_x64_sha256 = "5df94ca15c4f68f749fa5540fbb9d5ca879ca8750ac43dd2704f6a18899ed6d5"
