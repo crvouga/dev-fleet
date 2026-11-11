@@ -501,25 +501,25 @@ When(
   async (world, name: string) => {
     const machine = named(world, name);
     world.machine = machine;
-    const interrupted = bootstrap(machine);
-    // The character classes keep these patterns from matching the shell
-    // that runs them, and the anchor from matching the bootstrap script,
-    // whose own command line holds this text.
-    expect(
-      await waitFor(
-        machine,
-        "pgrep -f '^bash bootstrap/[b]ootstrap.sh --worker'",
-        300_000
-      )
-    ).toBe(true);
-    // Every process of the operation stops at once, as when the machine
-    // loses power: each one holding the operation lock, and the setup's
-    // whole process group.
-    const killed = await asRoot(
+    // The setup lasts seconds, so the machine itself watches for it, every
+    // 50 ms, and stops every process of the operation at once, as when the
+    // machine loses power: the setup's whole process group and each process
+    // holding the operation lock. The anchor keeps the pattern from matching
+    // the bootstrap script, whose own command line holds this text.
+    const killer = asRoot(
       machine,
-      'group=$(ps -o pgid= -p "$(pgrep -f \'^bash bootstrap/[b]ootstrap.sh --worker\' | head -1)" | tr -d \' \'); [ -z "$group" ] || kill -KILL -- "-$group"; for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null | grep -q \'remote-operation[.]lock\' && kill -KILL "${p#/proc/}"; done; true'
+      [
+        'i=0',
+        'until pid=$(pgrep -f \'^bash bootstrap/[b]ootstrap.sh --worker\' | head -1) && [ -n "$pid" ]; do i=$((i + 1)); [ $i -lt 6000 ] || exit 1; sleep 0.05; done',
+        'group=$(ps -o pgid= -p "$pid" | tr -d \' \')',
+        'kill -KILL -- "-$group"',
+        'for p in /proc/[0-9]*; do ls -l "$p/fd" 2>/dev/null | grep -q \'remote-operation[.]lock\' && kill -KILL "${p#/proc/}"; done',
+        'true',
+      ].join('\n'),
+      400_000
     );
-    expect(killed.ok).toBe(true);
+    const interrupted = bootstrap(machine);
+    expect((await killer).ok).toBe(true);
     world.bootstrap = await interrupted;
   }
 );
