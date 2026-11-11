@@ -3,8 +3,8 @@ import { workerTools } from './worker-tools';
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { tmpdir } from 'node:os';
-import { workspaceRoot } from './global-config';
+import { homedir, tmpdir } from 'node:os';
+import { AGENT_WORKTREE_ROOTS, workspaceRoot } from './global-config';
 
 type Tool = string | { version: string; lazy?: boolean; os?: string[] };
 type Config = {
@@ -122,6 +122,35 @@ export function dockerChecks(
   });
 }
 
+/** Agent worktree roots must be trusted, or every mise shim fails there. */
+export function worktreeTrustCheck(
+  execute: Runner = run,
+  home: string = homedir()
+): Check {
+  const expand = (path: string) =>
+    path === '~' || path.startsWith('~/') ? home + path.slice(1) : path;
+  const result = execute(['mise', 'settings', 'get', 'trusted_config_paths']);
+  let trusted: string[] = [];
+  try {
+    const parsed: unknown = result.ok ? JSON.parse(result.output) : [];
+    if (Array.isArray(parsed))
+      trusted = parsed.filter((p): p is string => typeof p === 'string');
+  } catch {
+    trusted = [];
+  }
+  const have = new Set(trusted.map(expand));
+  const missing = AGENT_WORKTREE_ROOTS.filter(
+    (root) => !have.has(expand(root))
+  );
+  return {
+    id: 'agent-worktree-trust',
+    status: missing.length ? 'fail' : 'pass',
+    detail: missing.length
+      ? `mise does not trust ${missing.join(', ')}; agent CLIs fail in new worktrees there. Run dev-fleet tools sync.`
+      : AGENT_WORKTREE_ROOTS.join(', '),
+  };
+}
+
 export function checkMachine(requireDocker = false, worker = false): Check[] {
   const config = Bun.TOML.parse(
     readFileSync(join(workspaceRoot, 'mise.toml'), 'utf8')
@@ -134,6 +163,7 @@ export function checkMachine(requireDocker = false, worker = false): Check[] {
         : config.tools
     ),
     ...dockerChecks(requireDocker),
+    worktreeTrustCheck(),
     {
       id: 'github-auth',
       status: auth.ok ? 'pass' : 'warn',

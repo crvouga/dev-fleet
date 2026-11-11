@@ -198,3 +198,85 @@ test('a global config published under an earlier owner name is still managed', a
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('the published global config trusts agent worktree roots and keeps local trust entries', async () => {
+  const { AGENT_WORKTREE_ROOTS, withTrustedPaths } =
+    await import('./global-config');
+  const temp = mkdtempSync(join(tmpdir(), 'toolchain-trust-'));
+  const source = join(temp, 'source');
+  const target = join(temp, 'global');
+  mkdirSync(source, { recursive: true });
+  writeFileSync(
+    join(source, 'mise.toml'),
+    '[settings]\nlockfile = true\n\n[tools]\nbun = "1.4.4"\n'
+  );
+  writeFileSync(join(source, 'mise.lock'), 'fixture lock');
+  const settings = () =>
+    (
+      Bun.TOML.parse(readFileSync(join(target, 'config.toml'), 'utf8')) as {
+        settings: { trusted_config_paths: string[]; lockfile: boolean };
+      }
+    ).settings;
+  try {
+    publishGlobalConfig(target, source);
+    expect(settings().trusted_config_paths).toEqual(AGENT_WORKTREE_ROOTS);
+    expect(settings().lockfile).toBe(true);
+    // What `mise settings add trusted_config_paths` writes must survive.
+    const path = join(target, 'config.toml');
+    writeFileSync(
+      path,
+      readFileSync(path, 'utf8').replace(
+        /trusted_config_paths = \[/,
+        'trusted_config_paths = ["/srv/local", '
+      )
+    );
+    publishGlobalConfig(target, source);
+    expect(settings().trusted_config_paths).toEqual([
+      ...AGENT_WORKTREE_ROOTS,
+      '/srv/local',
+    ]);
+    utimesSync(path, 1000, 1000);
+    publishGlobalConfig(target, source);
+    expect(statSync(path).mtimeMs).toBe(1_000_000);
+  } finally {
+    rmSync(temp, { recursive: true, force: true });
+  }
+  expect(withTrustedPaths('[tools]\n', ['~/a'])).toBe(
+    '[tools]\n\n[settings]\ntrusted_config_paths = ["~/a"]\n'
+  );
+  expect(() =>
+    withTrustedPaths('[settings]\ntrusted_config_paths = []\n', ['~/a'])
+  ).toThrow('global config');
+});
+
+test('the repository mise.toml leaves trusted_config_paths to the global config', () => {
+  // mise warns and ignores it in a project config.
+  const config = Bun.TOML.parse(
+    readFileSync(join(import.meta.dirname, '../mise.toml'), 'utf8')
+  ) as { settings?: Record<string, unknown> };
+  expect(config.settings?.['trusted_config_paths']).toBeUndefined();
+});
+
+test('doctor fails when an agent worktree root is not trusted', async () => {
+  const { worktreeTrustCheck } = await import('./doctor');
+  const { AGENT_WORKTREE_ROOTS } = await import('./global-config');
+  const expanded = AGENT_WORKTREE_ROOTS.map((root) =>
+    root.replace(/^~/, '/home/dev')
+  );
+  const answer =
+    (output: string, ok = true) =>
+    () => ({ ok, output });
+  expect(
+    worktreeTrustCheck(answer(JSON.stringify(expanded)), '/home/dev').status
+  ).toBe('pass');
+  expect(
+    worktreeTrustCheck(
+      answer(JSON.stringify(AGENT_WORKTREE_ROOTS)),
+      '/home/dev'
+    ).status
+  ).toBe('pass');
+  expect(worktreeTrustCheck(answer('[]'), '/home/dev').status).toBe('fail');
+  expect(worktreeTrustCheck(answer('', false), '/home/dev').status).toBe(
+    'fail'
+  );
+});

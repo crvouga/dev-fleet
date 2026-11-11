@@ -38,7 +38,7 @@ if ! ready; then
 fi
 touch "$dir"
 cd "$dir"
-mise trust --quiet "$dir/mise.toml" >/dev/null 2>&1 || true
+mise trust --quiet "$dir" >/dev/null 2>&1 || true
 # The manager runs the same locked toolchain (and so the same agent versions)
 # as every worker: publish this revision's global config, install it and the
 # frozen dependencies. Warm: the toolchain is skipped when the same inputs

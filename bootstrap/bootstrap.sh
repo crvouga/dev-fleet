@@ -66,6 +66,8 @@ mkdir -p "$HOME/.local/bin"
 install -m 0755 "$temp/mise/bin/mise" "$HOME/.local/bin/mise"
 fi
 export PATH="$HOME/.local/bin:$PATH"
-mise trust "$checkout/mise.toml"
+# Trust the checkout directory, not only its file, so `mise trust --show` there
+# reports trusted.
+mise trust "$checkout"
 mise install --locked bun
 mise exec --locked bun -- bun bootstrap/setup.ts "$@"

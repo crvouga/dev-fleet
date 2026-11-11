@@ -44,7 +44,7 @@ try {
   Copy-Item "$Temp\mise\bin\*.exe" $Bin -Force
   $env:Path = "$Bin;$env:Path"
   Set-Location $WorkspaceDir
-  Invoke-Checked mise @('trust', (Join-Path $WorkspaceDir 'mise.toml'))
+  Invoke-Checked mise @('trust', $WorkspaceDir)
   Invoke-Checked mise @('install', '--locked', 'bun')
   Invoke-Checked mise @('exec', '--locked', 'bun', '--', 'bun', 'bootstrap/setup.ts')
 } finally { Remove-Item $Temp -Recurse -Force }
