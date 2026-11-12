@@ -18,6 +18,7 @@ import {
 } from './ide/definition';
 import { parseNotify, type NotifyConfig } from './notify';
 import { ubuntuRelease } from './platform/ubuntu-release';
+import { parseGithubPolicy, type GithubPolicy } from './github/policy';
 
 export interface MachineDefinition {
   id: string;
@@ -82,6 +83,8 @@ export interface FleetDefinition {
   /** An Ubuntu release ansible/ubuntu/policy.json accepts, with exactly the
    * architectures the policy names for it. */
   ubuntu: { release: string; architectures: string[] };
+  /** How every node signs in to GitHub; defaults when absent. */
+  github?: GithubPolicy;
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
 export interface AccountPolicy {
@@ -226,6 +229,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       't3',
       'git',
       'notify',
+      'github',
     ])
   )
     return fail();
@@ -252,7 +256,10 @@ export function parseDefinition(value: unknown): FleetDefinition {
  */
 function optionalSections(
   value: Record<string, unknown>
-): Pick<FleetDefinition, 'worker' | 'ides' | 't3' | 'git' | 'notify'> {
+): Pick<
+  FleetDefinition,
+  'worker' | 'ides' | 't3' | 'git' | 'notify' | 'github'
+> {
   return {
     ...(value['worker'] === undefined
       ? {}
@@ -263,6 +270,9 @@ function optionalSections(
     ...(value['notify'] === undefined
       ? {}
       : { notify: parseNotify(value['notify']) ?? fail() }),
+    ...(value['github'] === undefined
+      ? {}
+      : { github: parseGithubPolicy(value['github']) }),
   };
 }
 /** Singleton services name no host: they always run on the manager. */

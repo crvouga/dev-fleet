@@ -51,6 +51,14 @@
       "meaning": "A required login or capability works in this process context."
     },
     {
+      "id": "auth:copilot",
+      "meaning": "Copilot CLI uses the node's GitHub sign-in with a token it accepts."
+    },
+    {
+      "id": "auth:github",
+      "meaning": "gh answers auth status in this context."
+    },
+    {
       "id": "auth:toolchain",
       "meaning": "The pinned toolchain, dependencies and Docker could be checked."
     },
@@ -168,7 +176,43 @@
     },
     {
       "id": "git:configuration",
-      "meaning": "The fleet's Git identity and credential helper were written on this node."
+      "meaning": "The declared Git identity and the GitHub credential helper are written in the node's global Git configuration."
+    },
+    {
+      "id": "github:expiry",
+      "meaning": "The GitHub token does not expire within the warning window."
+    },
+    {
+      "id": "github:git-credential",
+      "meaning": "git asks gh for its GitHub credential."
+    },
+    {
+      "id": "github:org-access",
+      "meaning": "Single sign-on has authorised the GitHub token for each declared organisation."
+    },
+    {
+      "id": "github:permissions",
+      "meaning": "The GitHub token has every declared scope and can push to every declared repository."
+    },
+    {
+      "id": "github:principal",
+      "meaning": "The node is signed in to GitHub as its declared login."
+    },
+    {
+      "id": "github:rate-limit",
+      "meaning": "The GitHub rate limit left is above the warning floor."
+    },
+    {
+      "id": "github:sync",
+      "meaning": "fleet-sync signed this node in to GitHub from the stored credential."
+    },
+    {
+      "id": "github:token-current",
+      "meaning": "The node uses the GitHub token the store holds now."
+    },
+    {
+      "id": "github:workflow",
+      "meaning": "fleet-github-verify completed clone, branch, commit, push, pull request, checks and comment on the sandbox repository."
     },
     {
       "id": "login:*",
@@ -483,8 +527,8 @@
       "meaning": "The worker runs the declared revision."
     },
     {
-      "id": "worker:github-principal",
-      "meaning": "The worker's GitHub login is the declared account."
+      "id": "worker:github-sync",
+      "meaning": "The worker is signed in to GitHub from the stored credential as the declared login."
     },
     {
       "id": "worker:package:*",

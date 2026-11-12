@@ -16,7 +16,7 @@ export async function workerReadiness(
   root = process.cwd()
 ): Promise<Check[]> {
   const host = await workerHostChecks(userInfo().username, run);
-  const access = await workerAccessChecks(run);
+  const access = await workerAccessChecks(run, nodeId);
   const revision = await run(['git', 'rev-parse', 'HEAD']);
   const singleton = await run(
     [

@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 238 codes; 29 need a person.
+There are 244 codes; 31 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -146,6 +146,20 @@ There are 238 codes; 29 need a person.
 - `GIT_IDENTITY_UNDECLARED`: git identity undeclared.
 - `GIT_REMOTE_REFUSED`: git remote refused. **Needs a person.**
 - `GIT_REMOTE_UNREACHABLE`: git remote unreachable.
+
+## GitHub sign-in
+
+- **Meaning:** A node is not signed in to GitHub from the stored `github-token`, or the token belongs to another login. See [GitHub on every node](github.md).
+- **Confirm:** The `worker:github-sync` and `github:*` checks of `devfleet fleet-status --workers`; on the node, `gh auth status`.
+- **Fix:** Put a valid token for `worker.githubLogin` in the store as `github-token`, then run `devfleet fleet-sync` (a worker also retries every ten minutes).
+- **Escalate:** A missing login or a token issued for another account needs a person to declare the login or issue a new token.
+
+- `GITHUB_LOGIN_MISMATCH`: github login mismatch. **Needs a person.**
+- `GITHUB_LOGIN_UNDECLARED`: github login undeclared. **Needs a person.**
+- `GITHUB_SIGN_IN_FAILED`: github sign in failed.
+- `GITHUB_TOKEN_MISSING`: github token missing.
+- `GITHUB_TOKEN_REJECTED`: github token rejected.
+- `GITHUB_UNREACHABLE`: github unreachable.
 
 ## Tailscale
 

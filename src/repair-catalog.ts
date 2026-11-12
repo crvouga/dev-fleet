@@ -141,8 +141,8 @@ export const REPAIR_RECIPES: RepairRecipe[] = [
   login(
     'copilot',
     'Sign in to Copilot',
-    [['copilot', 'login']],
-    'Complete native login; provider authorization still needs supported operator diagnostics. No model prompt is used for health checking.'
+    [],
+    'Copilot CLI uses the node’s GitHub sign-in, which fleet-sync brings from the stored credential (github-token). Run fleet-sync; store a fine-grained token with the Copilot Requests permission if auth:copilot says the token kind is refused. No per-node copilot login.'
   ),
   login(
     'gemini',

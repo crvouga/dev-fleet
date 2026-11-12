@@ -1,6 +1,7 @@
 import { fingerprint, writeReceipt } from './fingerprint';
 import { configureWorkspace } from './configure';
 import { stableWorkspace } from './platform/t3-policy';
+import { convergeGithub } from './github/converge';
 import type { Check, Runner } from './types';
 
 /** Phase wrapper: one failure code per phase, durations measured, no exception text. */
@@ -30,11 +31,13 @@ export async function attempt(
 }
 
 /** The `devfleet` launcher (linked to the applied revision, never copied) and
- * this worker's own credential refresh. Identical on Linux and macOS.
+ * this worker's own credential refresh: its Vault session and, apart from it,
+ * its GitHub sign-in. Identical on Linux and macOS.
  */
 export async function configureWorkstation(
   root: string,
-  run: Runner
+  run: Runner,
+  node?: string
 ): Promise<Check[]> {
   const installed = await run(
     // The stable path of the applied revision: it survives pruning.
@@ -62,6 +65,7 @@ export async function configureWorkstation(
       summary:
         'The devfleet launcher is linked to the applied revision; authentication remains a separate gate.',
     },
+    await convergeGithub(root, run, node),
   ];
 }
 

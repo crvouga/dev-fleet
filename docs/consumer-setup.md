@@ -179,6 +179,7 @@ Then replace every placeholder. Each field, from
 | `ubuntu`                                              | `{ "release": "26.04", "architectures": ["amd64", "arm64"] }`: a release of the [support matrix](support-matrix.md). |
 | `worker.requiredCapabilities`                         | Normally all of `github`, `vault`, `t3`, `toolchain`, `workstation`, `worker`.                                       |
 | `worker.githubLogin`                                  | The GitHub login every worker must be signed in as.                                                                  |
+| `github` (optional)                                   | Who the manager signs in to GitHub as, per-node tokens, required scopes; see [GitHub](github.md).                    |
 | `worker.vaultUser`                                    | The Vault user each worker's token is issued for.                                                                    |
 | `worker.toolchain`, `agentProfile`                    | `"mise.lock"`, `"proxy"` (fixed).                                                                                    |
 | `worker.unattendedSudo`, `persistentT3`, `neverSleep` | `true` (fixed policy).                                                                                               |
@@ -205,6 +206,10 @@ dev-fleet asks for four secrets by purpose: `proxy-client-key`,
 | `sops`   | `{ "provider": "sops", "file": "secrets.enc.yaml" }`                                                                                                 | One encrypted document with one top-level key per name.                 |
 | `file`   | `{ "provider": "file" }` (optional `"directory"`)                                                                                                    | One private file per name, default `~/.config/dev-fleet/secrets/NAME`.  |
 | `env`    | `{ "provider": "env" }`                                                                                                                              | `DEVFLEET_SECRET_PROXY_CLIENT_KEY` and so on (upper case, `_` for `-`). |
+
+A fifth, `github-token`, is the GitHub token of `worker.githubLogin`: every node
+is signed in with it ([GitHub](github.md)). With `vault` it needs no location
+of its own: it defaults to the field `GITHUB_TOKEN` beside `proxy-client-key`.
 
 Only `vault` gives each worker its own login and renewal and gives the CLI
 proxy its encrypted backup; with the other three those two features are not

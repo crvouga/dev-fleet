@@ -54,6 +54,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | `monitoring-account-password`  | yes                          | `DEVFLEET_SECRET_MONITORING_ACCOUNT_PASSWORD`  | `~/.config/dev-fleet/secrets/monitoring-account-password`  |
 | `monitoring-tunnel-token`      | yes                          | `DEVFLEET_SECRET_MONITORING_TUNNEL_TOKEN`      | `~/.config/dev-fleet/secrets/monitoring-tunnel-token`      |
 | `proxy-tunnel-token`           | yes                          | `DEVFLEET_SECRET_PROXY_TUNNEL_TOKEN`           | `~/.config/dev-fleet/secrets/proxy-tunnel-token`           |
+| `github-token`                 | when its feature is declared | `DEVFLEET_SECRET_GITHUB_TOKEN`                 | `~/.config/dev-fleet/secrets/github-token`                 |
 | `monitoring-backup-access-key` | when its feature is declared | `DEVFLEET_SECRET_MONITORING_BACKUP_ACCESS_KEY` | `~/.config/dev-fleet/secrets/monitoring-backup-access-key` |
 | `monitoring-backup-secret-key` | when its feature is declared | `DEVFLEET_SECRET_MONITORING_BACKUP_SECRET_KEY` | `~/.config/dev-fleet/secrets/monitoring-backup-secret-key` |
 | `notify-webhook-url`           | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_WEBHOOK_URL`           | `~/.config/dev-fleet/secrets/notify-webhook-url`           |
@@ -67,10 +68,11 @@ Every failure code is in [the runbooks](runbooks.md).
 
 | Check                         | Measured in                                |
 | ----------------------------- | ------------------------------------------ |
+| `auth:github`                 | `src/github/checks.ts`                     |
 | `auth:vault`                  | `src/cli/fleet-sync-vault.ts`              |
 | `worker:git-identity`         | `src/git-identity.ts`                      |
 | `worker:git-push-auth`        | `src/definition.ts`, `src/git-identity.ts` |
-| `worker:github-principal`     | `src/worker-access-checks.ts`              |
+| `worker:github-sync`          | `src/worker-access-checks.ts`              |
 | `worker:proxy-authentication` | `src/worker-access-checks.ts`              |
 | `worker:vault-renewal`        | `src/worker-access-checks.ts`              |
 
@@ -84,6 +86,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | -------------------------------- | -------------------------------------- | ------------------------------------- |
 | `personal-fleet-disk-gc.timer`   | `ansible/ubuntu/tasks/resources.yml`   | OnBootSec=10min, OnCalendar=hourly    |
 | `personal-worker-auth.timer`     | `ansible/ubuntu/tasks/credentials.yml` | OnBootSec=2min, OnUnitActiveSec=10min |
+| `personal-worker-github.timer`   | `ansible/ubuntu/tasks/github.yml`      | OnBootSec=2min, OnUnitActiveSec=10min |
 | `personal-worker-recovery.timer` | `ansible/ubuntu/tasks/recovery.yml`    | OnBootSec=1min, OnUnitActiveSec=1min  |
 | `personal-worker-recovery.timer` | `ansible/ubuntu/tasks/recovery.yml`    | OnBootSec=5min, OnUnitActiveSec=15min |
 

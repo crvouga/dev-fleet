@@ -12,10 +12,13 @@ export const SECRET_NAMES = [
   'monitoring-tunnel-token',
   'proxy-tunnel-token',
 ] as const;
-/** Secrets only a feature the fleet declares needs: a Vault location may
- * leave them out, and they are then unavailable.
+/** Secrets a fleet may leave undeclared. A Vault fleet that names no location
+ * for the GitHub token keeps it where dev-fleet always read it (see
+ * `vaultLocation`); the others are needed only by a feature the fleet
+ * declares, and are otherwise unavailable.
  */
 export const OPTIONAL_SECRET_NAMES = [
+  'github-token',
   // The off-machine storage of the monitoring hub's backups
   // (services.monitoring.backups).
   'monitoring-backup-access-key',
@@ -52,16 +55,53 @@ export type SecretCommand = (
 ) => Promise<string | null>;
 
 /** One read of one secret for this node. Null when it is not available; the
- * value is never logged, printed or placed in argv.
+ * value is never logged, printed or placed in argv. `node` names a node's own
+ * copy of a secret that is kept once per node (`secretVariant`).
  */
-export type SecretsProvider = (name: SecretName) => Promise<string | null>;
+export type SecretsProvider = (
+  name: SecretName,
+  node?: string
+) => Promise<string | null>;
 
 const present = (value: string | null | undefined): string | null =>
   value?.trim() ? value.trim() : null;
 
 /** `proxy-client-key` is read from `DEVFLEET_SECRET_PROXY_CLIENT_KEY`. */
-export const envName = (name: SecretName): string =>
-  `DEVFLEET_SECRET_${name.toUpperCase().replaceAll('-', '_')}`;
+export const envName = (name: SecretName, node?: string): string =>
+  `DEVFLEET_SECRET_${secretVariant(name, node).toUpperCase().replaceAll('-', '_')}`;
+
+/** The name of a node's own copy of a secret: `github-token` of `worker-one`
+ * is `github-token-worker-one` (`DEVFLEET_SECRET_GITHUB_TOKEN_WORKER_ONE`, the
+ * file or sops key `github-token-worker-one`, the Vault field `FIELD_WORKER_ONE`).
+ */
+export const secretVariant = (name: SecretName, node?: string): string =>
+  node ? `${name}-${node}` : name;
+
+/** Where a Vault fleet keeps a secret. The GitHub token was always read from
+ * the field `GITHUB_TOKEN` beside the proxy client key; a fleet that names no
+ * location of its own keeps it there.
+ */
+export function vaultLocation(
+  config: Extract<SecretsConfig, { provider: 'vault' }>,
+  name: SecretName,
+  node?: string
+): VaultLocation | null {
+  const location =
+    config.locations[name as keyof typeof config.locations] ??
+    (name === 'github-token'
+      ? {
+          path: config.locations['proxy-client-key'].path,
+          field: 'GITHUB_TOKEN',
+        }
+      : null);
+  if (!location) return null;
+  return node
+    ? {
+        path: location.path,
+        field: `${location.field}_${node.toUpperCase().replaceAll('-', '_')}`,
+      }
+    : location;
+}
 
 export function secretsProvider(
   config: SecretsConfig,
@@ -74,29 +114,34 @@ export function secretsProvider(
   const env = options.env ?? process.env;
   const run = options.run ?? execute;
   if (config.provider === 'env')
-    return async (name) => present(env[envName(name)]);
+    return async (name, node) => present(env[envName(name, node)]);
   if (config.provider === 'file') {
     // One private file per secret, named after it.
     const directory =
       config.directory ??
       join(options.home ?? homedir(), '.config/dev-fleet/secrets');
-    return async (name) =>
-      present(await readFile(join(directory, name), 'utf8').catch(() => null));
+    return async (name, node) =>
+      present(
+        await readFile(
+          join(directory, secretVariant(name, node)),
+          'utf8'
+        ).catch(() => null)
+      );
   }
   if (config.provider === 'sops')
     // An age- (or KMS-) encrypted document with one top-level key per secret.
-    return async (name) =>
+    return async (name, node) =>
       present(
         await run([
           'sops',
           '--decrypt',
           '--extract',
-          `["${name}"]`,
+          `["${secretVariant(name, node)}"]`,
           config.file,
         ])
       );
-  return async (name) => {
-    const location = config.locations[name];
+  return async (name, node) => {
+    const location = vaultLocation(config, name, node);
     if (!location) return null;
     return present(
       await run([

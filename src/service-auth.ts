@@ -1,4 +1,5 @@
 import { record } from './config';
+import { copilotCheck } from './github/copilot';
 import type { Check, CommandResult, Runner } from './types';
 
 interface Service {
@@ -48,8 +49,6 @@ export async function codingAuth(
 export const PROXY_ROUTED: Record<string, string> = {
   gemini:
     'gemini signs in through the CLI proxy and has no T3 launcher; provider:gemini:inference proves its route from this node.',
-  copilot:
-    'copilot is not routed through the CLI proxy and dev-fleet does not manage its GitHub sign-in; no provider account is checked.',
   opencode:
     'opencode signs in through the CLI proxy; agent:muse:session and the per-account agent:opencode sessions prove it from this node.',
 };
@@ -101,6 +100,7 @@ export async function serviceAuth(run: Runner): Promise<Check[]> {
   ];
   const checks: Check[] = [];
   for (const service of services) checks.push(await serviceCheck(service, run));
+  checks.push(await copilotCheck(run));
   for (const [id, reason] of Object.entries(PROXY_ROUTED))
     checks.push({
       id: `auth:${id}`,

@@ -1,9 +1,5 @@
 import { expect } from 'bun:test';
 import { renewWorkerVault } from '../../../bootstrap/worker-auth';
-import {
-  syncWorkerGithub,
-  type AuthRunner,
-} from '../../../bootstrap/worker-github';
 import { workerTools } from '../../../bootstrap/worker-tools';
 import { authorizePrivilege } from '../../../src/cli/fleet-sync-privilege';
 import {
@@ -30,9 +26,6 @@ interface Authorization {
   selected: string[] | undefined;
   renewal: { status: number; stdout: string } | undefined;
   renewed: boolean | undefined;
-  github: { token?: string; owner?: string; acceptsLogin: boolean };
-  githubCalls: { args: string[]; input: string | undefined }[];
-  signedIn: boolean | undefined;
 }
 const states = new WeakMap<FleetSyncWorld, Authorization>();
 
@@ -47,9 +40,6 @@ function state(world: FleetSyncWorld): Authorization {
       selected: undefined,
       renewal: undefined,
       renewed: undefined,
-      github: { acceptsLogin: false },
-      githubCalls: [],
-      signedIn: undefined,
     };
     states.set(world, found);
   }
@@ -257,62 +247,3 @@ When('the worker renews its Vault session', (world) => {
 Then(/^the session is (renewed|not renewed)$/, (world, result: string) => {
   expect(state(world).renewed).toBe(result === 'renewed');
 });
-
-Given('the worker is not signed in to GitHub', (world) => {
-  state(world).github = { acceptsLogin: false };
-});
-
-Given(
-  'Vault holds the GitHub service token {string}',
-  (world, token: string) => {
-    state(world).github.token = token;
-  }
-);
-
-Given('GitHub says a token belongs to {string}', (world, owner: string) => {
-  state(world).github.owner = owner;
-});
-
-Given('GitHub accepts a login with a token', (world) => {
-  state(world).github.acceptsLogin = true;
-});
-
-/** `gh` and `vault` on a worker, as the scenario described them. */
-function github(world: FleetSyncWorld): AuthRunner {
-  const { github, githubCalls } = state(world);
-  const answer = (stdout: string | undefined) =>
-    stdout === undefined ? { status: 1, stdout: '' } : { status: 0, stdout };
-  return (args, options) => {
-    githubCalls.push({ args, input: options?.input });
-    if (args[0] === 'vault') return answer(github.token);
-    // A request made with a token is answered for that token's account.
-    if (options?.env?.['GH_TOKEN']) return answer(github.owner);
-    if (args.includes('login'))
-      return answer(github.acceptsLogin ? '' : undefined);
-    // Without a token, nobody is signed in.
-    return answer(undefined);
-  };
-}
-
-When('the worker signs in to GitHub', (world) => {
-  state(world).signedIn = syncWorkerGithub(github(world));
-});
-
-Then('the worker is signed in', (world) => {
-  expect(state(world).signedIn).toBe(true);
-});
-
-Then('the GitHub token appears in no command line', (world) => {
-  const { github, githubCalls } = state(world);
-  expect(github.token).toBeString();
-  expect(JSON.stringify(githubCalls.map((call) => call.args))).not.toContain(
-    github.token!
-  );
-});
-
-Then(
-  'the last command was given {string} and a new line on standard input',
-  (world, token: string) => {
-    expect(state(world).githubCalls.at(-1)?.input).toBe(`${token}\n`);
-  }
-);

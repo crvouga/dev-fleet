@@ -1,0 +1,50 @@
+---
+# This worker's GitHub sign-in, apart from its Vault renewal: a failure of one
+# never hides or stops the other. The job signs in from the stored credential
+# and adopts a rotated token while the old one still works.
+- name: Declare the GitHub sign-in job
+  vars:
+    # Every step the job runs (the secret read and four gh calls) may take
+    # its full timeout (GITHUB_STEP_TIMEOUT_MS), plus the runtime's start.
+    github_step_timeout_seconds: 30
+    github_job_steps: 5
+    github_job_start_seconds: 30
+  ansible.builtin.copy:
+    dest: '{{ development_home }}/.config/systemd/user/personal-worker-github.service'
+    owner: '{{ development_user }}'
+    mode: '0600'
+    content: |
+      [Unit]
+      Description=Sign this worker in to GitHub from its stored credential
+      [Service]
+      Type=oneshot
+      WorkingDirectory={{ development_source }}
+      ExecStart={{ development_home }}/.local/bin/mise exec -- bun bootstrap/worker-github.ts
+      Environment="PATH={{ development_home }}/.local/share/mise/shims:{{ development_home }}/.local/bin:/usr/local/bin:/usr/bin:/bin"
+      UMask=0077
+      TimeoutStartSec={{ github_step_timeout_seconds * github_job_steps + github_job_start_seconds }}
+- name: Declare the GitHub sign-in schedule
+  ansible.builtin.copy:
+    dest: '{{ development_home }}/.config/systemd/user/personal-worker-github.timer'
+    owner: '{{ development_user }}'
+    mode: '0600'
+    content: |
+      [Unit]
+      Description=Keep this worker signed in to GitHub with the stored credential
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=10min
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+- name: Enable this user's GitHub sign-in timer
+  become: true
+  become_user: '{{ development_user }}'
+  environment:
+    XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+  ansible.builtin.systemd_service:
+    scope: user
+    name: personal-worker-github.timer
+    daemon_reload: true
+    enabled: true
+    state: started

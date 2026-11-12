@@ -4,29 +4,79 @@ import { secretsProvider } from './secrets';
 import { registry } from './agents/registry';
 import { resolveVaultConfig, usesVault } from './vault-config';
 import { record } from './config';
+import { githubCredential } from './github/credential';
+import { hostId } from './topology';
+import { hostname } from 'node:os';
+import { githubSignInState } from './github/sync';
 
 /** Inject every subprocess; never put credentials in argv, reports, or logs. */
-export async function workerAccessChecks(run: Runner): Promise<Check[]> {
-  const policy = fleet.worker!;
-  const github = await run(['gh', 'api', 'user', '--jq', '.login']);
+export async function workerAccessChecks(
+  run: Runner,
+  nodeId?: string
+): Promise<Check[]> {
   return [
-    {
-      id: 'worker:github-principal',
-      status:
-        github.ok && github.stdout.trim() === policy.githubLogin
-          ? 'pass'
-          : 'fail',
-      summary:
-        'Worker GitHub authentication must match the declared common account.',
-      remedy: {
-        action:
-          'Authenticate this worker with the declared GitHub account. Credentials stay on their original machines.',
-      },
-    },
+    await githubSync(run, nodeId),
     await proxyAuthentication(run),
     ...(usesVault() ? [await vaultRenewalCheck(run)] : []),
   ];
 }
+
+const GITHUB_REMEDIES: Record<string, string> = {
+  GITHUB_TOKEN_MISSING:
+    'The secrets provider holds no GitHub token for this worker. Store it under github-token (github-token-<node> with github.credential "per-node"); the next sign-in job or fleet-sync signs the worker in.',
+  GITHUB_TOKEN_REJECTED:
+    'GitHub refuses the stored token: it was revoked or has expired. Store a new one under github-token; nothing about the secret store itself needs fixing.',
+  GITHUB_LOGIN_MISMATCH:
+    'The stored token belongs to another account than worker.githubLogin. Store the fleet login’s token, or correct worker.githubLogin in the fleet configuration.',
+  GITHUB_UNREACHABLE:
+    'GitHub did not answer from this worker. Check its network and DNS; the worker keeps the sign-in it has.',
+  GITHUB_SIGN_IN_FAILED:
+    'The stored token is valid but this worker has not adopted it. Inspect the job with: journalctl --user -u personal-worker-github.service, or run fleet-sync.',
+};
+
+/** GitHub sign-in is measured on its own, so a GitHub fault is never reported
+ * as a fault of the secret store's renewal, and the code names the system to
+ * fix.
+ */
+async function githubSync(run: Runner, nodeId?: string): Promise<Check> {
+  const login = fleet.worker?.githubLogin;
+  if (!login)
+    return {
+      id: 'worker:github-sync',
+      status: 'fail',
+      summary: 'GITHUB_LOGIN_UNDECLARED',
+      remedy: {
+        action: 'Declare the fleet GitHub login as worker.githubLogin.',
+      },
+    };
+  const code = await githubSignInState({
+    run,
+    login,
+    token: githubCredential(fleet, nodeId ?? hostId(hostname()), secrets(run)),
+  });
+  return code === 'GITHUB_OK'
+    ? {
+        id: 'worker:github-sync',
+        status: 'pass',
+        summary:
+          'Worker GitHub authentication matches the declared common account.',
+      }
+    : {
+        id: 'worker:github-sync',
+        status: 'fail',
+        summary: code,
+        remedy: { action: GITHUB_REMEDIES[code]! },
+      };
+}
+
+const secrets = (run: Runner) =>
+  secretsProvider(fleet.secrets, {
+    run: async (argv) => {
+      const result = await run(argv, { timeoutMs: 20_000 });
+      return result.ok ? result.stdout : null;
+    },
+  });
+
 /** Vault refuses a read the token's policy does not allow with a 403. */
 const PERMISSION_DENIED = /permission denied|Code: 403/i;
 

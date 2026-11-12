@@ -1,47 +1,58 @@
-/** Acquire declared service credentials from this worker's Vault session; never copy a login directory. */
-import { spawnSync } from 'node:child_process';
-import { resolveVaultConfig, usesVault } from '../src/vault-config';
-import { fleet as definition } from '../src/fleet-config';
+/** GitHub sign-in of this node from the stored credential; never copies a
+ * login directory. Runs from the timer (`personal-worker-github`) and from
+ * every sync. One JSON line, never a token or raw output.
+ */
+import { hostname } from 'node:os';
+import { fleet } from '../src/fleet-config';
+import { secretsProvider } from '../src/secrets';
+import { runCommand } from '../src/runner';
+import { hostId } from '../src/topology';
+import { githubCredential } from '../src/github/credential';
+import { githubNode } from '../src/github/policy';
+import { syncGithub, type GithubSyncResult } from '../src/github/sync';
 
-export type AuthRunner = (
-  args: string[],
-  options?: { input?: string; env?: NodeJS.ProcessEnv }
-) => { status: number | null; stdout: string | null };
-const execute: AuthRunner = (args, options = {}) =>
-  spawnSync(args[0]!, args.slice(1), {
-    encoding: 'utf8',
-    timeout: 30_000,
-    ...options,
-  });
-export function syncWorkerGithub(run: AuthRunner = execute): boolean {
-  const expected = definition.worker!.githubLogin;
-  const current = run(['gh', 'api', 'user', '--jq', '.login']);
-  if (current.status === 0 && current.stdout?.trim() === expected) return true;
-  // The service token is kept in the shared Vault document only.
-  if (!usesVault()) return false;
-  const { addr, mount, project, config } = resolveVaultConfig();
-  const secret = run([
-    'vault',
-    'kv',
-    'get',
-    `-address=${addr}`,
-    '-field=GITHUB_TOKEN',
-    `${mount}/${project}/${config}`,
-  ]);
-  const token = secret.stdout?.trim() ?? '';
-  if (secret.status !== 0 || !/^[\x21-\x7e]{16,4096}$/.test(token))
-    return false;
-  const validated = run(['gh', 'api', 'user', '--jq', '.login'], {
-    env: { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: undefined },
-  });
-  if (validated.status !== 0 || validated.stdout?.trim() !== expected)
-    return false;
-  const login = run(
-    ['gh', 'auth', 'login', '--hostname', 'github.com', '--with-token'],
-    {
-      input: token + '\n',
-      env: { ...process.env, GH_TOKEN: undefined, GITHUB_TOKEN: undefined },
-    }
+/** The exit status of each outcome, so the unit's result names it too. */
+export const EXIT_CODES: Record<GithubSyncResult['code'], number> = {
+  GITHUB_OK: 0,
+  GITHUB_TOKEN_MISSING: 10,
+  GITHUB_TOKEN_REJECTED: 11,
+  GITHUB_LOGIN_MISMATCH: 12,
+  GITHUB_UNREACHABLE: 13,
+  GITHUB_SIGN_IN_FAILED: 14,
+};
+
+export const GITHUB_JOB = 'dev-fleet-github';
+
+if (import.meta.main) {
+  const started = Date.now();
+  // The manager is never a declared worker; `--node` names a worker whose
+  // host name is not its id.
+  const flag = process.argv.indexOf('--node');
+  const id = flag > 0 ? process.argv[flag + 1] : hostId(hostname());
+  const target = githubNode(fleet, id);
+  const result: GithubSyncResult =
+    target.login === null
+      ? { code: 'GITHUB_LOGIN_MISMATCH', adopted: false }
+      : await syncGithub({
+          run: runCommand,
+          token: githubCredential(
+            fleet,
+            target.node,
+            secretsProvider(fleet.secrets)
+          ),
+          login: target.login,
+          // A person's own login on the manager is measured, never replaced.
+          apply: target.managed,
+        });
+  process.stdout.write(
+    JSON.stringify({
+      name: GITHUB_JOB,
+      event: 'job_finished',
+      role: target.role,
+      code: result.code,
+      adopted: result.adopted,
+      durationMs: Date.now() - started,
+    }) + '\n'
   );
-  return login.status === 0;
+  process.exitCode = EXIT_CODES[result.code];
 }

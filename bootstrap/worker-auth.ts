@@ -1,5 +1,7 @@
-import { syncWorkerGithub } from './worker-github';
-/** Private scheduled job. The worker retains its own token; raw auth output is never logged. */
+/** Private scheduled job: renews this worker's own Vault token, and nothing
+ * else. GitHub sign-in is its own job (worker-github.ts), so a failure of
+ * one never stops or hides the other. Raw auth output is never logged.
+ */
 import { spawnSync } from 'node:child_process';
 import { resolveVaultConfig, usesVault } from '../src/vault-config';
 
@@ -49,14 +51,11 @@ if (import.meta.main) {
     jobId: 'vault-self-renewal',
     operation: 'vault.token.renew',
   });
-  const vault = renewWorkerVault();
-  const github = vault && syncWorkerGithub();
-  const ok = vault && github;
+  const ok = renewWorkerVault();
   log.info('job_finished', {
     jobId: 'vault-self-renewal',
     operation: 'vault.token.renew',
-    vaultAuthenticated: vault,
-    githubAuthenticated: github,
+    vaultAuthenticated: ok,
     outcome: ok ? 'success' : 'authentication_required',
     durationMs: Date.now() - started,
     retryDelayMs: 600000,

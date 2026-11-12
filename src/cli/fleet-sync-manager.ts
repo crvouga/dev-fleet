@@ -16,6 +16,7 @@ import { idesOf } from '../ide/definition';
 import { convergeGitIdentity, gitChecks } from '../git-identity';
 import macos from '../../ansible/macos/policy.json';
 import { ansibleCommand } from '../platform/ansible';
+import { convergeGithub } from '../github/converge';
 import { PACKAGE_ROOT } from '../package-info';
 import { managerHealth } from '../manager-health';
 import { readFileSync } from 'node:fs';
@@ -70,6 +71,14 @@ export async function convergeManager(
       );
       if (definition.git)
         checks.push(...(await gitChecks(definition.git, run)));
+      // The same GitHub sign-in as every worker, or only a check of a
+      // person's own login when the configuration names one. git asks gh
+      // for the token through the helper git.yml declared above.
+      checks.push(
+        ...(await attempt('github:sync', async () => [
+          await convergeGithub(input.workspace, run),
+        ]))
+      );
       const providers = await attempt('provider:verification', () =>
         verifyFleetProviders(id)
       );

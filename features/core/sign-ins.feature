@@ -69,14 +69,18 @@ Feature: A computer's sign-ins are proved by the tools themselves
 
     Scenario: A missing command is no sign-in, and a provider nobody can ask is skipped
       Nothing is signed in on the computer's behalf, and no provider is
-      certified by a check that does not exist.
+      certified by a check that does not exist. Copilot CLI uses the node's
+      GitHub sign-in, so it is checked when it is installed (features/github).
       Given every command fails with the error "private-secret"
       When the sign-ins to the services are checked
       Then 5 checks fail
       And these checks are skipped, in this order:
-        | auth:gemini   |
         | auth:copilot  |
+        | auth:gemini   |
         | auth:opencode |
-      And every skipped check says "AUTH_NOT_SUPPORTED_ON_ROUTE" and where its access is proven
+      And the summary of the check "auth:copilot" mentions "not installed"
+      And these skipped checks say "AUTH_NOT_SUPPORTED_ON_ROUTE" and where their access is proven:
+        | auth:gemini   |
+        | auth:opencode |
       And no command was run with the argument "login"
       And nothing reported contains "private-secret"

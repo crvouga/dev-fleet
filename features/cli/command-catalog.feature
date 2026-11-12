@@ -47,6 +47,7 @@ Feature: The command catalog
         | fleet-repair          |
         | fleet-node-add        |
         | fleet-accounts --add  |
+        | fleet-github-verify   |
         | t3-apply              |
         | t3-cleanup            |
         | cliproxy              |

@@ -6,6 +6,8 @@ import { codingAuth, serviceAuth } from './service-auth';
 import { workstationChecks } from './workstation-checks';
 import { toolchainChecks } from './toolchain-checks';
 import { workerSelection } from '../bootstrap/worker-tools';
+import { githubChecks } from './github/checks';
+import { secretsProvider } from './secrets';
 import type { Capability, Check, Runner, CommandResult } from './types';
 
 export async function authCheck(
@@ -20,6 +22,17 @@ export async function authCheck(
     return codingAuth(capability, run);
   if (capability === 'services') return serviceAuth(run);
   if (capability === 'workstation') return workstationChecks(root, run);
+  if (capability === 'github')
+    return githubChecks(run, {
+      definition,
+      ...(nodeId === undefined ? {} : { node: nodeId }),
+      secret: secretsProvider(definition.secrets, {
+        run: async (argv) => {
+          const result = await run(argv, { timeoutMs: 20_000 });
+          return result.ok ? result.stdout : null;
+        },
+      }),
+    });
   if (capability === 'toolchain')
     return toolchainChecks(
       root,
@@ -32,16 +45,11 @@ export async function authCheck(
 }
 
 async function basicAuth(
-  capability: 'github' | 'vault' | 'vscode',
+  capability: 'vault' | 'vscode',
   run: Runner,
   root: string
 ): Promise<Check[]> {
   const spec = {
-    github: {
-      command: ['gh', 'auth', 'status', '--active'],
-      action:
-        'Authenticate on this node with gh auth login, then gh auth setup-git.',
-    },
     vault: {
       command: [
         'vault',
