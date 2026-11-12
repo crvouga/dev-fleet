@@ -446,7 +446,7 @@ Then(
 );
 
 When('the packages {string} installs are read', (world, path: string) => {
-  world.found = (/^for package in (.+); do$/m.exec(read(path))?.[1] ?? '')
+  world.found = (/^\s*for package in (.+); do$/m.exec(read(path))?.[1] ?? '')
     .split(' ')
     .filter(Boolean);
 });
