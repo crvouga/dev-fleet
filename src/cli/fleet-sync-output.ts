@@ -51,17 +51,19 @@ const COLUMNS: { title: string; matches: (id: string) => boolean }[] = [
   },
 ];
 
-const ORDER: Status[] = ['fail', 'warn', 'skip', 'pass'];
+const ORDER: Status[] = ['fail', 'warn', 'skip', 'not-applicable', 'pass'];
 const WORD: Record<Status, string> = {
   fail: 'FAIL',
   warn: 'WARN',
   skip: 'SKIP',
+  'not-applicable': 'N/A',
   pass: 'PASS',
 };
 const SYMBOL: Record<Status, string> = {
   fail: '✖',
   warn: '▲',
   skip: '○',
+  'not-applicable': '–',
   pass: '✔',
 };
 
@@ -268,22 +270,32 @@ function totals(
   counts: Record<Status, number>,
   color: boolean
 ): string {
-  return ORDER.map((status) => {
-    const text = `${color ? `${SYMBOL[status]} ` : ''}${counts[status]} ${LABEL[status]}`;
-    // A zero count is not a signal: never show red/yellow for "0 failing".
-    return counts[status] ? paint(c, status, text) : c.dim(text);
-  }).join(c.dim('   '));
+  // Not-applicable checks are listed only on machines that have some.
+  return ORDER.filter((status) => status !== 'not-applicable' || counts[status])
+    .map((status) => {
+      const text = `${color ? `${SYMBOL[status]} ` : ''}${counts[status]} ${LABEL[status]}`;
+      // A zero count is not a signal: never show red/yellow for "0 failing".
+      return counts[status] ? paint(c, status, text) : c.dim(text);
+    })
+    .join(c.dim('   '));
 }
 
 const LABEL: Record<Status, string> = {
   fail: 'failing',
   warn: 'warnings',
   skip: 'skipped',
+  'not-applicable': 'not applicable',
   pass: 'passing',
 };
 
 function count(checks: Check[]): Record<Status, number> {
-  const counts: Record<Status, number> = { pass: 0, warn: 0, fail: 0, skip: 0 };
+  const counts: Record<Status, number> = {
+    pass: 0,
+    warn: 0,
+    fail: 0,
+    skip: 0,
+    'not-applicable': 0,
+  };
   for (const check of checks)
     counts[
       blocking(check) || check.status !== 'fail' ? check.status : 'warn'
@@ -295,7 +307,12 @@ function worst(checks: Check[]): Status | null {
   if (!checks.length) return null;
   if (checks.some(blocking)) return 'fail';
   if (
-    checks.some((check) => check.status !== 'pass' && check.status !== 'skip')
+    checks.some(
+      (check) =>
+        check.status !== 'pass' &&
+        check.status !== 'skip' &&
+        check.status !== 'not-applicable'
+    )
   )
     return 'warn';
   return checks.every((check) => check.status === 'skip') ? 'skip' : 'pass';
@@ -306,7 +323,7 @@ function paint(c: ChalkInstance, status: Status, text: string): string {
     ? c.red(text)
     : status === 'warn'
       ? c.yellow(text)
-      : status === 'skip'
+      : status === 'skip' || status === 'not-applicable'
         ? c.dim(text)
         : c.green(text);
 }

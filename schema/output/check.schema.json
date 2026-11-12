@@ -7,7 +7,7 @@
   "required": ["id", "status", "summary"],
   "properties": {
     "id": { "type": "string", "pattern": "^[a-z0-9-]+(:[A-Za-z0-9:._-]+)?$" },
-    "status": { "enum": ["pass", "warn", "fail", "skip"] },
+    "status": { "enum": ["pass", "warn", "fail", "skip", "not-applicable"] },
     "summary": { "type": "string" },
     "required": { "type": "boolean" },
     "phaseDurationMs": { "type": "number" },
