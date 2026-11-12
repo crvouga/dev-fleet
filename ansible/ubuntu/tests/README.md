@@ -1,8 +1,9 @@
 # Disposable Ubuntu reliability tests
 
 Run from the repository root on Linux amd64 with Docker, KVM, the pinned Bun,
-network access to the official release archives, and enough disk for a 12 GiB
-sparse guest. This uses an isolated Ubuntu 26.04 VM; it never targets fleet hosts.
+network access to the official release archives, and enough disk for a 24 GiB
+sparse guest. The guest is the minimum worker (`sizing.minimumWorker` in
+`ansible/ubuntu/policy.json`): 2 CPUs, 4 GiB of memory, a 24 GiB disk. This uses an isolated Ubuntu 26.04 VM; it never targets fleet hosts.
 The test image is tooling, not a replacement OS image for development machines.
 
 One command runs either test, the way the Ubuntu VM workflow runs it weekly
@@ -13,23 +14,27 @@ bun ansible/ubuntu/tests/run-vm.ts baseline    # the baseline tests below
 bun ansible/ubuntu/tests/run-vm.ts bootstrap   # the full SSH bootstrap of HEAD
 ```
 
-By hand, with a T3 archive as well:
+By hand:
 
 ```sh
 fleet_test_dir=$(mktemp -d)
-mkdir -p "$fleet_test_dir/vm" "$fleet_test_dir/t3" "$fleet_test_dir/verification"
+mkdir -p "$fleet_test_dir/vm" "$fleet_test_dir/verification"
 docker build -t personal-fleet-test-tools ansible/ubuntu/tests
 bun build ansible/ubuntu/tests/runtime-check.ts --compile --outfile "$fleet_test_dir/verification/verify"
-curl --fail --location --proto '=https' https://github.com/pingdotgg/t3code/releases/download/v0.1.7/t3-0.1.7-linux-x64.tar.gz --output "$fleet_test_dir/t3/t3.tar.gz"
 docker run --rm --device /dev/kvm \
   -v "$PWD:/workspace:ro" \
   -v "$fleet_test_dir/vm:/artifacts" \
-  -v "$fleet_test_dir/t3:/t3:ro" \
   -v "$fleet_test_dir/verification:/verification:ro" \
   personal-fleet-test-tools
 ```
 
-The harness verifies the Ubuntu image and T3 checksums before use. It generates
+Add `-e FLEET_TEST_DESKTOP=1` to also switch the worker to the desktop
+session: it installs a desktop in the guest (several GiB) and needs a
+graphical auto-login on QEMU's virtual display.
+
+The harness downloads the T3 release `mise.toml` pins (the server archive and,
+for the desktop session, the desktop package) and verifies the Ubuntu image
+and both T3 artifacts against their pinned checksums before use. It generates
 fixture SSH identities, trusts only that explicit host key, and uses QEMU's
 private forwarded SSH port. It does not mount host credentials, host networking,
 the Docker socket, or production application data. All VM logs and fixture keys
@@ -44,8 +49,17 @@ The tracked test covers:
 - Injected owned SSH/power drift repaired by the unchanged source baseline,
   followed by a no-change run. A capacity-policy fault refuses changes without
   filling the disk or killing user work.
-- Pinned native T3 installation, unchanged service PID on repeated setup,
-  injected service crash recovery, loaded administrator policy, and reboot.
+- The headless session on a stock server image with no display manager:
+  `t3-headless.yml` runs the pinned T3 server as a lingering user service, a
+  second run changes nothing and keeps its PID, a killed server process is
+  restarted by its unit, a stopped server is started by the recovery timer
+  within its bound (one minute plus one run of the health script), and after
+  a reboot the server was started before anyone logged in, with `~/.t3` kept
+  and the administrator policy loaded.
+- With `FLEET_TEST_DESKTOP=1`, the desktop session: the same worker switched
+  to `t3-desktop.yml` keeps `~/.t3` and loses the server's unit, the desktop
+  app runs in the auto-login session after a reboot, and a stopped app is
+  started by the recovery timer.
 - Pinned stock Beszel hub, missing native Docker/Compose installation, repeated
   no-op, and container restart after reboot.
 - Native Beszel agent installation through the production private-variable-file
