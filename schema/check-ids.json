@@ -3,12 +3,28 @@
   "version": 1,
   "checks": [
     {
+      "id": "accounts:native-login",
+      "meaning": "This machine holds no provider login of its own outside the proxy."
+    },
+    {
+      "id": "accounts:roster-current",
+      "meaning": "This machine offers exactly the accounts of the proxy's current account roster."
+    },
+    {
+      "id": "accounts:verification",
+      "meaning": "The provider accounts this machine offers were verified; fails when verification could not run."
+    },
+    {
       "id": "agent:*",
       "meaning": "A coding agent CLI is installed at its pinned version on this machine."
     },
     {
       "id": "agent:*:*:*",
       "meaning": "A coding agent launches with its fleet profile on this machine."
+    },
+    {
+      "id": "agent:*:removed-*:session",
+      "meaning": "This machine offers no agent instance for an account the proxy no longer holds."
     },
     {
       "id": "agent:*:session",
@@ -199,8 +215,16 @@
       "meaning": "A phase of the CLI proxy's reconciliation completed."
     },
     {
+      "id": "proxy:account:*",
+      "meaning": "A provider has at least one usable account signed in on the CLI proxy."
+    },
+    {
       "id": "proxy:configuration",
       "meaning": "The CLI proxy's configuration was reconciled."
+    },
+    {
+      "id": "proxy:reachable-from",
+      "meaning": "This machine reaches the CLI proxy, and how fast."
     },
     {
       "id": "repair:*",
@@ -327,6 +351,10 @@
       "meaning": "The manager's T3 origin is configured."
     },
     {
+      "id": "t3:models",
+      "meaning": "T3 offers only the declared models for every account instance the fleet manages."
+    },
+    {
       "id": "t3:paired-access",
       "meaning": "The manager's T3 is linked to this worker."
     },
@@ -347,6 +375,10 @@
       "meaning": "T3's private HTTPS route is served."
     },
     {
+      "id": "t3:profile",
+      "meaning": "The declared T3 settings are in place on this machine."
+    },
+    {
       "id": "t3:provider-names",
       "meaning": "T3 lists the fleet's provider names."
     },
@@ -361,6 +393,14 @@
     {
       "id": "t3:settings",
       "meaning": "T3 settings are readable."
+    },
+    {
+      "id": "t3:updates",
+      "meaning": "T3's own updater is off, as the fleet's policy declares."
+    },
+    {
+      "id": "t3:version",
+      "meaning": "This machine runs the T3 version the fleet pins."
     },
     {
       "id": "tailscale:configuration",
