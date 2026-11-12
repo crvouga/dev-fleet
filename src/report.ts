@@ -6,6 +6,7 @@ export function makeReport(command: string, nodes: NodeReport[]): Report {
     warn: 0,
     fail: 0,
     skip: 0,
+    'not-applicable': 0,
   };
   for (const node of nodes)
     for (const check of node.checks) summary[check.status] += 1;
@@ -46,7 +47,7 @@ export function renderReport(report: Report): string {
     }
   }
   lines.push(
-    `\n${report.summary.pass} pass, ${report.summary.warn} warn, ${report.summary.fail} fail, ${report.summary.skip} skip`
+    `\n${report.summary.pass} pass, ${report.summary.warn} warn, ${report.summary.fail} fail, ${report.summary.skip} skip${report.summary['not-applicable'] ? `, ${report.summary['not-applicable']} not applicable` : ''}`
   );
   return lines.join('\n');
 }
