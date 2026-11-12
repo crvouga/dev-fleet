@@ -42,7 +42,9 @@ dev-fleet is opinionated. These are part of it, not options:
 - The **manager** is a macOS machine. You run `fleet-sync` on it, and it hosts
   the shared services (the CLI proxy and the monitoring hub) in Docker Desktop.
 - **Workers** are Ubuntu 26.04 or 24.04 machines reached over SSH. They are stateless:
-  everything on them is rebuilt from Git and your secrets. The
+  everything on them is rebuilt from Git and your secrets.
+  [What a worker must offer](docs/worker-requirements.md) is one page: image,
+  architecture, size, access, first-boot data and network. The
   [support matrix](docs/support-matrix.md) lists every platform and what
   happens to it.
 - The fleet state is kept in an **S3-compatible bucket** you own.

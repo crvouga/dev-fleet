@@ -1,6 +1,7 @@
 > This document was written for the fleet dev-fleet was extracted from. Paths and
 > commands were updated; some statements still describe that fleet and are being
-> revised. The README is authoritative.
+> revised. The README is authoritative, and what a machine must offer to be a
+> worker is listed only in [worker requirements](worker-requirements.md).
 
 # Developer fleet: one manager (macOS) and stateless workers (Ubuntu)
 
@@ -86,9 +87,11 @@ existing SSH aliases, tests strict SSH access, and offers one enrollment
 confirmation for the verified connections. The apply approval binds a fingerprint
 of the selected revision, policy and connection records; changed bindings fail
 with `FLEET_PLAN_STALE` before source preparation or remote mutation. It stores private overrides mode 0600. Unknown host keys are never accepted automatically. Compare fingerprints
-out of band before enrolling trust. Unreachable machines remain listed; first
-reachability requires an existing trusted LAN SSH route or physical setup of
-SSH/Tailscale. No software on the manager can bootstrap a disconnected box.
+out of band before enrolling trust. Unreachable machines remain listed; what a machine
+needs to be reachable the first time (SSH with a key, a known host key, the
+tailnet, or first-boot data that provides them) is listed in
+[worker requirements](worker-requirements.md). No software on the manager can
+bootstrap a disconnected box.
 
 A previously configured manager uses saved connection bindings and its approved
 revision. A changed Tailscale device ID is a replacement gate, even if the old

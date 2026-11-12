@@ -1,6 +1,7 @@
 > This document was written for the fleet dev-fleet was extracted from. Paths and
 > commands were updated; some statements still describe that fleet and are being
-> revised. The README is authoritative.
+> revised. The README is authoritative, and what a machine must offer to be a
+> worker is listed only in [worker requirements](worker-requirements.md).
 
 # Fleet topology: one manager, many workers
 
@@ -51,7 +52,9 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
 
 - Stateless cattle: turn one off, re-image it or add another at will. A worker
   is declared in `workers`, enrolled once (SSH trust, sudo, its own Vault
-  token), and then fully rebuilt by `fleet-sync` from Git and Vault.
+  token), and then fully rebuilt by `fleet-sync` from Git and Vault. What a
+  machine must offer before that is listed in
+  [worker requirements](worker-requirements.md).
 - Workers never host a singleton service. The proxy reports any local install
   on a worker as a duplicate owner, and the hub refuses to install anywhere but
   the manager.

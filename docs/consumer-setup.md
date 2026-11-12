@@ -75,18 +75,12 @@ On the manager (the Mac this project is checked out on):
 | Tailscale signed in                                      | `tailscale status --json` (look for `"BackendState":"Running"`) |
 | An SSH alias per worker that works without a prompt      | `ssh -o BatchMode=yes WORKER_ALIAS true` for each worker        |
 
-On every worker:
-
-| Requirement                           | Verify, from the manager                                           |
-| ------------------------------------- | ------------------------------------------------------------------ |
-| Ubuntu 26.04 or 24.04, amd64 or arm64 | `ssh WORKER_ALIAS '. /etc/os-release; echo $VERSION_ID; uname -m'` |
-| A non-root account that can use sudo  | `ssh WORKER_ALIAS 'id -u; sudo -n true && echo sudo-ok'`           |
-| Joined to the same tailnet            | the worker appears in `tailscale status` on the manager            |
-
-A worker needs nothing else beforehand: no Git, curl, Python, Node, Bun or
-mise. `fleet-sync` installs them. If `sudo -n true` fails, that is fine for
-the first, interactive run, which asks for the password once and installs a
-sudo rule for the fleet; it is not fine for unattended runs.
+On every worker, check each row of
+[what a machine must offer to be a worker](worker-requirements.md): the
+image, architecture and size, the access, the first-boot data and the
+network. Each row says how to verify it. If `sudo -n true` fails, that is fine
+for the first, interactive run, which asks for the password once and installs
+a sudo rule for the fleet; it is not fine for unattended runs.
 
 A worker is reached in one of two ways, always with `BatchMode=yes` and
 `StrictHostKeyChecking=yes`; never add `StrictHostKeyChecking=no` or

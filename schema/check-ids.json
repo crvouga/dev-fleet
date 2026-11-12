@@ -1,5 +1,5 @@
 {
-  "$comment": "Every check ID dev-fleet reports, and what a passing check means. A * stands for a name (an agent, a tool, a phase). features/rules/contracts.feature fails when the code reports an ID this registry lacks, or this registry names one the code no longer reports.",
+  "$comment": "Every check ID dev-fleet reports, and what a passing check means. A * stands for a name (an agent, a tool, a phase). features/rules/contracts.feature fails when the code reports an ID this registry lacks, or this registry names one the code no longer reports. \"requirement\": true marks a check of what the machine itself must offer to be a worker; each has a row in docs/worker-requirements.md (features/rules/worker-requirements.feature).",
   "version": 1,
   "checks": [
     {
@@ -152,7 +152,8 @@
     },
     {
       "id": "bootstrap:privilege",
-      "meaning": "The development account may use sudo without a password."
+      "meaning": "The development account may use sudo without a password.",
+      "requirement": true
     },
     {
       "id": "bootstrap:protocol",
@@ -296,7 +297,8 @@
     },
     {
       "id": "platform:environment",
-      "meaning": "The worker runs on a physical or virtual machine of its own, not in a container or WSL2."
+      "meaning": "The worker runs on a physical or virtual machine of its own, not in a container or WSL2.",
+      "requirement": true
     },
     {
       "id": "platform:unsupported",
@@ -328,7 +330,8 @@
     },
     {
       "id": "proxy:reachable-from",
-      "meaning": "This machine reaches the CLI proxy, and how fast."
+      "meaning": "This machine reaches the CLI proxy, and how fast.",
+      "requirement": true
     },
     {
       "id": "repair:*",
@@ -384,7 +387,8 @@
     },
     {
       "id": "ssh:auth",
-      "meaning": "SSH key or agent authentication succeeded."
+      "meaning": "SSH key or agent authentication succeeded.",
+      "requirement": true
     },
     {
       "id": "ssh:disconnected",
@@ -400,7 +404,8 @@
     },
     {
       "id": "ssh:host-key",
-      "meaning": "The worker's SSH host key is known and unchanged."
+      "meaning": "The worker's SSH host key is known and unchanged.",
+      "requirement": true
     },
     {
       "id": "ssh:missing",
@@ -524,7 +529,8 @@
     },
     {
       "id": "tailscale:configuration",
-      "meaning": "Tailscale is configured as declared."
+      "meaning": "Tailscale is configured as declared.",
+      "requirement": true
     },
     {
       "id": "tailscale:device",
@@ -584,7 +590,8 @@
     },
     {
       "id": "ubuntu:release",
-      "meaning": "The worker runs the supported Ubuntu release."
+      "meaning": "The worker runs the supported Ubuntu release.",
+      "requirement": true
     },
     {
       "id": "ubuntu:resource-safety",
@@ -604,11 +611,13 @@
     },
     {
       "id": "worker:account",
-      "meaning": "The declared worker account was created over a root login, with the manager's key and the fleet's sudo rule."
+      "meaning": "The declared worker account was created over a root login, with the manager's key and the fleet's sudo rule.",
+      "requirement": true
     },
     {
       "id": "worker:reboot",
-      "meaning": "The worker was rebooted while it ran no agent turn (after its first converge, or for maintenance), answered again and was converged once more."
+      "meaning": "The worker was rebooted while it ran no agent turn (after its first converge, or for maintenance), answered again and was converged once more.",
+      "requirement": true
     },
     {
       "id": "worker:capacity",
@@ -628,11 +637,13 @@
     },
     {
       "id": "worker:exposure",
-      "meaning": "Nothing listens on the worker beyond loopback and the tailnet but what the declared exposure policy allows, and the fleet firewall that closes the rest is loaded; not applicable without an address outside the tailnet."
+      "meaning": "Nothing listens on the worker beyond loopback and the tailnet but what the declared exposure policy allows, and the fleet firewall that closes the rest is loaded; not applicable without an address outside the tailnet.",
+      "requirement": true
     },
     {
       "id": "worker:github-sync",
-      "meaning": "The worker is signed in to GitHub from the stored credential as the declared login."
+      "meaning": "The worker is signed in to GitHub from the stored credential as the declared login.",
+      "requirement": true
     },
     {
       "id": "worker:idle",
@@ -672,7 +683,8 @@
     },
     {
       "id": "worker:public-reachability",
-      "meaning": "From the manager, the worker's SSH, T3 and monitoring ports accept no connection on its public address; optional, and not applicable when Tailscale knows no public address for it."
+      "meaning": "From the manager, the worker's SSH, T3 and monitoring ports accept no connection on its public address; optional, and not applicable when Tailscale knows no public address for it.",
+      "requirement": true
     },
     {
       "id": "worker:readiness",
@@ -700,7 +712,8 @@
     },
     {
       "id": "platform:worker-size",
-      "meaning": "The worker has at least the stated minimum memory, root filesystem and CPUs (sizing.minimumWorker in the Ubuntu policy), measured before anything is installed."
+      "meaning": "The worker has at least the stated minimum memory, root filesystem and CPUs (sizing.minimumWorker in the Ubuntu policy), measured before anything is installed.",
+      "requirement": true
     },
     {
       "id": "tool:docker-cli",

@@ -1,6 +1,7 @@
 > This document was written for the fleet dev-fleet was extracted from. Paths and
 > commands were updated; some statements still describe that fleet and are being
-> revised. The README is authoritative.
+> revised. The README is authoritative, and what a machine must offer to be a
+> worker is listed only in [worker requirements](worker-requirements.md).
 
 # Developer fleet
 

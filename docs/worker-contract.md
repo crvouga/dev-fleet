@@ -1,6 +1,7 @@
 > This document was written for the fleet dev-fleet was extracted from. Paths and
 > commands were updated; some statements still describe that fleet and are being
-> revised. The README is authoritative.
+> revised. The README is authoritative, and what a machine must offer to be a
+> worker is listed only in [worker requirements](worker-requirements.md).
 
 # Declarative remote workers
 
@@ -12,9 +13,8 @@ devfleet fleet-status --workers
 ```
 
 The manager needs Node/npm, Git, SSH, Tailscale, and its own authorized T3 link.
-Initially each worker (an Ubuntu release the [support matrix](support-matrix.md)
-lists) needs a
-designated non-root account, trusted SSH access and administrator authorization. Standard Ubuntu cloud-image users
+What each worker must offer beforehand is listed once, in
+[worker requirements](worker-requirements.md). Standard Ubuntu cloud-image users
 already commonly have noninteractive sudo; otherwise establish the repository's
 `authorize-sudo.sh` policy once during administrator enrollment. An image that
 lets only root in (many rented servers) needs no hands either: when the
@@ -90,12 +90,12 @@ its reason in text and in `--json`, and never fails a run, not even with
 
 ## Size
 
-A worker for the editing workload needs at least **2 CPUs, 3584 MiB of memory
-(a 4 GiB instance after the kernel takes its share) and a 20480 MiB root
-filesystem** (`sizing.minimumWorker` in `ansible/ubuntu/policy.json`). The
-probe measures it before anything is installed and refuses a smaller machine
-with `WORKER_SIZE_BELOW_MINIMUM` (`platform:worker-size`); the baseline asserts
-the same before it installs a package.
+The minimum size of a worker for the editing workload is stated in
+[worker requirements](worker-requirements.md), from `sizing.minimumWorker` in
+`ansible/ubuntu/policy.json`. The probe measures it before anything is
+installed and refuses a smaller machine with `WORKER_SIZE_BELOW_MINIMUM`
+(`platform:worker-size`); the baseline asserts the same before it installs a
+package.
 
 These numbers are an **estimate, not a measurement**. They were reasoned from
 the parts of a converged editing worker, not measured on one: Ubuntu Server

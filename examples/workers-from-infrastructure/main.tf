@@ -26,6 +26,15 @@
 #      record is gone, so the next `npx devfleet fleet-sync` retires it: its
 #      token, pinned host key, monitoring system and T3 link are removed.
 #
+# What the machine must offer (image, architecture, size, access, network) is
+# docs/worker-requirements.md. For a hosted provider only these change: the
+# provider block and its credentials, the image (its stock Ubuntu image of an
+# accepted release, in place of `ubuntu_image`), the instance type (at least
+# the minimum size, in place of `memory_mib` and `vcpus`) and the network (a
+# private network, or inbound rules with nothing open, in place of
+# `network_interface`). The seed goes in as the instance's user data and the
+# records come out the same way.
+#
 # This example cannot be applied in dev-fleet's CI (it needs a libvirt host
 # and a tailnet), so it is not proven there; the record format and what
 # fleet-sync does with records are (features/cli/fleet-validate.feature,
