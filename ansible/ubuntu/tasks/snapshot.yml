@@ -23,8 +23,18 @@
       Components: main universe restricted multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
   register: snapshot_sources
-# Fetching the snapshot indexes must leave the indexes of the system's own
-# sources in place: the system's APT and unattended upgrades still use them.
+# The snapshot's indexes live in a directory of their own. An apt update
+# of the system's own sources (unattended upgrades, the Tailscale play)
+# removes the index files of every source it does not know, so kept beside
+# them the snapshot was fetched again on every sync; and fetching the
+# snapshot leaves the system's indexes alone.
+- name: Create the snapshot's own index directory
+  ansible.builtin.file:
+    path: /var/lib/personal-fleet/apt-lists/partial
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
 - name: Isolate snapshot selection from unrelated APT operations
   ansible.builtin.copy:
     dest: /etc/personal-fleet/apt.conf
@@ -34,11 +44,12 @@
     content: |
       Dir::Etc::sourcelist "/etc/personal-fleet/ubuntu.sources";
       Dir::Etc::sourceparts "-";
+      Dir::State::Lists "/var/lib/personal-fleet/apt-lists/";
       APT::Get::List-Cleanup "false";
       DPkg::Lock::Timeout "{{ aptLockTimeoutSeconds }}";
 - name: Inspect immutable snapshot package index
   ansible.builtin.stat:
-    path: '/var/lib/apt/lists/snapshot.ubuntu.com_ubuntu_{{ snapshot }}_dists_{{ ubuntu_release.codename }}_InRelease'
+    path: '/var/lib/personal-fleet/apt-lists/snapshot.ubuntu.com_ubuntu_{{ snapshot }}_dists_{{ ubuntu_release.codename }}_InRelease'
   register: snapshot_index
 - name: Fetch signed snapshot indexes after source change or interrupted setup
   ansible.builtin.apt:

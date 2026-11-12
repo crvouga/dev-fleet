@@ -89,15 +89,7 @@ When(
 Given('the manager has bootstrapped the machine', bootstrapped);
 
 When('the manager bootstraps the machine again', async (world) => {
-  // DIAGNOSTIC (temporary): time each Ansible task of the second run.
-  await world.remote(
-    'echo ANSIBLE_LOG_PATH=/tmp/fleet-ansible.log | sudo -n tee -a /etc/environment >/dev/null; sudo -n rm -f /tmp/fleet-ansible.log'
-  );
   world.bootstrap = await bootstrap(world.machine);
-  const log = await world.remote(
-    "grep -E 'TASK \\[|PLAY \\[|fatal' /tmp/fleet-ansible.log | cut -c1-200 | awk '{print}'"
-  );
-  console.log(`\nAnsible tasks of the second run:\n${log.stdout}`);
 });
 
 /** Reaching node convergence proves the machine needed nothing beforehand:
@@ -230,8 +222,7 @@ Then('it took less than {int} seconds', (world, seconds: number) => {
 // ── Disk footprint ───────────────────────────────────────────────────────
 
 const MISE = '$HOME/.local/share/mise';
-// A profile installs outside mise's own directory too: Rust through rustup
-// into ~/.rustup and ~/.cargo, and package managers into their caches.
+// Rust's toolchains live with rustup, outside mise's own directory.
 const HOME = '$HOME';
 const FLEET = '$HOME/.local/share/personal/fleet';
 type Budget = keyof typeof policy.sizing.footprintMiB.profiles;
@@ -279,7 +270,6 @@ Then(
 When(
   'the tools of the {string} profile are installed on the machine',
   async (world, profile: string) => {
-    const before = await mebibytes(world, HOME);
     const tools = (
       await world.remote(
         `cd "${FLEET}/revisions/${world.revision}" && sed -n 's/^worker_profile_${profile} = "\\(.*\\)"$/\\1/p' mise.toml`
@@ -292,7 +282,13 @@ When(
       `cd "${FLEET}/revisions/${world.revision}" && "$HOME/.local/bin/mise" install --locked ${tools.split(',').join(' ')} >/dev/null 2>&1`
     );
     expect(installed.ok).toBe(true);
-    report(world, profile, (await mebibytes(world, HOME)) - before);
+    // What its tools occupy, wherever an earlier step installed them: each
+    // tool's install directory, and for Rust the toolchain rustup keeps.
+    const sized = await world.remote(
+      `cd "${FLEET}/revisions/${world.revision}" && du -smxc $(for tool in ${tools.split(',').join(' ')}; do "$HOME/.local/bin/mise" where "$tool"; done) ${profile === 'rust' ? `$(ls -d ${HOME}/.rustup/toolchains/* 2>/dev/null)` : ''} | tail -1 | cut -f1`
+    );
+    expect(sized.ok).toBe(true);
+    report(world, profile, Number(sized.stdout));
   }
 );
 
