@@ -81,7 +81,7 @@ Given(
       '-c',
       // A page to serve (a directory without one answers 404), and httpd as
       // PID 1, so the stop below freezes the process holding the port.
-      'mkdir /www && echo ok >/www/index.html && exec httpd -f -p 8080 -h /www'
+      'mkdir -p /www && echo ok >/www/index.html && exec httpd -f -p 8080 -h /www'
     );
     expect(
       await until(async () => (await health(container)) === 'healthy', 60)
