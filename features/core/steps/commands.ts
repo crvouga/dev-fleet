@@ -211,6 +211,22 @@ Then('these checks are skipped, in this order:', (world, table: DataTable) => {
 });
 
 Then(
+  'these checks are not applicable, saying {string} and where their access is proven:',
+  (world, code: string, table: DataTable) => {
+    const ids = table.list();
+    const found = checks(world).filter(
+      (check) => check.status === 'not-applicable'
+    );
+    expect(found.map((check) => check.id)).toEqual(ids);
+    for (const check of found) {
+      expect(check.summary).toStartWith(`${code}: `);
+      expect(check.summary).toMatch(/\b(agent|provider):[a-z-]+:[a-z-]+\b/);
+      expect(check.required).toBe(false);
+    }
+  }
+);
+
+Then(
   'these skipped checks say {string} and where their access is proven:',
   (world, code: string, table: DataTable) => {
     const ids = table.list();

@@ -43,14 +43,18 @@ export async function codingAuth(
   ];
 }
 
-/** CLIs with no sign-in of their own to check, and why. Each says where
- * its access is proven instead; none is a silent skip.
+/** Registered agent CLIs with no sign-in of their own to check, and why.
+ * Each is `not-applicable` on the proxy route and says where its access is
+ * proven instead; none is a silent skip.
  */
 export const PROXY_ROUTED: Record<string, string> = {
   gemini:
     'gemini signs in through the CLI proxy and has no T3 launcher; provider:gemini:inference proves its route from this node.',
   opencode:
     'opencode signs in through the CLI proxy; agent:muse:session and the per-account agent:opencode sessions prove it from this node.',
+  grok: 'grok reads the proxy key from its environment and has no grok login; agent:grok:session proves it from this node.',
+  antigravity:
+    'antigravity signs in through the CLI proxy; agent:antigravity:session proves it from this node.',
 };
 
 export async function serviceAuth(run: Runner): Promise<Check[]> {
@@ -104,7 +108,7 @@ export async function serviceAuth(run: Runner): Promise<Check[]> {
   for (const [id, reason] of Object.entries(PROXY_ROUTED))
     checks.push({
       id: `auth:${id}`,
-      status: 'skip',
+      status: 'not-applicable',
       required: false,
       summary: `AUTH_NOT_SUPPORTED_ON_ROUTE: ${reason}`,
     });

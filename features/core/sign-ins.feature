@@ -67,20 +67,28 @@ Feature: A computer's sign-ins are proved by the tools themselves
       When the sign-ins to the services are checked
       Then 0 checks pass
 
-    Scenario: A missing command is no sign-in, and a provider nobody can ask is skipped
+    Scenario: A missing command is no sign-in, and a CLI that signs in through the proxy is not applicable
       Nothing is signed in on the computer's behalf, and no provider is
       certified by a check that does not exist. Copilot CLI uses the node's
       GitHub sign-in, so it is checked when it is installed (features/github).
+      An agent CLI that signs in only through the CLI proxy has no sign-in
+      of its own: its check says so, and where its access is proven instead.
       Given every command fails with the error "private-secret"
       When the sign-ins to the services are checked
       Then 5 checks fail
       And these checks are skipped, in this order:
-        | auth:copilot  |
-        | auth:gemini   |
-        | auth:opencode |
+        | auth:copilot |
       And the summary of the check "auth:copilot" mentions "not installed"
-      And these skipped checks say "AUTH_NOT_SUPPORTED_ON_ROUTE" and where their access is proven:
-        | auth:gemini   |
-        | auth:opencode |
+      And these checks are not applicable, saying "AUTH_NOT_SUPPORTED_ON_ROUTE" and where their access is proven:
+        | auth:gemini      |
+        | auth:opencode    |
+        | auth:grok        |
+        | auth:antigravity |
       And no command was run with the argument "login"
       And nothing reported contains "private-secret"
+
+    Scenario: Every agent CLI the registry names has a sign-in check, and none is skipped without a reason
+      Given every command fails with the error "private-secret"
+      When the sign-ins of every agent CLI the registry names are checked
+      Then there is an "auth:" check for each of them
+      And every "auth:" check that is skipped or not applicable states its reason
