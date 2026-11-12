@@ -2,9 +2,12 @@
 # fleet-node-seed fills each ${NAME} with a value of the worker it seeds:
 # values from fleet.json, the manager's public key, a host key generated for
 # the machine, the Tailscale version and key digest ansible/ubuntu/policy.json
-# pins, and a short-lived single-use auth key that is deleted once the machine
-# has joined. The sudoers fragment is the one ansible/ubuntu/authorize-sudo.sh
-# writes: its path and marker are already on running machines.
+# pins, the login server of the fleet's control plane, and a short-lived
+# single-use auth key that is deleted once the machine has joined: one minted
+# for this worker through the tailnet control plane fleet.json declares, or
+# else the secret tailnet-auth-key. The sudoers fragment is the one
+# ansible/ubuntu/authorize-sudo.sh writes: its path and marker are already on
+# running machines.
 hostname: '${HOSTNAME}'
 users:
   - name: '${USER}'
@@ -56,6 +59,7 @@ runcmd:
       up,
       '--auth-key=file:/run/devfleet/tailnet-auth-key',
       '--hostname=${HOSTNAME}',
+      '--login-server=${LOGIN_SERVER}',
       '--ssh=false',
     ]
   - [rm, -f, /run/devfleet/tailnet-auth-key]

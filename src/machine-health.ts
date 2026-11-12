@@ -1,5 +1,6 @@
 import policy from '../ansible/ubuntu/policy.json';
 import type { DoctorCheck } from './doctor-check';
+import { threshold } from './worker-sizing';
 
 /** Machine health sample parsed from `net/remote-probe.sh` output. */
 export type HealthSample = {
@@ -8,6 +9,12 @@ export type HealthSample = {
   readonly memFreePct?: number;
   readonly swapPct?: number;
   readonly diskMb?: number;
+  /** The size of the home filesystem, in MiB. */
+  readonly diskTotalMb?: number;
+  /** All memory, in MiB. */
+  readonly memTotalMb?: number;
+  /** Agent sessions running now: T3's agent scopes. */
+  readonly agentSessions?: number;
   /** Free inodes on the home filesystem, as a percentage of all of them. */
   readonly inodesFreePct?: number;
   /** 1 when the clock is synchronised to a time source, 0 when not. */
@@ -24,6 +31,9 @@ const PROBE_KEYS = {
   memfree: 'memFreePct',
   swap: 'swapPct',
   diskmb: 'diskMb',
+  disktotalmb: 'diskTotalMb',
+  memtotalmb: 'memTotalMb',
+  agentsessions: 'agentSessions',
   inodefree: 'inodesFreePct',
   ntpsync: 'clockSynced',
   ntp: 'timeService',
@@ -52,6 +62,8 @@ const LABELS = {
   disk: 'Disk space',
   inodes: 'Free inodes',
 };
+/** The capacity checks of a machine, each reported as `worker:capacity:<id>`. */
+export const HEALTH_CHECK_IDS = Object.keys(LABELS);
 
 function check(
   id: keyof typeof LABELS,
@@ -92,17 +104,28 @@ export function memoryCheck(s: HealthSample): DoctorCheck | null {
   return check('memory', 'pass', what);
 }
 
-/** Free disk: <2 GB fails (VS Code server, git, worktrees break), <10 GB warns. */
-export function diskCheck(diskMb: number | undefined): DoctorCheck | null {
+/** Free disk, against lines that scale with the disk
+ * (`sizing.thresholds.capacityFail` and `capacityWarn` in policy.json): under
+ * the first fails (VS Code server, git, worktrees break), under the second
+ * warns. A disk of unknown size gets the upper bounds.
+ */
+export function diskCheck(
+  diskMb: number | undefined,
+  diskTotalMb?: number
+): DoctorCheck | null {
   if (diskMb === undefined) return null;
-  if (diskMb < 2048) {
+  const total = diskTotalMb ?? Number.MAX_SAFE_INTEGER;
+  const fail = threshold('capacityFail', total);
+  const warn = threshold('capacityWarn', total);
+  if (diskMb < fail) {
     return check(
       'disk',
       'fail',
       `almost full, ${diskMb} MB free. VS Code server, git and T3 worktrees will break.`
     );
   }
-  if (diskMb < 10_240) return check('disk', 'warn', `low, ${diskMb} MB free`);
+  if (diskMb < warn)
+    return check('disk', 'warn', `low, ${diskMb} MB free (under ${warn} MB)`);
   return check('disk', 'pass', `${Math.floor(diskMb / 1024)} GB free`);
 }
 
@@ -136,7 +159,7 @@ export function healthChecks(s: HealthSample, alias: string): DoctorCheck[] {
   return [
     loadCheck(s, alias),
     memoryCheck(s),
-    diskCheck(s.diskMb),
+    diskCheck(s.diskMb, s.diskTotalMb),
     inodesCheck(s.inodesFreePct),
   ].filter((c): c is DoctorCheck => c !== null);
 }

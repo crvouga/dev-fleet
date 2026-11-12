@@ -136,11 +136,20 @@ jobs:
     uses: ./.github/workflows/vm.yml
     with:
       ref: ${{ needs.pack.outputs.commit }}
+  # A worker joining a self-hosted tailnet, for the commit being released.
+  tailnet:
+    needs: pack
+    if: needs.pack.outputs.version != ''
+    permissions:
+      contents: read
+    uses: ./.github/workflows/tailnet.yml
+    with:
+      ref: ${{ needs.pack.outputs.commit }}
   # Publish the tarball the jobs above passed, then tag. A re-run after a
   # failed tag push finds the version on npm, skips the publish and pushes
   # the tag.
   release:
-    needs: [pack, smoke, vm]
+    needs: [pack, smoke, vm, tailnet]
     if: needs.pack.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 20

@@ -27,6 +27,12 @@
     "candidates": { "type": "integer" },
     "dashboardUrl": { "type": ["string", "null"] },
     "planFingerprint": { "type": "string" },
+    "canary": { "type": "string" },
+    "enrolled": {
+      "description": "The workers this run enrolled: added to the roster, or bound to their tailnet device.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "nodes": {
       "type": "array",
       "items": {
@@ -103,6 +109,18 @@
               "from": { "type": ["string", "null"] },
               "to": { "type": "string" },
               "changes": { "type": "boolean" }
+            }
+          }
+        },
+        "removals": {
+          "type": "array",
+          "description": "What the sync removes from a worker whose features the fleet configuration turned off since it was last applied.",
+          "items": {
+            "type": "object",
+            "required": ["node", "removes"],
+            "properties": {
+              "node": { "type": "string" },
+              "removes": { "type": "array", "items": { "type": "string" } }
             }
           }
         }

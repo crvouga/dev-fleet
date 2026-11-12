@@ -2,6 +2,8 @@ import { expect } from 'bun:test';
 import { join } from 'node:path';
 import { succeeded } from '../../support/commands';
 import { managerHealth } from '../../../src/manager-health';
+import { inspectBootstrap } from '../../../src/manager-sync';
+import { NODE } from '../../support/fixtures';
 import { parseTailnet, keyExpiryCheck } from '../../../src/tailscale';
 import { workerCapacity } from '../../../src/worker-capacity';
 import { rebootPendingCheck } from '../../../src/worker-host-checks';
@@ -65,8 +67,26 @@ When(
   }
 );
 
+When(
+  /^the manager inspects the worker, its own clock reading (\d+) when it sends the probe and (\d+) when the answer comes back$/,
+  async (world, sent: string, received: string) => {
+    const readings = [Number(sent) * 1000, Number(received) * 1000];
+    reported(
+      world,
+      await inspectBootstrap(NODE, world.commands.run, () => readings.shift()!)
+    );
+  }
+);
+
 When('the health of the manager is checked', async (world) => {
-  reported(world, await managerHealth(world.commands.run));
+  // The manager's user is "dev" (uid 501), whose home is /Users/dev here.
+  reported(
+    world,
+    await managerHealth(world.commands.run, '/Users/dev', {
+      uid: 501,
+      user: 'dev',
+    })
+  );
 });
 
 core.Then('the check {string} has a remedy', (world, id: string) => {

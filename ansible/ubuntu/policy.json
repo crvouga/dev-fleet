@@ -5,6 +5,53 @@
       "release": "26.04",
       "codename": "resolute",
       "architectures": ["amd64", "arm64"]
+    },
+    {
+      "release": "24.04",
+      "codename": "noble",
+      "architectures": ["amd64", "arm64"],
+      "packages": {
+        "sudo": "1.9.15p5-3ubuntu5.24.04.4",
+        "openssh-server": "1:9.6p1-3ubuntu13.20",
+        "dconf-cli": "0.40.0-4ubuntu0.1",
+        "docker.io": "29.1.3-0ubuntu3~24.04.2",
+        "docker-compose-v2": "2.40.3+ds1-0ubuntu1~24.04.1",
+        "docker-buildx": "0.30.1-0ubuntu1~24.04.1",
+        "build-essential": "12.10ubuntu1",
+        "ca-certificates": "20260816ubuntu0.24.04.2",
+        "curl": "8.5.0-2ubuntu10.16",
+        "git": "1:2.43.0-1ubuntu7.4",
+        "python3": "3.12.3-0ubuntu2.1",
+        "unzip": "6.0-28ubuntu4.1",
+        "xz-utils": "5.6.1+really5.4.5-1ubuntu0.4",
+        "ansible-core": "2.16.3-0ubuntu2",
+        "systemd-oomd": "255.4-1ubuntu8.18",
+        "nftables": "1.0.9-1ubuntu0.1"
+      },
+      "browserPackages": {
+        "fonts-liberation": "1:2.1.5-3",
+        "libasound2t64": "1.2.11-1ubuntu0.3",
+        "libatk-bridge2.0-0t64": "2.52.0-1build1",
+        "libatk1.0-0t64": "2.52.0-1build1",
+        "libatspi2.0-0t64": "2.52.0-1build1",
+        "libcairo2": "1.18.0-3build1",
+        "libcups2t64": "2.4.7-1.2ubuntu7.14",
+        "libdbus-1-3": "1.14.10-4ubuntu4.1",
+        "libdrm2": "2.4.125-1ubuntu0.1~24.04.2",
+        "libgbm1": "25.2.8-0ubuntu0.24.04.4",
+        "libglib2.0-0t64": "2.80.0-6ubuntu3.10",
+        "libnspr4": "2:4.35-1.1build1",
+        "libnss3": "2:3.98-1ubuntu0.3",
+        "libpango-1.0-0": "1.52.1+ds-1build1",
+        "libx11-6": "2:1.8.7-1ubuntu0.1",
+        "libxcb1": "1.15-1ubuntu2",
+        "libxcomposite1": "1:0.4.5-1build3",
+        "libxdamage1": "1:1.1.6-1build1",
+        "libxext6": "2:1.3.4-1build2",
+        "libxfixes3": "1:6.0.0-2build1",
+        "libxkbcommon0": "1.6.0-1build1",
+        "libxrandr2": "2:1.5.2-2build1"
+      }
     }
   ],
   "snapshot": "20261101T000000Z",
@@ -23,19 +70,76 @@
     "unzip": "6.0-29ubuntu1",
     "xz-utils": "5.8.3-1ubuntu0.1",
     "ansible-core": "2.20.1-1",
-    "systemd-oomd": "259.9-0ubuntu0.1"
+    "systemd-oomd": "259.9-0ubuntu0.1",
+    "nftables": "1.1.6-1"
   },
   "tailscale": {
     "version": "1.104.5",
     "keySha256": "3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39"
   },
   "aptLockTimeoutSeconds": 120,
-  "minimumFreeDiskMiB": 4096,
   "minimumFreeInodes": 10000,
   "t3RestartMaxDeferralHours": 24,
   "alwaysOnServices": ["ssh", "tailscaled", "docker", "beszel-agent"],
+  "features": {
+    "containers": {
+      "packages": ["docker.io", "docker-compose-v2", "docker-buildx"],
+      "services": ["docker"],
+      "groups": ["docker"],
+      "tools": ["docker-cli"]
+    },
+    "desktop": {
+      "packages": ["dconf-cli"]
+    }
+  },
+  "sizing": {
+    "minimumWorker": {
+      "memoryMiB": 3584,
+      "diskMiB": 20480,
+      "cpus": 2
+    },
+    "agentSessionMiB": 1024,
+    "t3ReservedMiB": 1536,
+    "thresholds": {
+      "swapFile": {
+        "of": "memory",
+        "share": 0.5,
+        "minMiB": 1024,
+        "maxMiB": 8192
+      },
+      "minimumFreeDisk": {
+        "of": "disk",
+        "share": 0.05,
+        "minMiB": 2048,
+        "maxMiB": 4096
+      },
+      "diskGuardFloor": {
+        "of": "disk",
+        "share": 0.03,
+        "minMiB": 1024,
+        "maxMiB": 3072
+      },
+      "diskGcPressure": {
+        "of": "disk",
+        "share": 0.15,
+        "minMiB": 4096,
+        "maxMiB": 15360
+      },
+      "capacityWarn": {
+        "of": "disk",
+        "share": 0.1,
+        "minMiB": 3072,
+        "maxMiB": 10240
+      },
+      "capacityFail": {
+        "of": "disk",
+        "share": 0.02,
+        "minMiB": 1024,
+        "maxMiB": 2048
+      }
+    }
+  },
   "resourceSafety": {
-    "swapFileMiB": 8192,
     "userMemoryMax": "90%",
     "agentMemoryMax": "30%",
     "agentSwapMax": "2G",
@@ -44,11 +148,9 @@
     "tmpMaxSize": "25%",
     "tmpAge": "2d",
     "varTmpAge": "14d",
-    "diskGuardFloorMiB": 3072,
     "diskGuardWriteMiB": 32,
     "diskGuardIntervalSeconds": 5,
     "diskGcIdleDays": 7,
-    "diskGcPressureMiB": 15360,
     "diskGcPressureIdleHours": 12,
     "diskGcDockerAgeHours": 168,
     "diskGcPressureDockerAgeHours": 24,
@@ -72,6 +174,18 @@
     "failOffsetSeconds": 30
   },
   "rebootPendingFailDays": 14,
+  "exposure": {
+    "tailnetInterface": "tailscale0",
+    "tailscalePort": 41641,
+    "containerInterfaces": ["docker0", "br-*"],
+    "systemListeners": [
+      { "protocol": "udp", "port": 68 },
+      { "protocol": "udp", "port": 546 },
+      { "protocol": "udp", "port": 5353 },
+      { "protocol": "udp", "port": 5355 },
+      { "protocol": "tcp", "port": 5355 }
+    ]
+  },
   "dockerSmokeTest": {
     "image": "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
     "timeoutSeconds": 60

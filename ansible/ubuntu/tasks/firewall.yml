@@ -1,0 +1,172 @@
+---
+# Inbound traffic reaches a worker only over loopback and the tailnet, apart
+# from what tailscaled itself needs and what the exposure policy opens
+# (worker_exposure, src/exposure.ts). The same rules apply with or without a
+# public address. Measured as worker:exposure.
+#
+# The manager is never locked out. The public SSH port closes only when the
+# session running this play arrived over the tailnet; a session from a public
+# address, a tailnet that is not up, or a run with no session that finds the
+# port open keeps it open (worker:exposure then reports
+# WORKER_PUBLIC_SSH_UNDECLARED). Closing it is verified with new connections
+# over the tailnet, and a failed verification restores the previous rules.
+- name: Read the exposure policy of this worker
+  ansible.builtin.set_fact:
+    firewall_policy: "{{ {'publicSsh': false, 'publicPorts': []} | combine(worker_exposure | default({})) }}"
+    firewall_session_client: "{{ (lookup('ansible.builtin.env', 'SSH_CONNECTION') | default('', true)).split(' ') | first }}"
+- name: Inspect the managed firewall rules
+  ansible.builtin.stat:
+    path: /etc/personal-fleet/firewall.nft
+  register: firewall_owned_file
+- name: Read the previous rules for rollback
+  ansible.builtin.slurp:
+    src: /etc/personal-fleet/firewall.nft
+  when: firewall_owned_file.stat.exists
+  register: firewall_previous
+- name: Refuse to overwrite unmanaged firewall rules
+  ansible.builtin.assert:
+    that:
+      - not firewall_owned_file.stat.exists or (firewall_previous.content | b64decode).startswith('# Managed by personal Fleet')
+    fail_msg: FIREWALL_UNMANAGED_CONFLICT; review the existing rules file before adoption.
+- name: Read the ports sshd listens on
+  ansible.builtin.command: /usr/sbin/sshd -T
+  changed_when: false
+  check_mode: false
+  register: firewall_sshd
+- name: Read this worker's tailnet address
+  ansible.builtin.command:
+    argv: [tailscale, ip, '-4']
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  register: firewall_tailnet_address
+- name: Inspect the tailnet interface
+  ansible.builtin.stat:
+    path: '/sys/class/net/{{ exposure.tailnetInterface }}'
+  register: firewall_tailnet_interface
+- name: Look for Docker, whose published ports the rules close
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/docker.service
+  register: firewall_docker_unit
+- name: Decide whether the public SSH path may close
+  vars:
+    tailnet_up: '{{ firewall_tailnet_address.rc == 0 and firewall_tailnet_address.stdout | trim | length > 0 and firewall_tailnet_interface.stat.exists }}'
+    session_over_tailnet: "{{ firewall_session_client is match('^100\\.(6[4-9]|[7-9][0-9]|1[01][0-9]|12[0-7])\\.') or firewall_session_client is match('(?i)^fd7a:115c:a1e0:') }}"
+    previously_public: '{{ not firewall_owned_file.stat.exists or ''comment "public-ssh"'' in (firewall_previous.content | b64decode) }}'
+  ansible.builtin.set_fact:
+    firewall_docker: '{{ firewall_docker_unit.stat.exists }}'
+    firewall_ssh_ports: "{{ firewall_sshd.stdout_lines | select('match', '^port [0-9]+$') | map('regex_replace', '^port ', '') | list }}"
+    firewall_tailnet_ip: '{{ firewall_tailnet_address.stdout | trim }}'
+    firewall_verify_tailnet: '{{ tailnet_up and session_over_tailnet }}'
+    firewall_public_ssh: >-
+      {{ firewall_policy.publicSsh or not tailnet_up
+      or (firewall_session_client | length > 0 and not session_over_tailnet)
+      or (firewall_session_client | length == 0 and previously_public) }}
+- name: Create the managed configuration directory
+  ansible.builtin.file:
+    path: /etc/personal-fleet
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Declare the unit that loads the rules at boot
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/personal-fleet-firewall.service
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by personal fleet-sync: ansible/ubuntu/tasks/firewall.yml
+      [Unit]
+      Description=Personal Fleet firewall (inbound only over loopback and the tailnet)
+      DefaultDependencies=no
+      Wants=network-pre.target
+      Before=network-pre.target shutdown.target
+      Conflicts=shutdown.target
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/usr/sbin/nft -f /etc/personal-fleet/firewall.nft
+      ExecReload=/usr/sbin/nft -f /etc/personal-fleet/firewall.nft
+      [Install]
+      WantedBy=sysinit.target
+  register: firewall_unit
+- name: Read the rules the kernel holds now
+  ansible.builtin.command:
+    argv: [nft, list, table, inet, personal_fleet]
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  register: firewall_loaded
+- name: Apply the rules and verify the tailnet path, or restore the previous ones
+  block:
+    - name: Write the rules, validated by nft (FIREWALL_RULES_REJECTED)
+      ansible.builtin.template:
+        src: '{{ playbook_dir }}/firewall.nft.j2'
+        dest: /etc/personal-fleet/firewall.nft
+        owner: root
+        group: root
+        mode: '0644'
+        validate: /usr/sbin/nft --check --file %s
+      register: firewall_rules
+    - name: Load the rules
+      ansible.builtin.systemd_service:
+        name: personal-fleet-firewall.service
+        daemon_reload: '{{ firewall_unit.changed }}'
+        enabled: true
+        state: "{{ 'restarted' if firewall_rules.changed or firewall_unit.changed or firewall_loaded.rc != 0 else 'started' }}"
+    - name: Verify the manager's tailnet path with a new probe (FIREWALL_TAILNET_UNVERIFIED)
+      ansible.builtin.command:
+        argv:
+          [
+            tailscale,
+            ping,
+            '--c=1',
+            '--timeout=5s',
+            '{{ firewall_session_client }}',
+          ]
+      changed_when: false
+      when: firewall_verify_tailnet | bool and not firewall_public_ssh | bool and not ansible_check_mode
+    - name: Verify sshd accepts a new connection on the tailnet address (FIREWALL_TAILNET_UNVERIFIED)
+      ansible.builtin.wait_for:
+        host: '{{ firewall_tailnet_ip }}'
+        port: '{{ firewall_ssh_ports | first | default(22) | int }}'
+        search_regex: SSH-
+        timeout: 10
+      when: firewall_verify_tailnet | bool and not firewall_public_ssh | bool and not ansible_check_mode
+  rescue:
+    - name: Restore the previous rules
+      ansible.builtin.copy:
+        content: '{{ firewall_previous.content | b64decode }}'
+        dest: /etc/personal-fleet/firewall.nft
+        owner: root
+        group: root
+        mode: '0644'
+      when: firewall_owned_file.stat.exists
+    - name: Reload the previous rules
+      ansible.builtin.systemd_service:
+        name: personal-fleet-firewall.service
+        state: restarted
+      when: firewall_owned_file.stat.exists
+    - name: Remove the rejected first rules
+      ansible.builtin.file:
+        path: /etc/personal-fleet/firewall.nft
+        state: absent
+      when: not firewall_owned_file.stat.exists
+    - name: Stop applying rules that were never verified
+      ansible.builtin.systemd_service:
+        name: personal-fleet-firewall.service
+        enabled: false
+        state: stopped
+      when: not firewall_owned_file.stat.exists
+    - name: Drop the unverified table from the kernel
+      ansible.builtin.command:
+        argv: [nft, delete, table, inet, personal_fleet]
+      changed_when: true
+      failed_when: false
+      when: not firewall_owned_file.stat.exists
+    - name: Report the failure with the previous rules in place
+      ansible.builtin.fail:
+        msg: >-
+          {{ 'FIREWALL_RULES_REJECTED' if firewall_rules is defined and firewall_rules is failed else 'FIREWALL_TAILNET_UNVERIFIED' }};
+          the previous rules are back in place. Check tailscale status on the worker, then rerun fleet-sync.

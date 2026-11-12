@@ -38,6 +38,8 @@ export class CoreWorld extends World {
   failure: Error | undefined;
   text: string | undefined;
   argv: string[] | undefined;
+  /** The account a playbook logs in as, when it is declared. */
+  login: string | undefined;
   result: CommandResult | undefined;
 
   // The fleet configuration, the roster and one worker.

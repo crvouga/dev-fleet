@@ -16,7 +16,13 @@ import {
 } from '../../src/machine/support-matrix';
 import { checkOwner } from '../../src/check-owners';
 import { REPAIR_RECIPES } from '../../src/repair-catalog';
-import { manualReason, repairId, repairPlan } from '../../src/repair-plan';
+import { reportedCheckIds } from '../../src/check-registry';
+import {
+  checkRepair,
+  manualReason,
+  repairId,
+  repairPlan,
+} from '../../src/repair-plan';
 import { World, scenariosOf, steps, type DataTable } from '../support/gherkin';
 
 const root = resolve(import.meta.dir, '../..');
@@ -174,7 +180,9 @@ Then(
 Then(
   'only these packages are installed without an exact version:',
   (world, table: DataTable) => {
+    // Removing a package (state absent) installs nothing.
     const floating = installs(world)
+      .filter(({ apt }) => apt['state'] !== 'absent')
       .filter(({ apt }) => !String(apt['name']).includes('='))
       .map(({ path, apt }) => ({
         playbook: path,
@@ -444,7 +452,7 @@ Then(
 );
 
 When('the packages {string} installs are read', (world, path: string) => {
-  world.found = (/^for package in (.+); do$/m.exec(read(path))?.[1] ?? '')
+  world.found = (/^\s*for package in (.+); do$/m.exec(read(path))?.[1] ?? '')
     .split(' ')
     .filter(Boolean);
 });
@@ -492,6 +500,31 @@ When(
 Then(/^it names (one|none)$/, (world, verdict: string) => {
   expect(world.found.length).toBe(verdict === 'one' ? 1 : 0);
 });
+
+When('the release entries of the Ubuntu policy are read', (world) => {
+  world.searched = ubuntu.releases.length;
+});
+
+const releaseEntries = (): {
+  packages?: Record<string, string>;
+  browserPackages?: Record<string, string>;
+}[] => ubuntu.releases;
+
+Then('each pins only packages the policy\'s "packages" pins', (world) => {
+  expect(world.searched).toBeGreaterThan(0);
+  for (const entry of releaseEntries())
+    for (const name of Object.keys(entry.packages ?? {}))
+      expect(Object.keys(ubuntu.packages)).toContain(name);
+});
+
+Then(
+  'each pins only browser libraries the policy\'s "browser.packages" pins',
+  () => {
+    for (const entry of releaseEntries())
+      for (const name of Object.keys(entry.browserPackages ?? {}))
+        expect(Object.keys(ubuntu.browser.packages)).toContain(name);
+  }
+);
 
 When(
   'every key of the macOS and Ubuntu policies is looked up in the playbooks, the sources and these features',
@@ -611,7 +644,7 @@ Then(
     // An action of this repository runs at the commit under test.
     for (const action of world.found.filter((uses) => !uses.startsWith('./')))
       expect(action).toMatch(
-        /^[\w.-]+\/[\w.-]+@[a-f0-9]{40} # v\d+\.\d+\.\d+$/
+        /^[\w.-]+\/[\w.-]+(?:\/[\w.-]+)*@[a-f0-9]{40} # v\d+\.\d+\.\d+$/
       );
   }
 );
@@ -992,6 +1025,18 @@ Then(
   }
 );
 
+Then(
+  'its {string} job runs every release the Ubuntu policy accepts',
+  (world, name: string) => {
+    const rows = (job(world, name).strategy?.matrix?.include ?? []) as {
+      release?: unknown;
+    }[];
+    expect([...new Set(rows.map((row) => String(row.release)))].sort()).toEqual(
+      ubuntu.releases.map((entry) => entry.release).sort()
+    );
+  }
+);
+
 // ── The features themselves ──────────────────────────────────────────────
 
 When(
@@ -1137,7 +1182,7 @@ Then(
 
 /** The last word of a failure code: what went wrong. */
 const FAILURE =
-  /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:FAILED|FAILING|REQUIRED|MISSING|MISMATCH|CONFLICT|UNVERIFIED|UNAVAILABLE|UNREACHABLE|INVALID|REJECTED|INCOMPLETE|STALE|DRIFT|PENDING|DENIED|TIMEOUT|FULL|UNSUPPORTED|LOCKED|OFFLINE|UNSCHEDULED|UNDECLARED|OVERRIDDEN|REFUSED|UNHEALTHY|BROKEN|CONTENDED|INTERRUPTED|UNSAFE|DIVERGED|BLOCKED|STOPPED|EXHAUSTED|INACTIVE|CHANGED|UNREADABLE|LIMIT|LIMITED|UNSERVED|UNOBSERVED|UNPROVISIONED|REPLACED|INSTALLED|RUNNING|ENABLED|POLICY|BUSY|FLOOR|ENROLLED|DISCONNECTED|PROTOCOL|DAEMON|RESPONSE|UNRESTRICTED|PREVIEW|ERROR|ROLE|HUB|MANAGER|CONVERGED|POWER)$/;
+  /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:FAILED|FAILING|REQUIRED|MISSING|MISMATCH|CONFLICT|UNVERIFIED|UNAVAILABLE|UNREACHABLE|INVALID|REJECTED|INCOMPLETE|STALE|DRIFT|PENDING|DENIED|TIMEOUT|FULL|UNSUPPORTED|LOCKED|OFFLINE|UNSCHEDULED|UNDECLARED|OVERRIDDEN|REFUSED|UNHEALTHY|BROKEN|CONTENDED|INTERRUPTED|UNSAFE|DIVERGED|BLOCKED|STOPPED|EXHAUSTED|INACTIVE|CHANGED|UNREADABLE|LIMIT|LIMITED|UNSERVED|UNOBSERVED|UNPROVISIONED|REPLACED|INSTALLED|RUNNING|ENABLED|POLICY|BUSY|FLOOR|ENROLLED|DISCONNECTED|PROTOCOL|DAEMON|RESPONSE|UNRESTRICTED|PREVIEW|ERROR|ROLE|HUB|MANAGER|CONVERGED|POWER|MINIMUM)$/;
 
 async function failureCodes(): Promise<string[]> {
   const codes = new Set<string>();
@@ -1285,7 +1330,8 @@ const GENERATED: Record<string, () => Promise<string>> = {
     const found = new Map<string, Set<string>>();
     // The owners of the checks name them; they measure nothing.
     for (const path of (await files('src/**/*.ts')).filter(
-      (path) => path !== 'src/check-owners.ts'
+      (path) =>
+        path !== 'src/check-owners.ts' && path !== 'src/check-registry.ts'
     ))
       for (const match of read(path).matchAll(
         /['`]((?:auth|worker):[a-z0-9-]*(?:auth|github|vault|git-|credential)[a-z0-9-]*)['`]/g
@@ -1424,23 +1470,9 @@ Then(
 
 // ── Who repairs a check ──────────────────────────────────────────────────
 
-const CHECK_ID =
-  /\bid: (?:'([a-z0-9-]+(?::[a-z0-9.-]+)+|dependencies)'|`([a-z0-9-]+:[^`]+)`)/g;
-
-When(
-  'the check IDs the TypeScript sources report are listed',
-  async (world) => {
-    const ids = new Set<string>();
-    for (const path of await files('src/**/*.ts')) {
-      // The recipes and the owners themselves are not checks.
-      if (['src/repair-catalog.ts', 'src/check-owners.ts'].includes(path))
-        continue;
-      for (const match of read(path).matchAll(CHECK_ID))
-        ids.add((match[1] ?? match[2]!).replace(/\$\{[^}]+\}/g, 'x'));
-    }
-    world.found = [...ids].sort();
-  }
-);
+When('the check IDs the sources report are listed', (world) => {
+  world.found = reportedCheckIds().map((entry) => entry.id);
+});
 Then('more than {int} check IDs were found', (world, count: number) => {
   expect(world.found.length).toBeGreaterThan(count);
 });
@@ -1448,12 +1480,11 @@ Then(
   'every check ID found maps to a repair recipe or to a documented manual reason',
   (world) => {
     const unowned = world.found.filter((id) => {
-      const owner = checkOwner(id);
-      if (!owner) return true;
-      if (owner.repair === 'login:*') return false;
-      if (owner.repair)
-        return !REPAIR_RECIPES.some((entry) => entry.id === owner.repair);
-      return !owner.manual || owner.manual.length < 20;
+      if (!checkOwner(id)) return true;
+      const repair = checkRepair(id);
+      return 'recipe' in repair
+        ? !REPAIR_RECIPES.some((entry) => entry.id === repair.recipe)
+        : repair.manual.length < 20;
     });
     expect(unowned).toEqual([]);
   }
@@ -1589,10 +1620,33 @@ When('the playbook {string} is read', (world, path: string) => {
   world.script = read(path);
 });
 
-Then('it does not become another user', (world) => {
-  const [play] = parse(world.script) as Record<string, unknown>[];
-  expect(play!['become']).toBeUndefined();
+Then('no play of it becomes another user', (world) => {
+  const plays = parse(world.script) as Record<string, unknown>[];
+  expect(plays.length).toBeGreaterThan(1);
+  for (const play of plays) {
+    expect(play['become'] ?? false).toBe(false);
+    expect(play['ansible.builtin.import_playbook']).toBeUndefined();
+  }
 });
+
+Then(
+  'everything it runs through sudo is one of:',
+  (world, table: DataTable) => {
+    const plays = parse(world.script) as { tasks?: Task[] }[];
+    const allowed = table.list();
+    const viaSudo = plays
+      .flatMap((play) => play.tasks ?? [])
+      .map(
+        (task) =>
+          (task['ansible.builtin.command'] as { argv?: string[] } | undefined)
+            ?.argv
+      )
+      .filter((argv): argv is string[] => argv?.[0] === '/usr/bin/sudo')
+      .map((argv) => argv.slice(2, 4).join(' '));
+    expect(viaSudo.length).toBeGreaterThan(0);
+    for (const command of viaSudo) expect(allowed).toContain(command);
+  }
+);
 
 Then(
   'it changes the power settings only through {string}',

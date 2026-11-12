@@ -10,7 +10,8 @@ import { fleetState, type FleetStateOptions } from './fleet-state';
 import { fleetAccounts, type FleetAccountsOptions } from './fleet-accounts';
 import { fleetReport, type FleetReportOptions } from './fleet-report';
 import { fleetWatch, watchServices } from './fleet-watch';
-import type { NodeReport } from '../types';
+import type { Check, NodeReport } from '../types';
+import { fleet } from '../fleet-config';
 import { registerGithubVerify } from './github-verify';
 import { fleetRestore, type FleetRestoreOptions } from './fleet-restore';
 import { fleetValidate, type FleetValidateOptions } from './fleet-validate';
@@ -30,6 +31,12 @@ import {
   lifecycleServices,
   type NodeLifecycleOptions,
 } from './fleet-node-lifecycle';
+import {
+  fleetNodePark,
+  fleetNodeResume,
+  parkServices,
+  type NodeParkOptions,
+} from './fleet-node-park';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -213,6 +220,10 @@ function registerSync({ program, defaults, complete }: Registration) {
       'Opt-in: log a worker without a token of its own in with the shared Vault user, on its own terminal'
     )
     .option(
+      '--restart-busy',
+      'Restart a worker T3 for a new release or policy even while agent turns run, which ends them; by default the restart waits until T3 is idle'
+    )
+    .option(
       '--canary <id>',
       'The worker that proves a new revision first when it is reachable; defaults to canary in fleet.json, then the first worker'
     )
@@ -229,6 +240,14 @@ function registerSync({ program, defaults, complete }: Registration) {
       'Accepted for compatibility; fleet-sync applies by default (schedule writes still need --apply --yes)'
     )
     .option('--yes', 'Accepted for compatibility with --apply')
+    .option(
+      '--maintenance-reboot',
+      'Reboot each worker whose installed updates wait for a reboot: one at a time, canary first, only while it runs no agent turn, verified ready before the next'
+    )
+    .option(
+      '--force',
+      'With --maintenance-reboot: reboot a worker even while agent turns run (they end)'
+    )
     .option(
       '--take-over',
       'Make this machine the manager while another one still holds the manager lease'
@@ -365,10 +384,52 @@ function registerWatch({ program, defaults, complete }: Registration) {
         const data = report.data as { nodes?: NodeReport[] };
         return data.nodes ?? [];
       };
+      const autoPark = async (reports: NodeReport[]): Promise<Check[]> => {
+        const checks: Check[] = [];
+        for (const report of reports) {
+          if (
+            !report.checks.some(
+              (check) => check.id === 'worker:idle' && check.status === 'warn'
+            )
+          )
+            continue;
+          const worker = fleet.workers.find(
+            (entry) =>
+              entry.id === report.node ||
+              entry.network?.tailscaleName === report.node
+          );
+          if (!worker) continue;
+          const parked = await fleetNodePark(
+            { id: worker.id },
+            parkServices(settings.config, () =>
+              Promise.reject(new Error('fleet-watch never resumes a worker'))
+            )
+          );
+          checks.push({
+            id: 'worker:auto-park',
+            status: parked.exitCode === 0 ? 'pass' : 'warn',
+            summary:
+              parked.exitCode === 0
+                ? `${worker.id} was idle longer than declared and is parked.`
+                : 'WORKER_AUTO_PARK_REFUSED',
+            ...(parked.exitCode === 0
+              ? {}
+              : {
+                  remedy: {
+                    action: `fleet-node-park refused ${worker.id}; run devfleet fleet-node-park --id ${worker.id} to see why.`,
+                  },
+                }),
+          });
+        }
+        return checks;
+      };
       complete(
         await fleetWatch(
           { ...(options.test ? { test: true } : {}) },
-          watchServices(status)
+          {
+            ...watchServices(status),
+            ...(fleet.parking?.autoPark ? { autoPark } : {}),
+          }
         )
       );
     });
@@ -452,6 +513,52 @@ function registerLifecycle({ program, defaults, complete }: Registration) {
     )
     .option('--yes', 'Confirm an explicitly requested --apply operation')
     .action(action('retire'));
+  const parking =
+    (name: 'park' | 'resume') =>
+    async (_options: unknown, command: Command) => {
+      const options = command.optsWithGlobals<NodeParkOptions & CliOptions>();
+      const settings = await withSettings(defaults, options);
+      const services = parkServices(settings.config, (id) =>
+        fleetSync(
+          {
+            node: [id],
+            apply: true,
+            yes: true,
+            nonInteractive: true,
+            ...(options.json ? { json: true } : {}),
+          },
+          {
+            ...defaults,
+            ...(options.config ? { config: options.config } : {}),
+          }
+        )
+      );
+      complete(
+        name === 'park'
+          ? await fleetNodePark(options, services)
+          : await fleetNodeResume(options, services)
+      );
+    };
+  program
+    .command('fleet-node-park')
+    .description(
+      'Park a worker that is stopped or destroyed on purpose: it is no longer contacted, never the canary and does not fail the fleet'
+    )
+    .requiredOption('--id <name>', 'The declared worker to park')
+    .option(
+      '--force',
+      'Park although agent turns are under way on it, or cannot be counted'
+    )
+    .option('--dry-run', 'Say what would change; change nothing')
+    .action(parking('park'));
+  program
+    .command('fleet-node-resume')
+    .description(
+      'Bring a parked worker back: run the declared start command, then fleet-sync that worker and verify it'
+    )
+    .requiredOption('--id <name>', 'The declared worker to resume')
+    .option('--dry-run', 'Say what would change; change nothing')
+    .action(parking('resume'));
   program
     .command('fleet-node-seed')
     .description(

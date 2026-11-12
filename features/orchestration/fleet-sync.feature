@@ -67,6 +67,28 @@ Feature: fleet-sync converges every worker on one approved revision
       | wsl         | WSL2      |
       | container   | container |
 
+  Scenario: A worker below the minimum worker size is reported and never deployed
+    The probe measures the machine before anything is installed on it.
+    Given every worker answers a fresh SSH session as a "kvm" virtual machine with 2 CPUs, 1983 MiB of memory and a 40960 MiB root filesystem
+    And deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision
+    Then the revision was deployed to no worker
+    And every worker has a check "platform:worker-size" that says "WORKER_SIZE_BELOW_MINIMUM: memory 1983 MiB < 3584 MiB"
+    And every worker has a check "platform:machine-class" that says "Virtual machine (kvm)"
+    And the fleet is not ready
+
+  Scenario: A virtual worker of the minimum size is deployed
+    Given every worker answers a fresh SSH session as a "kvm" virtual machine with 2 CPUs, 3584 MiB of memory and a 20480 MiB root filesystem
+    And deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision
+    Then the revision was deployed to these workers, in order:
+      | first  |
+      | second |
+
   Scenario: A failed canary stops promotion, and the workers after it are still inspected
     What a failed deployment threw may hold anything, so it is never reported.
     Given deploying a worker fails with the error "secret detail"
@@ -188,3 +210,62 @@ Feature: fleet-sync converges every worker on one approved revision
     And these workers were announced as finished, in order:
       | first  |
       | second |
+
+  Rule: A maintenance run goes one worker at a time, canary first
+
+    Scenario: A worker a reboot left unready stops the workers after it
+      A check that never stops promotion on its own (T3's end-to-end test)
+      does once the worker was rebooted: it is not back to ready.
+      Given deploying "first" reports these checks:
+        | id             | status | summary                       |
+        | worker:reboot  | pass   | Rebooted for maintenance      |
+        | t3:end-to-end  | fail   | T3_PRIVATE_ROUTE_UNVERIFIED   |
+      And deploying "second" reports these checks:
+        | id   | status | summary |
+        | done | pass   | fixture |
+      When fleet-sync applies the approved revision with "first" as its canary, one worker at a time
+      Then the revision was deployed to these workers, in order:
+        | first |
+      And the last check of "second" says "FLEET_PROMOTION_BLOCKED"
+
+    Scenario: A worker that came back ready lets the next one go
+      Given deploying "first" reports these checks:
+        | id            | status | summary                  |
+        | worker:reboot | pass   | Rebooted for maintenance |
+      And deploying "second" reports these checks:
+        | id            | status | summary                  |
+        | worker:reboot | pass   | Rebooted for maintenance |
+      When fleet-sync applies the approved revision with "second" as its canary, one worker at a time
+      Then the revision was deployed to these workers, in order:
+        | second |
+        | first  |
+      And the fleet is ready
+
+    Scenario: A worker left alone because an agent turn runs does not stop the others
+      Given deploying "first" reports these checks:
+        | id            | status | summary            |
+        | worker:reboot | warn   | WORKER_REBOOT_BUSY |
+      And deploying "second" reports these checks:
+        | id   | status | summary |
+        | done | pass   | fixture |
+      When fleet-sync applies the approved revision with "first" as its canary, one worker at a time
+      Then the revision was deployed to these workers, in order:
+        | first  |
+        | second |
+
+  Rule: A parked worker is off on purpose
+    A rented machine is stopped, or destroyed, while nobody needs it
+    (devfleet fleet-node-park). It is listed as parked, never contacted,
+    never the canary, and the fleet is ready without it.
+
+    Scenario: Parking the first worker does not block promotion to the others
+      Given "first" was parked at "2026-11-11T20:00:00.000Z"
+      And deploying a worker reports these checks:
+        | id   | status | summary |
+        | done | pass   | fixture |
+      When fleet-sync applies the approved revision with "first" as its canary
+      Then the revision was deployed to these workers, in order:
+        | second |
+      And the report names "second" as the canary
+      And the report says "first" is parked, and was not contacted
+      And the fleet is ready

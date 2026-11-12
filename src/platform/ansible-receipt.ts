@@ -19,12 +19,18 @@ export interface Receipt {
   force?: boolean;
   /** Receipt directory; defaults to the user's fleet state. */
   directory?: string;
+  /** Run the playbook in check mode first, and apply only when that passes. */
+  checkFirst?: boolean;
+  /** Where the playbook's variables are written while it runs. */
+  scratch?: string;
   now?: number;
 }
 
 export interface ReceiptResult extends CommandResult {
   /** True when the playbook was skipped on an unchanged, verified receipt. */
   cached: boolean;
+  /** Which run the result is of: the check-mode run when it failed. */
+  stage?: 'check' | 'apply';
 }
 
 export function receiptDirectory(home = homedir()): string {
@@ -56,10 +62,19 @@ export async function runAnsibleWithReceipt(
   )
     return { ok: true, reason: 'exit', stdout: '', stderr: '', cached: true };
   await rm(path, { force: true }).catch(() => undefined);
-  const result = await runAnsible(run, playbook, options);
+  if (receipt.checkFirst) {
+    const checked = await runAnsible(
+      run,
+      playbook,
+      { ...options, check: true },
+      receipt.scratch
+    );
+    if (!checked.ok) return { ...checked, cached: false, stage: 'check' };
+  }
+  const result = await runAnsible(run, playbook, options, receipt.scratch);
   if (result.ok && key !== null)
     await record(directory, path, { version: 1, key, appliedAt: now });
-  return { ...result, cached: false };
+  return { ...result, cached: false, stage: 'apply' };
 }
 
 /** Best effort: a missing receipt only means the next run applies in full. */

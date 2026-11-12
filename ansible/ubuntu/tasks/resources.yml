@@ -20,12 +20,12 @@
   when: active_swap.stdout | trim == ''
 - name: Refuse to create swap on a nearly full disk
   ansible.builtin.assert:
-    that: (swap_capacity.stdout_lines | last | trim | regex_replace('M$', '') | int) >= resourceSafety.swapFileMiB + minimumFreeDiskMiB
+    that: (swap_capacity.stdout_lines | last | trim | regex_replace('M$', '') | int) >= worker_swap_file_mib | int + worker_minimum_free_disk_mib | int
     fail_msg: SWAP_CAPACITY_REQUIRED; free disk space so a swap file can be created. No swap is active.
   when: active_swap.stdout | trim == ''
 - name: Create a swap file when the node has no swap
   ansible.builtin.command:
-    argv: [fallocate, -l, '{{ resourceSafety.swapFileMiB }}M', /swap.fleet]
+    argv: [fallocate, -l, '{{ worker_swap_file_mib }}M', /swap.fleet]
     creates: /swap.fleet
   when: active_swap.stdout | trim == ''
 - name: Restrict the fleet swap file
@@ -227,7 +227,7 @@
       StartLimitIntervalSec=0
       [Service]
       Type=simple
-      ExecStart=/usr/bin/python3 -I -B {{ disk_guard_source.stat.path }} --path / --path {{ development_home }} --floor-mib {{ resourceSafety.diskGuardFloorMiB }} --inode-floor-percent {{ resourceSafety.inodeFailFreePercent }} --write-mib {{ resourceSafety.diskGuardWriteMiB }} --interval {{ resourceSafety.diskGuardIntervalSeconds }}
+      ExecStart=/usr/bin/python3 -I -B {{ disk_guard_source.stat.path }} --path / --path {{ development_home }} --floor-mib {{ worker_disk_guard_floor_mib }} --inode-floor-percent {{ resourceSafety.inodeFailFreePercent }} --write-mib {{ resourceSafety.diskGuardWriteMiB }} --interval {{ resourceSafety.diskGuardIntervalSeconds }}
       Restart=always
       RestartSec=5
       OOMScoreAdjust=-1000
@@ -279,7 +279,7 @@
         After=docker.service
         [Service]
         Type=oneshot
-        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ resourceSafety.diskGcPressureMiB }} --pressure-inode-percent {{ resourceSafety.inodeWarnFreePercent }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}{% for root in resourceSafety.diskGcWorktreeRoots %} --worktree-root {{ root }}{% endfor %} --worktree-idle-days {{ resourceSafety.diskGcWorktreeIdleDays }}{% for cache, mib in resourceSafety.diskGcCacheCapsMiB.items() %} --cache-cap {{ cache }}={{ mib }}{% endfor %} --keep-newest /var/cache/personal-fleet={{ resourceSafety.diskGcPackagesKept }} --mise {{ development_home }}/.local/bin/mise --user {{ development_user }}
+        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ worker_disk_gc_pressure_mib }} --pressure-inode-percent {{ resourceSafety.inodeWarnFreePercent }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}{% for root in resourceSafety.diskGcWorktreeRoots %} --worktree-root {{ root }}{% endfor %} --worktree-idle-days {{ resourceSafety.diskGcWorktreeIdleDays }}{% for cache, mib in resourceSafety.diskGcCacheCapsMiB.items() %} --cache-cap {{ cache }}={{ mib }}{% endfor %} --keep-newest /var/cache/personal-fleet={{ resourceSafety.diskGcPackagesKept }} --mise {{ development_home }}/.local/bin/mise --user {{ development_user }}{{ '' if worker_containers_on | default(true) | bool else ' --no-docker' }}
 
         TimeoutStartSec=2h
         Nice=19

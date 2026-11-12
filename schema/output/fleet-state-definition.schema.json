@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fleet-state-definition.schema.json",
+  "title": "A fleet configuration printed by fleet-state, version 1",
+  "description": "What devfleet fleet-state --example and fleet-state --export print with --json: the configuration itself is definition, and follows schema/fleet.schema.json.",
+  "type": "object",
+  "required": ["version", "command", "ok", "definition"],
+  "properties": {
+    "version": { "const": 1 },
+    "command": { "const": "fleet-state" },
+    "ok": { "const": true },
+    "definition": { "type": "object" }
+  }
+}

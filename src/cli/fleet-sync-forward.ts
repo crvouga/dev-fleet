@@ -109,11 +109,14 @@ export function forwardedFlags(
   const switches: [boolean | undefined, string][] = [
     [options.all, '--all'],
     [options.vaultPasswordLogin, '--vault-password-login'],
+    [options.restartBusy, '--restart-busy'],
     [options.dryRun, '--dry-run'],
     [options.apply, '--apply'],
     [options.yes, '--yes'],
     [options.json, '--json'],
     [options.nonInteractive, '--non-interactive'],
+    [options.maintenanceReboot, '--maintenance-reboot'],
+    [options.force, '--force'],
   ];
   for (const [on, flag] of switches) if (on) flags.push(flag);
   return flags;

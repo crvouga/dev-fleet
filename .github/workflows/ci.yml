@@ -140,17 +140,34 @@ jobs:
           [ "$(changed)" = changed=0 ] || { echo '::error::A second run changed the manager.'; exit 1; }
           converge --check --diff
           [ "$(changed)" = changed=0 ] || { echo '::error::A dry run on the converged manager reports a change.'; exit 1; }
+      - name: Apply the manager's one administrator grant, then prove a second run changes nothing
+        # visudo and newsyslog validate the sudoers rule and the log rotation
+        # before they are installed (ansible/macos/manager-privilege.yml).
+        run: |
+          grant() {
+            mise exec uv -- uv run --project ansible --locked --isolated \
+              ansible-playbook --inventory localhost, ansible/macos/manager-privilege.yml \
+              -e "user=$(id -un)" | tee "$RUNNER_TEMP/grant.log"
+          }
+          changed() { grep -Eo 'changed=[0-9]+' "$RUNNER_TEMP/grant.log" | tail -n 1; }
+          grant
+          grant
+          [ "$(changed)" = changed=0 ] || { echo '::error::A second grant changed the manager.'; exit 1; }
+          sudo -n -l /usr/sbin/systemsetup -getusingnetworktime
   fresh-box:
-    name: Fresh worker over SSH (${{ matrix.architecture }})
+    name: Fresh worker over SSH (${{ matrix.release }}, ${{ matrix.architecture }})
     # A disposable Ubuntu machine that has only an SSH server and an account
     # with sudo, bootstrapped by the production code over a real SSH
     # connection: features/fresh-box. It downloads the worker toolchain.
+    # Once for every release ansible/ubuntu/policy.json accepts.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { architecture: amd64, runner: ubuntu-latest }
-          - { architecture: arm64, runner: ubuntu-24.04-arm }
+          - { release: '26.04', architecture: amd64, runner: ubuntu-latest }
+          - { release: '26.04', architecture: arm64, runner: ubuntu-24.04-arm }
+          - { release: '24.04', architecture: amd64, runner: ubuntu-latest }
+          - { release: '24.04', architecture: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -164,6 +181,7 @@ jobs:
         env:
           # A missing Docker or SSH client fails here instead of skipping.
           DEVFLEET_TEST_FRESH_BOX: required
+          DEVFLEET_TEST_FRESH_BOX_RELEASE: ${{ matrix.release }}
   agent-box:
     name: Monitoring agent on systemd
     # The Beszel agent playbook applied for real on a disposable Ubuntu

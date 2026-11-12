@@ -8,6 +8,7 @@ import {
 } from '../../../src/manager-sync';
 import type { TailnetComputer } from '../../../src/tailscale';
 import type { Status } from '../../../src/types';
+import { withoutParked } from '../../../src/worker-parking';
 import { succeeded } from '../../support/commands';
 import type { DataTable } from '../../support/gherkin';
 import {
@@ -53,6 +54,29 @@ Given(
   }
 );
 
+Given(
+  'every worker answers a fresh SSH session as a {string} virtual machine with {int} CPUs, {int} MiB of memory and a {int} MiB root filesystem',
+  (world, hypervisor: string, cpus: number, memory: number, disk: number) => {
+    world.commands.answer(
+      isSession,
+      succeeded(
+        `ubuntu\n26.04\nx86_64\nmachine\n${hypervisor}\n${cpus}\n${memory}\n${disk}\n`
+      )
+    );
+  }
+);
+
+Then(
+  'every worker has a check {string} that says {string}',
+  (world, id: string, summary: string) => {
+    expect(report(world).nodes.length).toBeGreaterThan(0);
+    for (const node of report(world).nodes)
+      expect(node.checks.find((check) => check.id === id)?.summary).toStartWith(
+        summary
+      );
+  }
+);
+
 Given('the manager has no registration for {string}', (world, id: string) => {
   world.nodes = world.nodes.filter((node) => node.id !== id);
 });
@@ -71,6 +95,13 @@ Given('every registration authorizes bootstrap over SSH', (world) => {
 Given('deploying a worker reports these checks:', (world, table: DataTable) => {
   world.sync.checks = checksIn(table);
 });
+
+Given(
+  'deploying {string} reports these checks:',
+  (world, id: string, table: DataTable) => {
+    world.sync.byWorker[id] = checksIn(table);
+  }
+);
 
 Given(
   'deploying a worker fails with the error {string}',
@@ -106,19 +137,32 @@ function tailscaleStatus(computers: TailnetComputer[]): string {
 }
 
 When(
-  /^fleet-sync (applies|previews) the approved revision(?: with "([^"]+)" as its canary)?$/,
-  async (world, mode: string, canary: string | undefined) => {
+  /^fleet-sync (applies|previews) the approved revision(?: with "([^"]+)" as its canary)?(, one worker at a time)?$/,
+  async (
+    world,
+    mode: string,
+    canary: string | undefined,
+    serial: string | undefined
+  ) => {
     world.commands.answer(
       (command) => command[0] === 'tailscale',
       succeeded(tailscaleStatus(world.computers))
     );
+    // As fleet-sync sets parked workers aside before it converges.
+    const active = withoutParked(
+      need(world.sync.definition, 'a fleet configuration'),
+      world.nodes,
+      world.sync.parked,
+      new Date('2026-11-12T00:00:00Z')
+    );
     const report = await synchronizeManager(
       {
-        definition: need(world.sync.definition, 'a fleet configuration'),
-        nodes: world.nodes,
+        definition: active.definition,
+        nodes: active.nodes,
         revision: need(world.sync.revision, 'an approved revision'),
         apply: mode === 'applies',
         ...(canary ? { canary } : {}),
+        ...(serial ? { serial: true } : {}),
         finished: (node) => world.sync.finished.push(node.node),
       },
       world.run,
@@ -127,10 +171,13 @@ When(
         if (world.sync.error !== undefined) throw new Error(world.sync.error);
         return {
           node: node.id,
-          checks: world.sync.checks.map((check) => ({ ...check })),
+          checks: (world.sync.byWorker[node.id] ?? world.sync.checks).map(
+            (check) => ({ ...check })
+          ),
         };
       }
     );
+    report.checks.push(...active.checks);
     world.sync.report = report;
     world.reports = report.nodes;
     world.outcome = report;
@@ -178,6 +225,27 @@ Then(
   'the report shows {string} as {string}',
   (world, id: string, reachability: string) => {
     expect<string>(worker(world, id).reachability).toBe(reachability);
+  }
+);
+
+Given('{string} was parked at {string}', (world, id: string, at: string) => {
+  world.sync.parked[id] = at;
+});
+
+Then(
+  'the report says {string} is parked, and was not contacted',
+  (world, id: string) => {
+    expect(report(world).checks).toContainEqual(
+      expect.objectContaining({
+        id: 'worker:parked',
+        status: 'not-applicable',
+        summary: expect.stringContaining(`${id} is parked since`),
+      })
+    );
+    expect(report(world).nodes.map((node) => node.node)).not.toContain(id);
+    expect(
+      world.commands.ran((command) => command.join(' ').includes(id))
+    ).toEqual([]);
   }
 );
 

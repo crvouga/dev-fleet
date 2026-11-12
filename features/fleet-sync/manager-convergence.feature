@@ -116,24 +116,66 @@ Feature: The manager converges itself before any worker
       And each time the check's remedy contains "cd /fleet/checkout && "
       And each time the check's remedy ends with "-K ansible/macos/manager-privilege.yml"
 
-  Rule: Once granted, every sync holds the power policy with no prompt
-    The administrator grants the manager its power settings once, with
-    manager-privilege.yml; from then on an applying sync applies manager.yml
-    whenever the settings drifted, and asks nobody for a password.
+  Rule: Every applying sync applies the manager playbook like a worker's, with no prompt
+    manager.yml is run in check mode first and applied only when that
+    passes. A receipt skips an unchanged playbook while its postconditions
+    hold (the power policy, the watch job), and a full re-apply comes at
+    least once a day. What needs root goes through the grant
+    manager-privilege.yml installs once, so nobody is asked for a password.
 
-    Scenario: A drifted manager with the grant is brought back by the sync
-      Given pmset reports on AC power every setting the manager's power policy declares, but "sleep" as "10"
-      And the manager's power grant is in place
-      When an applying sync holds the manager's power policy
+    Scenario: The playbook is checked, then applied, with the fleet's watch interval
+      Given the manager playbook passes its check and passes when applied
+      When an applying sync converges the manager's policy
       Then the check's status is "pass"
-      And manager.yml was applied without a password prompt
+      And manager.yml was run, in this order:
+        | check mode |
+        | applied    |
+      And manager.yml was never run with a password prompt
+      And manager.yml was given the watch interval of 15 minutes
 
-    Scenario: Without the grant nothing is applied, and the remedy names the one grant
-      Given pmset reports on AC power every setting the manager's power policy declares, but "sleep" as "10"
-      When an applying sync holds the manager's power policy
-      Then the check's summary is "MANAGER_SLEEPS_ON_POWER"
-      And the check's remedy contains "manager-privilege.yml"
-      And no playbook was applied
+    Scenario: A playbook whose check fails is not applied
+      Given the manager playbook fails its check
+      When an applying sync converges the manager's policy
+      Then the check's status is "fail"
+      And the check's summary is "MANAGER_PLAYBOOK_CHECK_FAILED"
+      And the check's remedy contains "--check --diff"
+      And manager.yml was run, in this order:
+        | check mode |
+
+    Scenario: A playbook that fails when applied fails the check
+      Given the manager playbook passes its check and fails when applied
+      When an applying sync converges the manager's policy
+      Then the check's summary is "MANAGER_PLAYBOOK_FAILED"
+
+    Scenario: An unchanged playbook whose postconditions hold is not run again
+      Given the manager playbook passes its check and passes when applied
+      And an applying sync converged the manager's policy
+      When an applying sync converges the manager's policy 23 hours later
+      Then the check's status is "pass"
+      And manager.yml was run, in this order:
+        | check mode |
+        | applied    |
+
+    Scenario: A day after it was applied, the playbook is applied again
+      Given the manager playbook passes its check and passes when applied
+      And an applying sync converged the manager's policy
+      When an applying sync converges the manager's policy 25 hours later
+      Then manager.yml was run, in this order:
+        | check mode |
+        | applied    |
+        | check mode |
+        | applied    |
+
+    Scenario: A watch job that is gone is installed again, however fresh the receipt
+      Given the manager playbook passes its check and passes when applied
+      And an applying sync converged the manager's policy
+      And launchd does not hold the manager's watch job
+      When an applying sync converges the manager's policy 1 hours later
+      Then manager.yml was run, in this order:
+        | check mode |
+        | applied    |
+        | check mode |
+        | applied    |
 
   Rule: Docker Desktop is measured against its pin and never fails the run
     The manager's services run in Docker Desktop, which no playbook installs

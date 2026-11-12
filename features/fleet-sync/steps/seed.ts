@@ -24,6 +24,7 @@ import {
   type FleetSyncWorld,
 } from '../support/world';
 import { services } from './lifecycle';
+import { controlPlane, http } from './tailnet';
 
 /** fleet-node-seed, with ssh-keygen and the secrets provider answered here. */
 const { Given, When, Then } = fleetSync;
@@ -83,6 +84,35 @@ Then('nothing printed or answered contains the auth key', (world) => {
   expect(seed(world)).toContain(key);
 });
 
+const issued = (world: FleetSyncWorld): string =>
+  (controlPlane(world).answer.body as { key: string }).key;
+
+Then(
+  'the seed carries the key the control plane issued, and not the stored one',
+  (world) => {
+    expect(seed(world)).toContain(issued(world));
+    expect(seed(world)).not.toContain(
+      seeding(world).secrets['tailnet-auth-key']!
+    );
+  }
+);
+
+Then(
+  'nothing printed or answered contains the key the control plane issued',
+  (world) => {
+    expect(JSON.stringify(world.outcome)).not.toContain(issued(world));
+    for (const call of world.commands.calls)
+      expect(call.command.join(' ')).not.toContain(issued(world));
+  }
+);
+
+Then('the seed joins with {string}', (world, argument: string) => {
+  const joined = commands(world).find((line) =>
+    line.startsWith('tailscale up')
+  );
+  expect(joined?.split(' ')).toContain(argument);
+});
+
 Given('ssh-keygen makes the host key {string}', (world, key: string) => {
   world.commands.answer(
     (command) => command[0] === 'ssh-keygen',
@@ -114,8 +144,17 @@ When(
         run: world.commands.run,
         playbook: lifecycle.playbook,
         knownHosts: lifecycle.knownHosts,
-        definition: () => definition,
-        secret: async (name) => seeding(world).secrets[name] ?? null,
+        state: lifecycle.state,
+        now: lifecycle.now,
+        definition: () =>
+          controlPlane(world).config
+            ? { ...definition, tailnet: controlPlane(world).config! }
+            : definition,
+        http: http(world),
+        secret: async (name) =>
+          name === 'tailnet-admin'
+            ? controlPlane(world).credential
+            : (seeding(world).secrets[name] ?? null),
         home: seeding(world).directory,
       });
     } catch (error) {

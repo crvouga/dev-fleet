@@ -348,27 +348,29 @@ class CommandLine(unittest.TestCase):
         dispatch = (support.PACKAGE / "scripts/cli.py").read_text()
         self.assertIn("model-health", dispatch)
         self.assertIn("model-suite", dispatch)
-        workflow = (support.PACKAGE / "docs/health-workflow.example.yml").read_text()
-        for needle in ("scripts/model_health.py", "command=model-health", "command=model-suite", "'nightly'", "'light'",
-                       "manual", "--fail-on", "--state", "cron: '41 3 * * *'", "external-health.py"):
+        workflow = (support.PACKAGE.parent / ".github/workflows/cliproxy-health.yml").read_text()
+        for needle in ("$CLIPROXY_SCRIPTS/model_health.py", "command=model-health", "command=model-suite", "nightly",
+                       "manual", "--fail-on", "--state", "external-health.py", "workflow_call"):
             self.assertIn(needle, workflow)
         self.assertNotIn("max-parallel", workflow)
         self.assertNotIn("echo $VAULT_TOKEN", workflow)
 
-    def test_workflow_keeps_pull_requests_offline_and_inference_hourly_at_most(self):
+    def test_reusable_workflow_reads_the_callers_fleet_and_pinned_release(self):
+        workflow = (support.PACKAGE.parent / ".github/workflows/cliproxy-health.yml").read_text()
+        self.assertNotIn("pull_request", workflow)
+        self.assertNotIn("vault.example.com", workflow)
+        self.assertIn(".secrets.address", workflow)  # the Vault address is the caller's fleet.json's
+        self.assertIn("node_modules/@crvouga/dev-fleet/cliproxy/scripts", workflow)  # the release it pins
+        self.assertIn("--ignore-scripts", workflow)
+
+    def test_caller_runs_inference_hourly_at_most(self):
         workflow = (support.PACKAGE / "docs/health-workflow.example.yml").read_text()
-        contract, health = workflow.split("\n  health:\n")
-        contract = contract.split("\n  contract:\n")[1]
-        for forbidden in ("vault-action", "id-token", "VAULT_TOKEN", "issues: write", "--profile light", "--profile nightly"):
-            self.assertNotIn(forbidden, contract)
-        self.assertIn("--target mock", contract)
-        self.assertIn("github.event_name != 'pull_request'", health)
-        self.assertIn("issues: write", health)
+        self.assertIn("uses: crvouga/dev-fleet/.github/workflows/cliproxy-health.yml@", workflow)
+        self.assertNotIn("pull_request", workflow)
         crons = [line.split("cron:")[1].strip(" '\n") for line in workflow.splitlines() if "cron:" in line]
         self.assertEqual(crons, ["7,22,37,52 * * * *", "17 * * * *", "41 3 * * *"])
         self.assertIn("github.event.schedule == '17 * * * *' && 'light'", workflow)  # inference only on the hourly cron
         self.assertIn("|| 'readiness'", workflow)  # the 15-minute cron is free
-
 
 if __name__ == "__main__":
     unittest.main()

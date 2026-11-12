@@ -115,6 +115,159 @@ Then(
   }
 );
 
+Given(
+  /^"([^"]+)" is removed from the project's fleet configuration$/,
+  async (world, path: string) => {
+    put(validation(world).document, path, undefined);
+    await save(world);
+  }
+);
+
+// ── Worker records ────────────────────────────────────────────────────────
+
+const records = part(() => ({
+  /** The record list as the file or command gives it. */
+  document: undefined as unknown,
+  file: undefined as string | undefined,
+  /** What the record command printed, or null when it failed. */
+  printed: null as string | null,
+  ran: [] as { argv: string[]; directory: string }[],
+}));
+
+async function saveRecords(world: CliWorld): Promise<void> {
+  const { file: name, document } = records(world);
+  if (name)
+    await writeFile(
+      join(world.names['PROJECT']!, name),
+      JSON.stringify(document)
+    );
+  else records(world).printed = JSON.stringify(document);
+}
+
+Given('these worker records:', async (world, text: string) => {
+  records(world).document = JSON.parse(text);
+  await saveRecords(world);
+});
+
+Given(
+  /^the project's fleet configuration reads worker records from the file "([^"]+)"$/,
+  async (world, name: string) => {
+    records(world).file = name;
+    await saveRecords(world);
+    put(validation(world).document, 'workerRecords', [{ file: name }]);
+    await save(world);
+  }
+);
+
+Given(
+  /^the project's fleet configuration reads worker records from the command "([^"]+)"$/,
+  async (world, command: string) => {
+    put(validation(world).document, 'workerRecords', [
+      { command: command.split(' ') },
+    ]);
+    await save(world);
+  }
+);
+
+Given('the record command fails', (world) => {
+  records(world).printed = null;
+});
+
+Given(
+  /^in the worker records, "([^"]+)" is (.+)$/,
+  async (world, path: string, value: string) => {
+    put(records(world).document, path, json(value));
+    await saveRecords(world);
+  }
+);
+
+Given(
+  /^"([^"]+)" is removed from the worker records$/,
+  async (world, path: string) => {
+    put(records(world).document, path, undefined);
+    await saveRecords(world);
+  }
+);
+
+When(
+  "the operator validates the project's fleet configuration",
+  async (world) => {
+    world.outcome = await attempt(world, () =>
+      fleetValidate(
+        { file: file(world), json: true },
+        {
+          run: validation(world).commands.run,
+          env: {},
+          platform: 'linux',
+          root: PACKAGE_ROOT,
+          records: (argv, directory) => {
+            records(world).ran.push({ argv, directory });
+            return records(world).printed;
+          },
+        }
+      )
+    );
+  }
+);
+
+Then(
+  'the record command {string} ran in the project directory',
+  (world, command: string) => {
+    expect(records(world).ran).toEqual([
+      { argv: command.split(' '), directory: world.names['PROJECT']! },
+    ]);
+  }
+);
+
+// ── The SSH options Ansible reaches a worker with ─────────────────────────
+
+const inventoryHost = (world: CliWorld, host: string) => {
+  const [inventory] = validation(world).inventories as {
+    all: {
+      children: Record<
+        string,
+        { hosts: Record<string, Record<string, unknown>> }
+      >;
+    };
+  }[];
+  return inventory!.all.children['workers']!.hosts[host]!;
+};
+
+Then(
+  'the inventory reaches {string} at {string}',
+  (world, host: string, address: string) => {
+    expect(inventoryHost(world, host)['ansible_host']).toBe(address);
+  }
+);
+
+Then(
+  'the inventory gives {string} the SSH options:',
+  (world, host: string, table: DataTable) => {
+    const options = String(
+      inventoryHost(world, host)['ansible_ssh_common_args']
+    );
+    for (const option of table.list()) expect(options).toContain(option);
+  }
+);
+
+Then(
+  'the inventory gives {string} no SSH option {string}',
+  (world, host: string, option: string) => {
+    expect(
+      String(inventoryHost(world, host)['ansible_ssh_common_args'])
+    ).not.toContain(option);
+  }
+);
+
+Then("every Ansible run used the package's Ansible configuration", (world) => {
+  const calls = validation(world).commands.calls;
+  expect(calls.length).toBeGreaterThan(0);
+  for (const call of calls)
+    expect(call.options?.env?.['ANSIBLE_CONFIG']).toBe(
+      join(PACKAGE_ROOT, 'ansible', 'ansible.cfg')
+    );
+});
+
 Then('no command reached another machine', (world) => {
   const programs = validation(world).commands.calls.map(
     (call) => call.command[0]

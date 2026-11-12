@@ -43,68 +43,75 @@ export async function codingAuth(
   ];
 }
 
-/** CLIs with no sign-in of their own to check, and why. Each says where
- * its access is proven instead; none is a silent skip.
+/** Registered agent CLIs with no sign-in of their own to check, and why.
+ * Each is `not-applicable` on the proxy route and says where its access is
+ * proven instead; none is a silent skip.
  */
 export const PROXY_ROUTED: Record<string, string> = {
   gemini:
     'gemini signs in through the CLI proxy and has no T3 launcher; provider:gemini:inference proves its route from this node.',
   opencode:
     'opencode signs in through the CLI proxy; agent:muse:session and the per-account agent:opencode sessions prove it from this node.',
+  grok: 'grok reads the proxy key from its environment and has no grok login; agent:grok:session proves it from this node.',
+  antigravity:
+    'antigravity signs in through the CLI proxy; agent:antigravity:session proves it from this node.',
 };
 
+/** The services a computer signs in to, each checked as `auth:<id>`. */
+const SERVICES: Service[] = [
+  {
+    id: 'railway',
+    command: ['railway', 'whoami', '--json'],
+    action: 'Run railway login on this computer.',
+    valid: (result) => typeof json(result)?.['id'] === 'string',
+  },
+  {
+    id: 'vercel',
+    command: ['vercel', 'whoami'],
+    action: 'Run vercel login on this computer.',
+    valid: (result) =>
+      /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$/.test(result.stdout.trim()),
+  },
+  {
+    id: 'cloudflare',
+    command: ['wrangler', 'whoami', '--json'],
+    action: 'Run wrangler login on this computer.',
+    valid: (result) => json(result)?.['loggedIn'] === true,
+  },
+  {
+    id: 'aws',
+    command: [
+      'aws',
+      'sts',
+      'get-caller-identity',
+      '--output',
+      'json',
+      '--no-cli-pager',
+    ],
+    action:
+      'Select and authenticate the intended AWS profile on this computer.',
+    valid: (result) =>
+      typeof json(result)?.['Account'] === 'string' &&
+      typeof json(result)?.['Arn'] === 'string',
+  },
+  {
+    id: 'npm',
+    command: ['npm', 'whoami', '--registry=https://registry.npmjs.org/'],
+    action: 'Run npm login only if this computer should publish packages.',
+    valid: (result) =>
+      /^[a-z0-9][a-z0-9._-]{0,213}$/.test(result.stdout.trim()),
+  },
+];
+export const SERVICE_IDS = SERVICES.map((service) => service.id);
+
 export async function serviceAuth(run: Runner): Promise<Check[]> {
-  const services: Service[] = [
-    {
-      id: 'railway',
-      command: ['railway', 'whoami', '--json'],
-      action: 'Run railway login on this computer.',
-      valid: (result) => typeof json(result)?.['id'] === 'string',
-    },
-    {
-      id: 'vercel',
-      command: ['vercel', 'whoami'],
-      action: 'Run vercel login on this computer.',
-      valid: (result) =>
-        /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,100}$/.test(result.stdout.trim()),
-    },
-    {
-      id: 'cloudflare',
-      command: ['wrangler', 'whoami', '--json'],
-      action: 'Run wrangler login on this computer.',
-      valid: (result) => json(result)?.['loggedIn'] === true,
-    },
-    {
-      id: 'aws',
-      command: [
-        'aws',
-        'sts',
-        'get-caller-identity',
-        '--output',
-        'json',
-        '--no-cli-pager',
-      ],
-      action:
-        'Select and authenticate the intended AWS profile on this computer.',
-      valid: (result) =>
-        typeof json(result)?.['Account'] === 'string' &&
-        typeof json(result)?.['Arn'] === 'string',
-    },
-    {
-      id: 'npm',
-      command: ['npm', 'whoami', '--registry=https://registry.npmjs.org/'],
-      action: 'Run npm login only if this computer should publish packages.',
-      valid: (result) =>
-        /^[a-z0-9][a-z0-9._-]{0,213}$/.test(result.stdout.trim()),
-    },
-  ];
   const checks: Check[] = [];
-  for (const service of services) checks.push(await serviceCheck(service, run));
+  for (const service of SERVICES) checks.push(await serviceCheck(service, run));
   checks.push(await copilotCheck(run));
   for (const [id, reason] of Object.entries(PROXY_ROUTED))
     checks.push({
       id: `auth:${id}`,
-      status: 'skip',
+      status: 'not-applicable',
       required: false,
       summary: `AUTH_NOT_SUPPORTED_ON_ROUTE: ${reason}`,
     });

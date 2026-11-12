@@ -124,6 +124,18 @@ Feature: The shared toolchain is published as the global mise configuration
       When the trusted path "~/a" is added to it
       Then it is refused with "global config"
 
+    Scenario: A project's own tools are installed only from the project's lock
+      A project pins the tools dev-fleet does not ship in its own mise.toml.
+      On a fleet machine this repository's mise.toml is the global
+      configuration, published with settings that make mise refuse a
+      project tool its mise.lock does not name. mise reads locked_scopes only
+      from the global configuration.
+      When the global configuration is published
+      Then the published setting "locked" is true
+      And the published setting "locked_scopes" holds exactly ["project"]
+      And the mise.toml of this repository has no setting "locked"
+      And the mise.toml of this repository has no setting "locked_scopes"
+
     Scenario: The repository's mise.toml leaves trusted paths to the global configuration
       mise warns about the setting in a project configuration and ignores it.
       Then the mise.toml of this repository has no setting "trusted_config_paths"

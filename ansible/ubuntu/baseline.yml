@@ -10,6 +10,10 @@
     - name: Require a supported Ubuntu release
       ansible.builtin.import_tasks: tasks/release.yml
       tags: [always]
+    - name: Require the minimum worker size and size the disk and memory lines
+      ansible.builtin.import_tasks: tasks/sizing.yml
+    - name: Leave out what the features this worker lacks would install
+      ansible.builtin.import_tasks: tasks/features.yml
     - name: Require an explicit non-root user
       ansible.builtin.assert:
         that:
@@ -51,7 +55,7 @@
     - name: Preserve management capacity instead of installing into an exhausted disk
       ansible.builtin.assert:
         that:
-          - item.freeMiB >= minimumFreeDiskMiB
+          - item.freeMiB >= worker_minimum_free_disk_mib | int
           - item.freeInodes >= minimumFreeInodes
         fail_msg: RESOURCE_CAPACITY_REQUIRED; inspect disk space and inodes on the reported filesystem. Preserve developer work; the disk GC removes only build output and caches, so what remains needs a person.
       loop: '{{ capacity.stdout | from_json }}'
@@ -62,6 +66,7 @@
       ansible.builtin.assert:
         that: "'docker-ce' not in ansible_facts.packages and 'containerd.io' not in ansible_facts.packages"
         fail_msg: DOCKER_OWNER_CONFLICT; migrate the existing Docker owner explicitly before applying the Ubuntu-native baseline.
+      when: worker_containers_on | bool
     - name: Inspect existing service ownership
       ansible.builtin.service_facts:
   tasks:
@@ -69,6 +74,10 @@
       ansible.builtin.import_tasks: tasks/packages.yml
     - name: Configure Docker
       ansible.builtin.import_tasks: tasks/docker.yml
+      when: worker_containers_on | bool
+    - name: Remove what dev-fleet installed for containers
+      ansible.builtin.import_tasks: tasks/containers-off.yml
+      when: not worker_containers_on | bool
     - name: Install the browser for web workers
       ansible.builtin.import_tasks: tasks/browser.yml
       when: "'web' in worker_tool_profiles | default([])"
@@ -80,6 +89,10 @@
       ansible.builtin.import_tasks: tasks/user.yml
     - name: Configure SSH
       ansible.builtin.import_tasks: tasks/ssh.yml
+    # A container's network belongs to its host, which owns the firewall.
+    - name: Admit inbound traffic only over loopback and the tailnet
+      ansible.builtin.import_tasks: tasks/firewall.yml
+      when: ansible_facts.virtualization_type not in ['docker', 'container', 'podman', 'lxc', 'systemd-nspawn']
     - name: Install the credential helpers
       ansible.builtin.import_tasks: tasks/credentials.yml
       when: development_source is defined

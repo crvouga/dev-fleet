@@ -51,17 +51,19 @@ const COLUMNS: { title: string; matches: (id: string) => boolean }[] = [
   },
 ];
 
-const ORDER: Status[] = ['fail', 'warn', 'skip', 'pass'];
+const ORDER: Status[] = ['fail', 'warn', 'skip', 'not-applicable', 'pass'];
 const WORD: Record<Status, string> = {
   fail: 'FAIL',
   warn: 'WARN',
   skip: 'SKIP',
+  'not-applicable': 'N/A',
   pass: 'PASS',
 };
 const SYMBOL: Record<Status, string> = {
   fail: '✖',
   warn: '▲',
   skip: '○',
+  'not-applicable': '–',
   pass: '✔',
 };
 
@@ -104,7 +106,7 @@ export function managerText(
   const lines: string[] = [header(c, report, failing, options)];
   lines.push('', ...grid(c, report.nodes, mark, options.color === true));
   lines.push('', totals(c, counts, options.color === true));
-  for (const status of ['fail', 'warn', 'skip'] as const) {
+  for (const status of ['fail', 'warn', 'skip', 'not-applicable'] as const) {
     const problems = groupProblems(
       all.filter((entry) => entry.check.status === status)
     );
@@ -120,6 +122,8 @@ export function managerText(
     lines.push(
       `${c.dim('report   ')}  ${options.reportPath} ${c.dim('(full JSON; or rerun with --json)')}`
     );
+  if (report.enrolled?.length)
+    lines.push(`${c.dim('enrolled ')}  ${report.enrolled.join(', ')}`);
   if (report.candidates)
     lines.push(
       `${c.dim('tailnet  ')}  ${report.candidates} unmanaged device(s) seen; discovery never enrolls them`
@@ -138,10 +142,11 @@ export function stableUrls(text: string): string {
   return text.replace(TAILNET_URL, 'its private tailnet address');
 }
 
-const SECTION: Record<'fail' | 'warn' | 'skip', string> = {
+const SECTION: Record<'fail' | 'warn' | 'skip' | 'not-applicable', string> = {
   fail: 'Failing — fix these',
   warn: 'Warnings — outside the fleet; sync still succeeds',
   skip: 'Not observable on this hardware',
+  'not-applicable': 'Not applicable to this machine — with the reason',
 };
 
 function header(
@@ -268,22 +273,32 @@ function totals(
   counts: Record<Status, number>,
   color: boolean
 ): string {
-  return ORDER.map((status) => {
-    const text = `${color ? `${SYMBOL[status]} ` : ''}${counts[status]} ${LABEL[status]}`;
-    // A zero count is not a signal: never show red/yellow for "0 failing".
-    return counts[status] ? paint(c, status, text) : c.dim(text);
-  }).join(c.dim('   '));
+  // Not-applicable checks are listed only on machines that have some.
+  return ORDER.filter((status) => status !== 'not-applicable' || counts[status])
+    .map((status) => {
+      const text = `${color ? `${SYMBOL[status]} ` : ''}${counts[status]} ${LABEL[status]}`;
+      // A zero count is not a signal: never show red/yellow for "0 failing".
+      return counts[status] ? paint(c, status, text) : c.dim(text);
+    })
+    .join(c.dim('   '));
 }
 
 const LABEL: Record<Status, string> = {
   fail: 'failing',
   warn: 'warnings',
   skip: 'skipped',
+  'not-applicable': 'not applicable',
   pass: 'passing',
 };
 
 function count(checks: Check[]): Record<Status, number> {
-  const counts: Record<Status, number> = { pass: 0, warn: 0, fail: 0, skip: 0 };
+  const counts: Record<Status, number> = {
+    pass: 0,
+    warn: 0,
+    fail: 0,
+    skip: 0,
+    'not-applicable': 0,
+  };
   for (const check of checks)
     counts[
       blocking(check) || check.status !== 'fail' ? check.status : 'warn'
@@ -295,7 +310,12 @@ function worst(checks: Check[]): Status | null {
   if (!checks.length) return null;
   if (checks.some(blocking)) return 'fail';
   if (
-    checks.some((check) => check.status !== 'pass' && check.status !== 'skip')
+    checks.some(
+      (check) =>
+        check.status !== 'pass' &&
+        check.status !== 'skip' &&
+        check.status !== 'not-applicable'
+    )
   )
     return 'warn';
   return checks.every((check) => check.status === 'skip') ? 'skip' : 'pass';
@@ -306,7 +326,7 @@ function paint(c: ChalkInstance, status: Status, text: string): string {
     ? c.red(text)
     : status === 'warn'
       ? c.yellow(text)
-      : status === 'skip'
+      : status === 'skip' || status === 'not-applicable'
         ? c.dim(text)
         : c.green(text);
 }

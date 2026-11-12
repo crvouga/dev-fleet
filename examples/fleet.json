@@ -110,6 +110,7 @@
     "vaultUser": "example-user",
     "toolchain": "mise.lock",
     "toolProfiles": ["go"],
+    "features": { "containers": true, "session": "desktop" },
     "agentProfile": "proxy",
     "unattendedSudo": true,
     "persistentT3": true,

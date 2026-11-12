@@ -16,13 +16,27 @@ import { probeSource } from './probe-source';
 import { executeRepairCommand } from './repair';
 import { scheduleCheck } from '../schedule-check';
 import { readHistory } from '../state/history';
+import { withUsage } from '../worker-activity';
+import { activeNodes, appendUsage } from './worker-usage-report';
+import { fleet, secret } from '../fleet-config';
+import { appendTailnetLeftovers } from '../tailnet-cleanup';
+import { fleetTailnetControl, type TailnetControl } from '../tailnet-control';
 
 export interface FleetServices {
   run: Runner;
   source: () => Promise<string>;
+  /** The tailnet control plane fleet.json declares, asked for devices
+   * tagged as workers that no declared worker accounts for. Absent, or null,
+   * fleet-status says nothing about them.
+   */
+  tailnet?: () => Promise<TailnetControl | null>;
 }
 
-const SERVICES: FleetServices = { run: runCommand, source: probeSource };
+const SERVICES: FleetServices = {
+  run: runCommand,
+  source: probeSource,
+  tailnet: () => fleetTailnetControl(fleet.tailnet, secret),
+};
 
 export async function executeFleet(
   command: string,
@@ -114,9 +128,11 @@ async function diagnose(
   settings: Settings & { missingRoster: boolean },
   services: FleetServices
 ): Promise<CommandOutcome> {
-  const source = nodes.length ? await services.source() : undefined;
+  // A parked worker is not contacted; it is listed as parked.
+  const active = activeNodes(nodes);
+  const source = active.length ? await services.source() : undefined;
   const reports = await doctor(
-    nodes,
+    active,
     {
       root: settings.workspace,
       local: options.local === true,
@@ -129,8 +145,19 @@ async function diagnose(
   if (!options.local && settings.missingRoster) reports.push(missingRoster());
   const schedule = scheduleCheck(readHistory(), new Date());
   if (schedule) reports[0]?.checks.push(schedule);
+  // What each worker is doing, unless only this manager is checked.
+  const usage = await usageOf(
+    reports,
+    active,
+    services.run,
+    skipsFleet(options, settings)
+  );
+  // Devices tagged as workers that are no declared worker (#123).
+  if (!skipsFleet(options, settings))
+    await appendTailnetLeftovers(reports, fleet, services.tailnet, nodes);
   const report = {
     ...makeReport('doctor', reports),
+    ...(usage ?? {}),
     coverage: {
       scope: options.local
         ? 'local'
@@ -146,8 +173,25 @@ async function diagnose(
   return {
     exitCode: reportExitCode(report, options.strict === true),
     data: report,
-    text: renderReport(report),
+    text: withUsage(renderReport(report), usage),
   };
+}
+
+/** Only this manager is checked: what is said of the fleet is skipped. */
+function skipsFleet(
+  options: CliOptions,
+  settings: { missingRoster: boolean }
+): boolean {
+  return Boolean(options.local || settings.missingRoster);
+}
+
+function usageOf(
+  reports: NodeReport[],
+  nodes: FleetNode[],
+  run: Runner,
+  skip: boolean
+) {
+  return skip ? Promise.resolve(null) : appendUsage(reports, nodes, { run });
 }
 
 function missingRoster(): NodeReport {

@@ -41,8 +41,10 @@ dev-fleet is opinionated. These are part of it, not options:
 
 - The **manager** is a macOS machine. You run `fleet-sync` on it, and it hosts
   the shared services (the CLI proxy and the monitoring hub) in Docker Desktop.
-- **Workers** are Ubuntu 26.04 machines reached over SSH. They are stateless:
-  everything on them is rebuilt from Git and your secrets. The
+- **Workers** are Ubuntu 26.04 or 24.04 machines reached over SSH. They are stateless:
+  everything on them is rebuilt from Git and your secrets.
+  [What a worker must offer](docs/worker-requirements.md) is one page: image,
+  architecture, size, access, first-boot data and network. The
   [support matrix](docs/support-matrix.md) lists every platform and what
   happens to it.
 - The fleet state is kept in an **S3-compatible bucket** you own.
@@ -133,6 +135,13 @@ the first reachable worker, or the one `canary` in `fleet.json` (or
 `--canary`) names when it is reachable. An offline worker never holds the
 others back.
 
+A sync never ends a running agent turn. A worker's T3 that must restart for
+a new release or provider policy restarts only once it runs no agent turn;
+until then the restart is pending and the worker's recovery timer applies it
+at the first idle check. `fleet-sync --restart-busy` restarts it at once and
+ends those turns, and `fleet-sync --dry-run` (with or without the flag) says
+which of the two a sync would do.
+
 To go back, run `npx devfleet fleet-sync --rollback` on the manager: it
 converges every machine to the revision applied before the current one, which
 the fleet state records. A rollback covers what a revision declares: the
@@ -147,8 +156,10 @@ On a fleet machine the global mise configuration (`~/.config/mise/config.toml`
 and its `mise.lock`) belongs to dev-fleet: `fleet-sync` publishes it with the
 fleet's pinned tools and the agent worktree roots mise must trust. A project
 pins its own tools in its own `mise.toml` and installs them with
-`mise install --locked` in its checkout. It never publishes a global
-configuration. If anything replaces dev-fleet's, `fleet-status` fails the check
+`mise install --locked` in its checkout. On a fleet machine mise installs a
+project's tools only from the project's `mise.lock` (run `mise lock` after
+changing a pin); a tool the lock does not name is refused. A project never
+publishes a global configuration. If anything replaces dev-fleet's, `fleet-status` fails the check
 `tool:global-mise-config` until the next `fleet-sync`.
 
 ## Using it from code
@@ -226,6 +237,12 @@ propagates them without a full sync.
      }
    }
    ```
+
+   A worker may add `"features": { "preset": "editing" }` for a rented
+   machine that only edits code: no Docker, and T3 as a headless server with
+   no desktop. `containers` and `session` set each one; fleet-wide defaults go
+   under `worker.features`. The [worker contract](docs/worker-contract.md)
+   says what each feature installs and the minimum size of a worker.
 
 3. Run `fleet-sync`. A machine that has only an SSH server and an account
    with sudo is enough: every pull request proves that against a bare

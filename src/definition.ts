@@ -5,6 +5,11 @@ import {
   type WorkerPolicy,
 } from './worker-policy';
 import type { ToolProfile } from '../bootstrap/worker-tools';
+import {
+  featuresFault,
+  type Preset,
+  type Session,
+} from '../bootstrap/worker-features';
 import { readFileSync } from 'node:fs';
 import { FleetUsageError } from './errors';
 import { parseConfig, record } from './config';
@@ -20,19 +25,84 @@ import {
 import { parseNotify, type NotifyConfig } from './notify';
 import { UBUNTU_RELEASES, ubuntuRelease } from './platform/ubuntu-release';
 import { parseGithubPolicy, type GithubPolicy } from './github/policy';
+import {
+  EXPOSURE_EXPECTED,
+  parseExposure,
+  type ExposureDeclaration,
+} from './exposure';
+import { parseTailnetConfig, type TailnetConfig } from './tailnet-control';
 
 export interface MachineDefinition {
   id: string;
-  ssh: string;
+  /** A Host alias in the operator's own SSH configuration: an optional
+   * override. Without one the worker is reached from `network` alone, with
+   * its host key pinned in the fleet state (src/ssh-connection.ts).
+   */
+  ssh?: string;
   os: 'linux';
   /** Tool profiles this worker adds to the fleet-wide ones. */
   toolProfiles?: ToolProfile[];
+  /** This worker's exposure, over the fleet-wide one (src/exposure.ts). */
+  exposure?: ExposureDeclaration;
+  /** This worker's features, over the fleet-wide `worker.features`. */
+  features?: FeaturesDefinition;
+  /** Who restarts this machine after a power loss when it is a virtual
+   * machine, such as "provider restarts instances"; shown with
+   * worker:power-loss-recovery, which does not apply to one. */
+  powerRecoveryNote?: string;
   network?: {
     tailscaleName: string;
     user: string;
     sshPort: number;
     t3Port: number;
+    /** The SSH host public key, `TYPE BASE64`, given as data (a worker
+     * record): the pinned key, ahead of one pinned in the fleet state.
+     */
+    hostKey?: string;
   };
+  /** Free-form labels from a worker record; only displayed. */
+  labels?: Record<string, string>;
+  /** What the worker costs while it runs; only displayed and summed. */
+  billing?: WorkerBilling;
+  /** `records`: read from a file or command `workerRecords` names, so it is
+   * retired by itself when its record disappears.
+   */
+  origin?: 'records';
+}
+export interface WorkerBilling {
+  /** The declared cost of one hour of running. No pricing API is asked. */
+  hourlyRate: number;
+  /** ISO 4217 code, such as USD. */
+  currency?: string;
+  note?: string;
+}
+/** Workers that are stopped on purpose, and when an idle one is reported. */
+export interface ParkingPolicy {
+  /** A worker with no agent activity for this long is `worker:idle`. */
+  idleAfterHours?: number;
+  /** fleet-watch parks a worker idle longer than idleAfterHours. Off unless
+   * true.
+   */
+  autoPark?: boolean;
+  /** Run with the worker ID as the last argument when a worker is parked
+   * (stop) or resumed (start): an infrastructure tool, never a provider API
+   * dev-fleet calls itself.
+   */
+  stop?: string[];
+  start?: string[];
+}
+
+/** The name SSH connects to: the alias, or the declared tailnet name. */
+export function sshTarget(worker: MachineDefinition): string {
+  return worker.ssh ?? worker.network!.tailscaleName;
+}
+/** Declared worker features (bootstrap/worker-features.ts): a preset, then
+ * single features over it. Absent, a worker has containers and a desktop
+ * session, as every worker had before features existed. */
+export interface FeaturesDefinition {
+  preset?: Preset;
+  containers?: boolean;
+  session?: Session;
 }
 /** The singleton manager: the human's machine. It runs fleet-sync and hosts
  * every singleton service; it is never converged over SSH. */
@@ -41,6 +111,8 @@ export interface ManagerDefinition {
   os: 'macOS';
   network: { tailscaleName: string; user: string };
   neverSleepOnPower: true;
+  /** How often its scheduled jobs run, when not the policy's default. */
+  schedule?: { syncMinutes?: number; watchMinutes?: number };
 }
 export interface FleetDefinition {
   version: 3;
@@ -91,6 +163,12 @@ export interface FleetDefinition {
   ubuntu: { release: string; architectures: string[] };
   /** How every node signs in to GitHub; defaults when absent. */
   github?: GithubPolicy;
+  /** The tailnet control plane new workers are enrolled with, unattended.
+   * Absent, a worker joins the tailnet through its own login.
+   */
+  tailnet?: TailnetConfig;
+  /** Parking and idle reporting (docs/topology.md). */
+  parking?: ParkingPolicy;
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
 export interface AccountPolicy {
@@ -130,6 +208,11 @@ export interface GitIdentity {
    * credentials, proving it can push (`worker:git-push-auth`).
    */
   verifyRepository?: string;
+  /** Sign every commit and tag. `ssh`: each node signs with a key of its own,
+   * made on the node by `ansible/github/git.yml`; the private key never
+   * leaves it (`worker:git-signing`).
+   */
+  signing?: 'ssh';
 }
 const ID = /^[a-z][a-z0-9-]{0,62}$/;
 const HOST = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/;
@@ -218,7 +301,7 @@ function network(
   path: string
 ): NonNullable<MachineDefinition['network']> {
   const fields = object(value, path);
-  keys(fields, ['tailscaleName', 'user', 'sshPort', 't3Port'], path);
+  keys(fields, ['tailscaleName', 'user', 'sshPort', 't3Port', 'hostKey'], path);
   return {
     tailscaleName: text(
       fields['tailscaleName'],
@@ -229,6 +312,113 @@ function network(
     user: text(fields['user'], USER, `${path}.user`, 'a login name'),
     sshPort: port(fields['sshPort'], `${path}.sshPort`),
     t3Port: port(fields['t3Port'], `${path}.t3Port`),
+    ...(fields['hostKey'] === undefined
+      ? {}
+      : {
+          hostKey: text(
+            fields['hostKey'],
+            HOST_KEY,
+            `${path}.hostKey`,
+            'one SSH public key, "TYPE BASE64"'
+          ),
+        }),
+  };
+}
+/** One OpenSSH host public key without a comment. */
+export const HOST_KEY =
+  /^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{16,}$/;
+const LABEL = /^[a-z][a-z0-9_.-]{0,31}$/;
+function labels(value: unknown, path: string): Record<string, string> {
+  const fields = object(value, path);
+  const entries = Object.entries(fields);
+  if (entries.length > 32) fail(path, 'at most 32 labels', value);
+  for (const [name, label] of entries) {
+    if (!LABEL.test(name))
+      fail(`${path}.${name}`, 'a lowercase label name', name);
+    text(label, /^[^\x00-\x1f\x7f]{0,128}$/, `${path}.${name}`, 'a short text');
+  }
+  return fields as Record<string, string>;
+}
+function billing(value: unknown, path: string): WorkerBilling {
+  const fields = object(value, path);
+  keys(fields, ['hourlyRate', 'currency', 'note'], path);
+  const rate = fields['hourlyRate'];
+  if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0)
+    fail(`${path}.hourlyRate`, 'a number of at least 0', rate);
+  return {
+    hourlyRate: rate as number,
+    ...(fields['currency'] === undefined
+      ? {}
+      : {
+          currency: text(
+            fields['currency'],
+            /^[A-Z]{3}$/,
+            `${path}.currency`,
+            'a three-letter currency code'
+          ),
+        }),
+    ...(fields['note'] === undefined
+      ? {}
+      : {
+          note: text(
+            fields['note'],
+            /^[^\x00-\x1f\x7f]{1,200}$/,
+            `${path}.note`,
+            'a short text'
+          ),
+        }),
+  };
+}
+function argv(value: unknown, path: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 64 ||
+    !value.every(
+      (entry) =>
+        typeof entry === 'string' && /^[^\x00-\x1f\x7f]{1,1024}$/.test(entry)
+    )
+  )
+    return fail(path, 'a command as a list of arguments', value);
+  return value as string[];
+}
+function idleHours(
+  fields: Record<string, unknown>,
+  path: string
+): number | undefined {
+  const hours = fields['idleAfterHours'];
+  if (
+    hours !== undefined &&
+    (typeof hours !== 'number' || !(hours >= 1) || hours > 8760)
+  )
+    fail(`${path}.idleAfterHours`, 'a number of hours from 1 to 8760', hours);
+  const autoPark = fields['autoPark'];
+  if (autoPark !== undefined && typeof autoPark !== 'boolean')
+    fail(`${path}.autoPark`, 'true or false', autoPark);
+  if (autoPark === true && hours === undefined)
+    fail(
+      `${path}.idleAfterHours`,
+      'a number of hours, since autoPark is on',
+      hours
+    );
+  return hours as number | undefined;
+}
+function parking(value: unknown): ParkingPolicy {
+  const path = '$.parking';
+  const fields = object(value, path);
+  keys(fields, ['idleAfterHours', 'autoPark', 'stop', 'start'], path);
+  const hours = idleHours(fields, path);
+  return {
+    ...(hours === undefined ? {} : { idleAfterHours: hours }),
+    ...(fields['autoPark'] === undefined
+      ? {}
+      : { autoPark: fields['autoPark'] as boolean }),
+    ...(fields['stop'] === undefined
+      ? {}
+      : { stop: argv(fields['stop'], `${path}.stop`) }),
+    ...(fields['start'] === undefined
+      ? {}
+      : { start: argv(fields['start'], `${path}.start`) }),
   };
 }
 function port(value: unknown, path: string): number {
@@ -238,18 +428,44 @@ function port(value: unknown, path: string): number {
 }
 function worker(value: unknown, path: string): MachineDefinition {
   const fields = object(value, path);
-  keys(fields, ['id', 'ssh', 'os', 'network', 'toolProfiles'], path);
+  keys(
+    fields,
+    [
+      'id',
+      'ssh',
+      'os',
+      'network',
+      'toolProfiles',
+      'exposure',
+      'features',
+      'powerRecoveryNote',
+      'labels',
+      'billing',
+      'origin',
+    ],
+    path
+  );
   const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
-  const ssh = text(fields['ssh'], HOST, `${path}.ssh`, 'an SSH host alias');
+  // Without an alias the worker is reached from its network block.
+  const ssh =
+    fields['ssh'] === undefined && fields['network'] !== undefined
+      ? undefined
+      : text(
+          fields['ssh'],
+          HOST,
+          `${path}.ssh`,
+          'an SSH host alias, or a network block to connect from'
+        );
   // Workers are the Linux boxes; any other platform is not a worker.
   constant(fields['os'], 'linux', `${path}.os`);
   return {
     id,
-    ssh,
+    ...(ssh === undefined ? {} : { ssh }),
     os: 'linux',
     ...(fields['network']
       ? { network: network(fields['network'], `${path}.network`) }
       : {}),
+    ...described(fields, path),
     ...(fields['toolProfiles'] === undefined
       ? {}
       : {
@@ -261,12 +477,60 @@ function worker(value: unknown, path: string): MachineDefinition {
               fields['toolProfiles']
             ),
         }),
+    ...(fields['exposure'] === undefined
+      ? {}
+      : {
+          exposure:
+            parseExposure(fields['exposure']) ??
+            fail(`${path}.exposure`, EXPOSURE_EXPECTED, fields['exposure']),
+        }),
+    ...(fields['features'] === undefined
+      ? {}
+      : { features: features(fields['features'], `${path}.features`) }),
+    ...(fields['powerRecoveryNote'] === undefined
+      ? {}
+      : {
+          powerRecoveryNote: text(
+            fields['powerRecoveryNote'],
+            /^[^\n\r]{1,120}$/,
+            `${path}.powerRecoveryNote`,
+            'one line of at most 120 characters'
+          ),
+        }),
   };
+}
+/** What a worker record says about a worker beside how to reach it: its
+ * labels, what it costs and that it came from a record.
+ */
+function described(
+  fields: Record<string, unknown>,
+  path: string
+): Pick<MachineDefinition, 'labels' | 'billing' | 'origin'> {
+  return {
+    ...(fields['labels'] === undefined
+      ? {}
+      : { labels: labels(fields['labels'], `${path}.labels`) }),
+    ...(fields['billing'] === undefined
+      ? {}
+      : { billing: billing(fields['billing'], `${path}.billing`) }),
+    ...(fields['origin'] === undefined
+      ? {}
+      : { origin: constant(fields['origin'], 'records', `${path}.origin`) }),
+  };
+}
+/** A `features` block: fleet-wide under `worker`, or one worker's own. */
+export function features(value: unknown, path: string): FeaturesDefinition {
+  const fields = object(value, path);
+  keys(fields, ['preset', 'containers', 'session'], path);
+  const fault = featuresFault(fields);
+  if (fault !== null)
+    fail(`${path}.${fault.field}`, fault.expected, fields[fault.field]);
+  return fields as FeaturesDefinition;
 }
 function manager(value: unknown): ManagerDefinition {
   const path = '$.manager';
   const fields = object(value, path);
-  keys(fields, ['id', 'os', 'network', 'neverSleepOnPower'], path);
+  keys(fields, ['id', 'os', 'network', 'neverSleepOnPower', 'schedule'], path);
   const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
   // The manager must be the Mac: a Linux machine is a worker.
   constant(fields['os'], 'macOS', `${path}.os`);
@@ -290,7 +554,31 @@ function manager(value: unknown): ManagerDefinition {
     os: 'macOS',
     network: { tailscaleName, user },
     neverSleepOnPower: true,
+    ...(fields['schedule'] === undefined
+      ? {}
+      : { schedule: schedule(fields['schedule'], `${path}.schedule`) }),
   };
+}
+
+function schedule(
+  value: unknown,
+  path: string
+): NonNullable<ManagerDefinition['schedule']> {
+  const fields = object(value, path);
+  keys(fields, ['syncMinutes', 'watchMinutes'], path);
+  const result: NonNullable<ManagerDefinition['schedule']> = {};
+  for (const key of ['syncMinutes', 'watchMinutes'] as const) {
+    const minutes = fields[key];
+    if (minutes === undefined) continue;
+    if (
+      !Number.isInteger(minutes) ||
+      Number(minutes) < 5 ||
+      Number(minutes) > 1440
+    )
+      fail(`${path}.${key}`, 'whole minutes from 5 to 1440', minutes);
+    result[key] = minutes as number;
+  }
+  return result;
 }
 export function parseDefinition(value: unknown): FleetDefinition {
   const fields = object(value, '$');
@@ -313,6 +601,8 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'git',
       'notify',
       'github',
+      'tailnet',
+      'parking',
     ],
     '$'
   );
@@ -369,11 +659,37 @@ export function parseDefinition(value: unknown): FleetDefinition {
               fields['notify']
             ),
         }),
+    ...operations(fields),
+  };
+}
+/** How every node signs in to GitHub, how workers are parked, and the
+ * tailnet control plane they are enrolled with. */
+function operations(
+  fields: Record<string, unknown>
+): Pick<FleetDefinition, 'github' | 'parking' | 'tailnet'> {
+  return {
     ...(fields['github'] === undefined
       ? {}
       : {
           github: block('$.github', () => parseGithubPolicy(fields['github'])),
         }),
+    ...(fields['parking'] === undefined
+      ? {}
+      : { parking: parking(fields['parking']) }),
+    ...tailnet(fields['tailnet']),
+  };
+}
+/** The tailnet control plane new workers are enrolled with, when declared. */
+function tailnet(value: unknown): { tailnet?: TailnetConfig } {
+  if (value === undefined) return {};
+  return {
+    tailnet:
+      parseTailnetConfig(value) ??
+      fail(
+        '$.tailnet',
+        'api (tailscale or headscale), an https url (required, with user, for headscale) and a tag:name',
+        value
+      ),
   };
 }
 /** The canary is one of the declared workers. */
@@ -557,8 +873,10 @@ function backupStorage(value: unknown, path: string): HubBackups['storage'] {
 function gitIdentity(value: unknown): GitIdentity {
   const path = '$.git';
   const fields = object(value, path);
-  keys(fields, ['name', 'email', 'verifyRepository'], path);
-  const { verifyRepository } = fields;
+  keys(fields, ['name', 'email', 'verifyRepository', 'signing'], path);
+  const { verifyRepository, signing } = fields;
+  if (signing !== undefined && signing !== 'ssh')
+    fail(`${path}.signing`, '"ssh"', signing);
   return {
     // Written into a quoted Git configuration value: no quote, backslash or
     // line break.
@@ -579,6 +897,7 @@ function gitIdentity(value: unknown): GitIdentity {
             'an https URL of a GitHub repository'
           ),
         }),
+    ...(signing === 'ssh' ? { signing } : {}),
   };
 }
 function secrets(value: unknown): SecretsConfig {
@@ -603,10 +922,14 @@ const POLICY: Record<string, string> = {
   neverSleep: 'true',
   toolProfiles: 'a list of known tool profiles, each once',
   tools: 'a list of tool names from dev-fleet’s mise.toml, each once',
+  exposure: EXPOSURE_EXPECTED,
+  features: 'preset, containers and session',
 };
 function policy(value: unknown): WorkerPolicy {
   const fields = object(value, '$.worker');
   keys(fields, Object.keys(POLICY), '$.worker');
+  if (fields['features'] !== undefined)
+    features(fields['features'], '$.worker.features');
   const field = policyFault(fields);
   if (field !== null)
     fail(`$.worker.${field}`, POLICY[field] ?? 'a valid value', fields[field]);
@@ -717,7 +1040,7 @@ export function enrolledRoster(
       throw new FleetUsageError(
         'Roster contains a node that is not a declared worker. Add the worker to fleet.json in Git before rollout; the manager is never a roster node.'
       );
-    if (declared.ssh !== node.ssh)
+    if (sshTarget(declared) !== node.ssh)
       throw new FleetUsageError(
         'Fleet SSH assignment conflicts with the local roster. Review the migration; discovery cannot overwrite explicit assignments.'
       );

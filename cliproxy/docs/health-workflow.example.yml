@@ -1,19 +1,21 @@
 name: CLI proxy health
-# One workflow, five entry points, deliberately cheap by default:
+# Copy this file into .github/workflows/ of the repository that holds your
+# fleet.json, and name the dev-fleet release your package.json pins in the
+# `uses:` line (RELEASE_TAG, such as v1.4.0). The checks are the reusable workflow
+# .github/workflows/cliproxy-health.yml of dev-fleet; this file only says
+# when they run. One workflow, five entry points, deliberately cheap by
+# default:
 #   every 15 min  readiness: free (no inference) + cloud checkpoint freshness
 #   hourly        light: 2 tiny requests per model (about 200 requests a day)
 #   03:41 nightly comprehensive suite (bounded by models.json budgets)
-#   pull request  contract: offline, no credentials, no inference
 #   manual        any profile, one model or one check, optional force-probe
+# The offline contract (no credentials, no inference) runs in dev-fleet's own
+# CI, not here.
 on:
   schedule:
     - cron: '7,22,37,52 * * * *'
     - cron: '17 * * * *'
     - cron: '41 3 * * *'
-  pull_request:
-    paths:
-      - cliproxy/**
-      - .github/workflows/cliproxy-health.yml
   workflow_dispatch:
     inputs:
       profile:
@@ -42,144 +44,19 @@ on:
         description: Probe models even if they were rate limited recently (normally paused to protect quota).
         type: boolean
         default: false
+# A short-lived Vault token from GitHub's OIDC token, and one tracking issue.
 permissions:
   contents: read
-concurrency:
-  group: cliproxy-model-health-${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || github.event_name == 'workflow_dispatch' && inputs.profile || github.event.schedule }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-env:
-  PROFILE: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || github.event.schedule == '41 3 * * *' && 'nightly' || github.event.schedule == '17 * * * *' && 'light' || 'readiness' }}
+  id-token: write
+  issues: write
 jobs:
-  contract:
-    # Pull requests: deterministic protocol, routing and report contracts. No credentials, no inference.
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install PyYAML for the validate-config contract
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends python3-yaml
-      - name: Lint models.json and run the offline contract tests
-        run: |
-          python3 -B cliproxy/scripts/check.py
-          python3 -B -m unittest discover -s cliproxy/tests -p "test_model_*.py"
-      - name: Run the full declarative suite against the local emulator
-        run: |
-          set +e
-          python3 -B cliproxy/scripts/model_health.py model-suite --target mock --profile manual \
-            --fail-on degraded --output model-health-report --seed 1 > /dev/null
-          code=$?
-          if [ -f model-health-report/model-health.md ]; then cat model-health-report/model-health.md >> "$GITHUB_STEP_SUMMARY"; fi
-          exit $code
-      - name: Keep structured report
-        if: ${{ always() && hashFiles('model-health-report/model-health.json') != '' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: model-health-contract-${{ github.run_id }}
-          path: model-health-report
-          retention-days: 14
   health:
-    if: github.event_name != 'pull_request' && github.repository == 'crvouga/dev-fleet' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-      id-token: write
-      issues: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install read-only backup client
-        if: env.PROFILE == 'readiness'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends restic
-      - name: Read-only Vault login using GitHub OIDC
-        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
-        with:
-          url: https://vault.example.com
-          method: jwt
-          path: jwt
-          role: github-actions
-          jwtGithubAudience: https://vault.example.com
-          exportToken: true
-      - name: Verify endpoint and cloud recovery freshness
-        if: env.PROFILE == 'readiness'
-        run: python3 -B cliproxy/scripts/external-health.py
-      - name: Restore last-success and rate-limit state
-        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: model-health-state.json
-          key: cliproxy-model-health-state-${{ github.run_id }}
-          restore-keys: cliproxy-model-health-state-
-      - name: Validate every required model
-        # Bounded spend: the profile's request/token budget, concurrency and timeouts come from models.json;
-        # inference is never retried; a model rate limited recently is not probed again until its pause ends.
-        # The client key is read in-process from Vault and never printed.
-        if: ${{ !cancelled() }}
-        env:
-          MODEL: ${{ inputs.model }}
-          CHECK: ${{ inputs.check }}
-          MAX_REQUESTS: ${{ inputs.max_requests }}
-          SUITE: ${{ inputs.suite || 'all' }}
-          FORCE_PROBE: ${{ inputs.force_probe }}
-        run: |
-          command=model-health
-          fail_on=unhealthy
-          case "$PROFILE" in nightly | manual) command=model-suite; fail_on=degraded ;; esac
-          args=(--profile "$PROFILE" --suite "$SUITE" --fail-on "$fail_on"
-            --output model-health-report --state model-health-state.json)
-          if [ -n "$MODEL" ]; then args+=(--model "$MODEL"); fi
-          if [ -n "$CHECK" ]; then args+=(--check "$CHECK"); fi
-          if [ -n "$MAX_REQUESTS" ]; then args+=(--max-requests "$MAX_REQUESTS"); fi
-          if [ "$FORCE_PROBE" = "true" ]; then args+=(--force-probe); fi
-          set +e
-          python3 -B cliproxy/scripts/model_health.py "$command" "${args[@]}" > /dev/null
-          code=$?
-          if [ -f model-health-report/agent-brief.md ]; then cat model-health-report/agent-brief.md >> "$GITHUB_STEP_SUMMARY"; fi
-          if [ -f model-health-report/model-health.md ]; then cat model-health-report/model-health.md >> "$GITHUB_STEP_SUMMARY"; fi
-          exit $code
-      - name: Save last-success and rate-limit state
-        if: ${{ always() && hashFiles('model-health-state.json') != '' }}
-        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: model-health-state.json
-          key: cliproxy-model-health-state-${{ github.run_id }}
-      - name: Keep structured report
-        if: ${{ always() && hashFiles('model-health-report/model-health.json') != '' }}
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: model-health-${{ env.PROFILE }}-${{ github.run_id }}
-          path: model-health-report
-          retention-days: 30
-      - name: Track findings in one issue per scope
-        # Opens or updates a single tracking issue when the findings change, and closes it when a full
-        # run is healthy. The body is the redacted agent brief: structure and numbers, no prompts or keys.
-        if: ${{ always() && hashFiles('model-health-report/model-health.json') != '' && inputs.model == '' && inputs.check == '' }}
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          scope=live
-          case "$PROFILE" in nightly | manual) scope=nightly ;; esac
-          title="[ops] CLI proxy model health ($scope)"
-          report=model-health-report/model-health.json
-          status=$(jq -r .summary.status "$report")
-          fingerprint=$(jq -r .summary.findings.fingerprint "$report")
-          number=$(gh issue list --state open --search "\"$title\" in:title" --json number,title \
-            --jq "map(select(.title==\"$title\"))[0].number // empty")
-          if [ "$status" = unhealthy ] || [ "$status" = degraded ]; then
-            {
-              head -c 58000 model-health-report/agent-brief.md
-              printf '\n\nRun: %s (artifact model-health-%s-%s)\n<!-- fingerprint: %s -->\n' "$RUN_URL" "$PROFILE" "$GITHUB_RUN_ID" "$fingerprint"
-            } > model-health-report/issue.md
-            if [ -z "$number" ]; then
-              gh issue create --title "$title" --body-file model-health-report/issue.md
-            elif ! gh issue view "$number" --json body --jq .body | grep -q "fingerprint: $fingerprint"; then
-              gh issue edit "$number" --body-file model-health-report/issue.md
-              gh issue comment "$number" --body "Findings changed: $RUN_URL"
-            fi
-          elif [ "$status" = healthy ] && [ -n "$number" ]; then
-            gh issue close "$number" --comment "Healthy again: $RUN_URL"
-          fi
+    uses: crvouga/dev-fleet/.github/workflows/cliproxy-health.yml@RELEASE_TAG
+    with:
+      # Inference only on the hourly schedule; the 15-minute one is free.
+      profile: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || github.event.schedule == '41 3 * * *' && 'nightly' || github.event.schedule == '17 * * * *' && 'light' || 'readiness' }}
+      suite: ${{ inputs.suite || 'all' }}
+      model: ${{ inputs.model || '' }}
+      check: ${{ inputs.check || '' }}
+      max-requests: ${{ inputs.max_requests || '' }}
+      force-probe: ${{ inputs.force_probe == true }}

@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 253 codes; 31 need a person.
+There are 298 codes; 46 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -34,7 +34,7 @@ There are 253 codes; 31 need a person.
 - **Meaning:** A package transaction could not run or the package database is inconsistent.
 - **Confirm:** `ssh WORKER sudo dpkg --audit` and `sudo apt-get -o Debug::NoLocking=1 check`.
 - **Fix:** Let any running package process finish (it is never killed), free disk under `/var`, then run `devfleet fleet-sync`.
-- **Escalate:** APT_STATE_BROKEN and DPKG_INTERRUPTED need `sudo dpkg --configure -a` by a person once no package process runs.
+- **Escalate:** An interrupted package run is finished by the next `devfleet fleet-sync`: the bootstrap and the baseline each run `dpkg --configure -a` once, bounded. APT_STATE_BROKEN and DPKG_INTERRUPTED mean that repair did not clear `dpkg --audit`: a person repairs the packages it names.
 
 - `APT_DISK_FULL`: apt disk full.
 - `APT_DNS_UNAVAILABLE`: apt dns unavailable.
@@ -104,6 +104,18 @@ There are 253 codes; 31 need a person.
 - `WORKER_RECOVERY_SETUP_FAILED`: worker recovery setup failed.
 - `WORKER_RECOVERY_TIMER_INACTIVE`: worker recovery timer inactive.
 
+## Worker size and features
+
+- **Meaning:** The machine is smaller than the minimum worker (`sizing.minimumWorker` in `ansible/ubuntu/policy.json`), more agent sessions run than its memory policy supports, its declared `features` in `fleet.json` are not ones dev-fleet knows, or something dev-fleet installed for a feature that is now off is still there.
+- **Confirm:** `devfleet fleet-sync --dry-run` shows the `platform:worker-size` check of each worker and, under the plan, what turning a feature off removes; `devfleet fleet-status --workers` shows `worker:features` and `worker:agent-sessions`.
+- **Fix:** Resize a machine below the minimum, then run `devfleet fleet-sync`; nothing was installed on it. For a feature removal, run `devfleet fleet-sync` again. For too many sessions, finish some or move work to a larger worker.
+- **Escalate:** A package another package depends on stays installed until a person removes that one.
+
+- `AGENT_SESSION_CAPACITY_EXHAUSTED`: agent session capacity exhausted: more agent sessions run than the memory policy supports (a warning; the size of a session is an estimate).
+- `WORKER_FEATURES_INVALID`: worker features invalid: the session is neither desktop nor headless.
+- `WORKER_FEATURE_REMOVAL_INCOMPLETE`: worker feature removal incomplete: a Docker package or the docker group membership is still there with containers off.
+- `WORKER_SIZE_BELOW_MINIMUM`: worker size below minimum: less memory, disk or CPUs than the minimum worker. **Needs a person.**
+
 ## Containers on a worker
 
 - **Meaning:** `worker:docker-run` could not start the pinned container or build a one-line image as the worker user.
@@ -119,6 +131,23 @@ There are 253 codes; 31 need a person.
 - `DOCKER_SMOKE_IMAGE_MISSING`: docker smoke image missing.
 - `DOCKER_SOCKET_ACCESS_DENIED`: docker socket access denied.
 
+## Exposure of a worker
+
+- **Meaning:** Something on the worker is reachable from outside the tailnet, or could be: the fleet firewall (`ansible/ubuntu/tasks/firewall.yml`) is not loaded or kept SSH open, a service listens beyond loopback and the tailnet (`worker:exposure`), or the manager reached a fleet port on the worker's public address (`worker:public-reachability`). The exposure policy is `exposure` in `fleet.json` (fleet-wide under `worker`, per worker beside `network`).
+- **Confirm:** On the worker: `sudo nft list table inet personal_fleet`, `sudo ss -H -l -n -t -u -p` and `sudo sshd -T | grep -E 'passwordauthentication|permitrootlogin'`. From the manager: `devfleet fleet-status --workers`.
+- **Fix:** Run `devfleet fleet-sync`. It closes SSH beyond the tailnet only when the manager's session arrives over the tailnet: point the worker's SSH alias at its tailnet name first. Bind a service to `127.0.0.1` or the tailnet address, or declare its port in `publicPorts`.
+- **Escalate:** A firewall the tailnet path could not verify (the previous rules are back) needs `tailscale status` on the worker; a public SSH port is opened on purpose only with `publicSsh`, by a person.
+
+- `FIREWALL_RULES_REJECTED`: firewall rules rejected by `nft --check`; the previous rules stay loaded.
+- `FIREWALL_TAILNET_UNVERIFIED`: the tailnet path did not answer a new probe after the rules loaded; the previous rules were restored.
+- `FIREWALL_UNMANAGED_CONFLICT`: `/etc/personal-fleet/firewall.nft` exists without the fleet's marker. **Needs a person.**
+- `SSH_HARDENING_OVERRIDDEN`: `sshd -T` still allows passwords or root login: an earlier fragment or a Match block wins. **Needs a person.**
+- `WORKER_EXPOSURE_UNOBSERVED`: the addresses, sockets or firewall could not be read with `sudo -n`.
+- `WORKER_FIREWALL_INACTIVE`: the fleet firewall is not loaded.
+- `WORKER_LISTENER_UNRESTRICTED`: a socket listens beyond loopback and the tailnet outside the allow-list; the summary names the port and the owning unit. A fleet service fails; another warns or fails by `otherListeners`.
+- `WORKER_PUBLIC_PORT_UNRESTRICTED`: the manager connected to SSH, T3 or the monitoring port on the worker's public address.
+- `WORKER_PUBLIC_SSH_UNDECLARED`: SSH is still open beyond the tailnet without `publicSsh`, because no session over the tailnet proved the manager's path. **Needs a person.**
+
 ## Headless browser on a worker
 
 - **Meaning:** `worker:browser` could not launch the pinned headless Chromium of the web tool profile.
@@ -133,10 +162,10 @@ There are 253 codes; 31 need a person.
 
 ## Git identity and pushing
 
-- **Meaning:** Commits on the node would carry the wrong author, or git cannot authenticate to GitHub on its own.
+- **Meaning:** Commits on the node would carry the wrong author, would not be signed although `git.signing` is declared, or git cannot authenticate to GitHub on its own.
 - **Confirm:** On the node: `git config --global --get user.name`, and `printf "protocol=https\nhost=github.com\n\n" | GIT_TERMINAL_PROMPT=0 git credential fill >/dev/null`.
 - **Fix:** Declare the `git` block in `fleet.json` and run `devfleet fleet-sync` (`ansible/github/git.yml`). Remove lines in `~/.gitconfig` that override it.
-- **Escalate:** GIT_REMOTE_REFUSED means the fleet account lost access to the declared repository: a person grants it.
+- **Escalate:** GIT_REMOTE_REFUSED means the fleet account lost access to the declared repository: a person grants it. GitHub shows signed commits as verified only once a person adds each node's `~/.ssh/dev-fleet-git-signing.pub` to the account as a signing key.
 
 - `GIT_CONFIGURATION_INCOMPLETE`: git configuration incomplete.
 - `GIT_CREDENTIAL_HELPER_MISSING`: git credential helper missing.
@@ -146,6 +175,9 @@ There are 253 codes; 31 need a person.
 - `GIT_IDENTITY_UNDECLARED`: git identity undeclared.
 - `GIT_REMOTE_REFUSED`: git remote refused. **Needs a person.**
 - `GIT_REMOTE_UNREACHABLE`: git remote unreachable.
+- `GIT_SIGNING_FAILED`: git signing failed: the node's own key is missing or cannot sign without a prompt.
+- `GIT_SIGNING_MISSING`: git signing missing.
+- `GIT_SIGNING_OVERRIDDEN`: git signing overridden.
 
 ## GitHub sign-in
 
@@ -179,6 +211,28 @@ There are 253 codes; 31 need a person.
 - `TAILSCALE_SETUP_OR_LOGIN_REQUIRED`: tailscale setup or login required. **Needs a person.**
 - `TAILSCALE_SOURCE_OWNER_CONFLICT`: tailscale source owner conflict. **Needs a person.**
 - `TAILSCALE_UPGRADE_PENDING`: tailscale upgrade pending. **Needs a person.**
+
+## A new worker with no hands on it
+
+- **Meaning:** A machine created without a person (from a pipeline or infrastructure-as-code) could not be enrolled, joined to the tailnet, given its account or brought to ready in one run: its first boot is still running or failed, the tailnet control plane refused a key, the image lets only root in and the account could not be created, or its first-converge or maintenance reboot did not happen.
+- **Confirm:** The `bootstrap:first-boot`, `tailscale:enrolment-key`, `worker:account` and `worker:reboot` checks of the report `devfleet fleet-sync --json` prints, or the `tailscale:device` check of `fleet-node-replace` and `fleet-node-retire` and the `tailscale:leftover` check of `devfleet fleet-status`, which ask the same control plane; on the worker, `cloud-init status --long`.
+- **Fix:** FIRST_BOOT_PENDING and WORKER_REBOOT_BUSY clear on their own: run `devfleet fleet-sync` again later. A TAILNET code names what to fix in `tailnet` of `fleet.json` or in the secret `tailnet-admin`; then run `devfleet fleet-sync`.
+- **Escalate:** A first boot that failed means the image or its user data is wrong: recreate the machine. A root login that cannot create the declared account needs a person on the machine (`useradd --create-home --shell /bin/bash --groups sudo USER`).
+
+- `FIRST_BOOT_FAILED`: first boot failed: cloud-init ended in an error. **Needs a person.**
+- `FIRST_BOOT_PENDING`: first boot pending: cloud-init still runs; retryable.
+- `TAILNET_ADMIN_REQUIRED`: tailnet admin required: fleet.json declares tailnet without the secret. **Needs a person.**
+- `TAILNET_CONTROL_DENIED`: tailnet control denied the tailnet-admin credential. **Needs a person.**
+- `TAILNET_CONTROL_REJECTED`: tailnet control rejected the request (tag or user). **Needs a person.**
+- `TAILNET_CONTROL_RESPONSE_INVALID`: tailnet control response invalid.
+- `TAILNET_CONTROL_UNAVAILABLE`: tailnet control unavailable.
+- `TAILNET_KEY_DELIVERY_FAILED`: tailnet key delivery failed.
+- `TAILNET_KEY_INVALID`: tailnet key invalid.
+- `WORKER_ACCOUNT_CREATION_FAILED`: worker account creation failed. **Needs a person.**
+- `WORKER_ACCOUNT_ROOT_REQUIRED`: worker account root required. **Needs a person.**
+- `WORKER_ACCOUNT_UNDECLARED`: worker account undeclared in workers[].network.user. **Needs a person.**
+- `WORKER_REBOOT_BUSY`: worker reboot busy: an agent turn runs.
+- `WORKER_REBOOT_FAILED`: worker reboot failed.
 
 ## T3 Code
 
@@ -224,6 +278,8 @@ There are 253 codes; 31 need a person.
 - `T3_PROVIDER_NAMES_PENDING`: t3 provider names pending.
 - `T3_PROVIDER_NAMES_UNVERIFIED`: t3 provider names unverified.
 - `T3_RESTART_PENDING`: t3 restart pending.
+- `T3_SERVER_INSTALL_FAILED`: t3 server install failed: the pinned server of a headless worker is missing from the toolchain, or `t3-headless.yml` did not apply.
+- `T3_SERVER_STOPPED`: t3 server stopped: the lingering `t3code-headless.service` of a headless worker is not running.
 - `T3_SETTINGS_BUSY`: t3 settings busy.
 
 ## Monitoring (Beszel)
@@ -363,6 +419,22 @@ There are 253 codes; 31 need a person.
 - `DEFINITION_UNREADABLE`: definition unreadable.
 - `SSH_HOST_KEY_NOT_CHANGED`: ssh host key not changed.
 
+## Parked, idle, replaced and retired workers
+
+- **Meaning:** a worker could not be parked or resumed (agent turns under way, a declared `parking.stop` or `parking.start` command failed, the sync after a resume did not end ready), a worker whose record disappeared could not be retired, or the manager's T3 link to a replaced or retired worker could not be removed.
+- **Confirm:** `devfleet fleet-status --workers` lists each worker as active or parked, with its uptime, agent turns and last agent activity; the report of `devfleet fleet-node-park`, `devfleet fleet-node-resume` or `devfleet fleet-sync` names the step that failed.
+- **Fix:** For WORKER_BUSY wait for the turns to end, or repeat `devfleet fleet-node-park` with `--force`. For a failed hook, run the command `fleet.json` names under `parking` by hand with the worker ID, then repeat. For WORKER_RESUME_FAILED follow the sync report and run `devfleet fleet-sync --node ID`. For T3_LINK_UNLINK_FAILED remove the link in the manager's T3 (Settings, Connections).
+- **Escalate:** A record retirement that keeps failing at the same step: follow that step's own runbook.
+
+- `T3_LINK_UNLINK_FAILED`: t3 link unlink failed.
+- `WORKER_ACTIVITY_UNREADABLE`: worker activity unreadable. **Needs a person.**
+- `WORKER_AUTO_PARK_REFUSED`: worker auto park refused.
+- `WORKER_BUSY`: worker busy. **Needs a person.**
+- `WORKER_RECORD_RETIREMENT_FAILED`: worker record retirement failed.
+- `WORKER_RESUME_FAILED`: worker resume failed.
+- `WORKER_START_HOOK_FAILED`: worker start hook failed.
+- `WORKER_STOP_HOOK_FAILED`: worker stop hook failed.
+
 ## Fleet operations and the fleet state
 
 - **Meaning:** fleet-sync could not plan, lock, reach a machine, promote a revision or keep the fleet state.
@@ -396,6 +468,19 @@ There are 253 codes; 31 need a person.
 - `MANAGER_UPDATES_UNOBSERVED`: manager updates unobserved.
 - `REMOTE_CONFIGURATION_INCOMPLETE`: remote configuration incomplete.
 - `REMOTE_PHASE_FAILED`: remote phase failed.
+
+## The manager's own policy and scheduled jobs
+
+- **Meaning:** `ansible/macos/manager.yml` did not pass its check-mode run or its apply, or something it declares (network time, the fleet-watch job, the rotation of the scheduled jobs' logs) is not in place.
+- **Confirm:** The `manager:playbook`, `manager:clock`, `manager:watch` and `manager:job-logs` checks of `devfleet fleet-sync --dry-run`; on the manager, the check-mode run the remedy quotes.
+- **Fix:** Run `devfleet fleet-sync`, which applies the playbook in check mode first, then for real. What needs root (power settings, reading network time, newsyslog) comes from the one grant: `ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml`, run again after an upgrade that changed it.
+- **Escalate:** The grant needs an administrator's password, once.
+
+- `MANAGER_CLOCK_UNOBSERVED`: manager clock unobserved: the grant that lets fleet-sync read network time is missing. **Needs a person.**
+- `MANAGER_JOB_LOG_ROTATION_MISSING`: manager job log rotation missing: the newsyslog drop-in the grant installs is missing or outdated. **Needs a person.**
+- `MANAGER_PLAYBOOK_CHECK_FAILED`: manager playbook check failed: nothing was applied.
+- `MANAGER_PLAYBOOK_FAILED`: manager playbook failed.
+- `MANAGER_WATCH_INTERVAL_INVALID`: manager watch interval invalid: `manager.schedule.watchMinutes` is outside 5 to 1440.
 
 ## Notifications (fleet-watch)
 

@@ -29,6 +29,10 @@ export const OPTIONAL_SECRET_NAMES = [
   // A short-lived, single-use, tagged Tailscale auth key a new worker joins
   // the tailnet with (fleet-node-seed).
   'tailnet-auth-key',
+  // An API credential of the tailnet's control plane (tailnet in fleet.json)
+  // that creates one single-use key per new worker. It stays on the manager:
+  // no worker ever receives it.
+  'tailnet-admin',
 ] as const;
 export type SecretName =
   (typeof SECRET_NAMES)[number] | (typeof OPTIONAL_SECRET_NAMES)[number];

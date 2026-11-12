@@ -69,11 +69,15 @@ export class OrchestrationWorld extends World {
     revision?: string;
     /** What deploying a worker reports, or the error it throws. */
     checks: Check[];
+    /** What deploying one named worker reports, instead of `checks`. */
+    byWorker: Record<string, Check[]>;
     error?: string;
     deployed: { worker: string; revision: string }[];
     finished: string[];
     report?: ManagerReport;
-  } = { checks: [], deployed: [], finished: [] };
+    /** When each parked worker was parked. */
+    parked: Record<string, string>;
+  } = { checks: [], byWorker: {}, deployed: [], finished: [], parked: {} };
 
   health: { excludedMobile: number; checks: Check[] } = {
     excludedMobile: 0,

@@ -1,6 +1,6 @@
 # dev-fleet
 
-> dev-fleet keeps a set of development machines in sync: one macOS **manager** and any number of Ubuntu 26.04 **workers** reached over SSH and Tailscale. It is used as the npm package `@crvouga/dev-fleet` (CLI `devfleet`) from a project of your own that holds `fleet.json` and pins the package version; one command, `devfleet fleet-sync`, converges every machine to the commit that version was published from. The fleet state lives in an S3-compatible bucket you own.
+> dev-fleet keeps a set of development machines in sync: one macOS **manager** and any number of Ubuntu (26.04 or 24.04) **workers** reached over SSH and Tailscale. It is used as the npm package `@crvouga/dev-fleet` (CLI `devfleet`) from a project of your own that holds `fleet.json` and pins the package version; one command, `devfleet fleet-sync`, converges every machine to the commit that version was published from. The fleet state lives in an S3-compatible bucket you own.
 
 Rules for an agent working in a project that uses dev-fleet:
 
@@ -16,10 +16,12 @@ Rules for an agent working in a project that uses dev-fleet:
 - [README](https://github.com/crvouga/dev-fleet/blob/main/README.md): what dev-fleet assumes, quickstart, versions, adding a machine, known limits
 - [Example fleet.json](https://github.com/crvouga/dev-fleet/blob/main/examples/fleet.json): a complete configuration with placeholders (`npx devfleet fleet-state --example` prints it)
 - [fleet.json schema](https://github.com/crvouga/dev-fleet/blob/main/schema/fleet.schema.json): JSON Schema for the fleet configuration
+- [Check-ID registry](https://github.com/crvouga/dev-fleet/blob/main/schema/check-ids.json): every check ID a report can carry, with what it means, whether it can block readiness (severity) and what repairs it (a fleet-repair recipe, or why only a person can); generated from the code
 
 ## Operate it
 
 - [Fleet state](https://github.com/crvouga/dev-fleet/blob/main/docs/state.md): the bucket, replication, replacing the manager, what the bucket does not hold yet
+- [Worker requirements](https://github.com/crvouga/dev-fleet/blob/main/docs/worker-requirements.md): what a machine must offer to be a worker (image, architecture, size, access, first-boot data, network), each with its check and failure code, and what changes for a hosted provider
 - [Topology](https://github.com/crvouga/dev-fleet/blob/main/docs/topology.md): the manager and worker roles and the canary
 - [What is declared, and where](https://github.com/crvouga/dev-fleet/blob/main/docs/declared.md): what is pinned on a machine and what is not
 - [Provider accounts](https://github.com/crvouga/dev-fleet/blob/main/docs/accounts.md): the account roster, its states and checks, adding or removing an account, propagation to every node, account selection

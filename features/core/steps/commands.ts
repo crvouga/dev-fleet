@@ -163,6 +163,7 @@ const STATUS: Record<string, Status> = {
   warn: 'warn',
   'is skipped': 'skip',
   'are skipped': 'skip',
+  'is not applicable': 'not-applicable',
 };
 
 function checks(world: CoreWorld): Check[] {
@@ -178,7 +179,7 @@ function checkNamed(world: CoreWorld, id: string): Check {
 }
 
 Then(
-  /^the check "([^"]+)" (passes|fails|warns|is skipped)$/,
+  /^the check "([^"]+)" (passes|fails|warns|is skipped|is not applicable)$/,
   (world, id: string, verdict: string) => {
     expect(checkNamed(world, id).status).toBe(STATUS[verdict]!);
   }
@@ -209,6 +210,22 @@ Then('these checks are skipped, in this order:', (world, table: DataTable) => {
       .map((check) => check.id)
   ).toEqual(table.list());
 });
+
+Then(
+  'these checks are not applicable, saying {string} and where their access is proven:',
+  (world, code: string, table: DataTable) => {
+    const ids = table.list();
+    const found = checks(world).filter(
+      (check) => check.status === 'not-applicable'
+    );
+    expect(found.map((check) => check.id)).toEqual(ids);
+    for (const check of found) {
+      expect(check.summary).toStartWith(`${code}: `);
+      expect(check.summary).toMatch(/\b(agent|provider):[a-z-]+:[a-z-]+\b/);
+      expect(check.required).toBe(false);
+    }
+  }
+);
 
 Then(
   'these skipped checks say {string} and where their access is proven:',

@@ -9,13 +9,19 @@ import {
   recordSchedule,
   type ScheduleRecord,
 } from '../state/history';
-import { scheduleCheck, SCHEDULE_INTERVAL_SECONDS } from '../schedule-check';
+import macos from '../../ansible/macos/policy.json';
+import { fleet } from '../fleet-config';
+import {
+  scheduleCheck,
+  scheduleIntervals,
+  SCHEDULE_INTERVAL_SECONDS,
+} from '../schedule-check';
 import type { Runner } from '../types';
 import type { CommandOutcome } from './contracts';
 import { machineRoot } from './fleet-sync';
 
 /** The launchd label and systemd unit already on running managers. */
-export const SCHEDULE_LABEL = 'personal-fleet-sync';
+export const SCHEDULE_LABEL = macos.fleetSync.label;
 const LABEL = SCHEDULE_LABEL;
 export type ScheduleAction =
   'enable' | 'pause' | 'resume' | 'disable' | 'status';
@@ -31,6 +37,8 @@ interface ScheduleInput {
   /** The manager's caches; tests name their own. */
   root?: string;
   now?: Date;
+  /** How often the schedule runs; `manager.schedule.syncMinutes` otherwise. */
+  intervalSeconds?: number;
 }
 
 /** The published package a schedule installs and runs: its name, exact
@@ -205,14 +213,16 @@ async function enableSchedule(
     return required(
       'The exact CLI package could not be installed in the managed manager runtime. No schedule was enabled.'
     );
+  const intervalSeconds =
+    input.intervalSeconds ?? scheduleIntervals(fleet.manager).syncSeconds;
   const result = platform.installScheduledJob({
     label: LABEL,
-    intervalSeconds: SCHEDULE_INTERVAL_SECONDS,
+    intervalSeconds,
     command: scheduledCommand(published, input.revision, prefix),
     logDir: join(root, 'logs'),
     env: scheduledEnvironment(),
   });
-  if (result.ok) remember(input, true);
+  if (result.ok) remember(input, true, intervalSeconds);
   return {
     exitCode: result.ok ? 0 : 1,
     data: {

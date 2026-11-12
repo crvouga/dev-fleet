@@ -1,6 +1,7 @@
 > This document was written for the fleet dev-fleet was extracted from. Paths and
 > commands were updated; some statements still describe that fleet and are being
-> revised. The README is authoritative.
+> revised. The README is authoritative, and what a machine must offer to be a
+> worker is listed only in [worker requirements](worker-requirements.md).
 
 # Fleet topology: one manager, many workers
 
@@ -8,10 +9,10 @@ The fleet has exactly two roles, declared in
 your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.schema.json)) and validated by
 [`src/definition.ts`](../src/definition.ts):
 
-| Role        | How many    | Machine                               | Holds state | Runs                                                                                     |
-| ----------- | ----------- | ------------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
-| **manager** | exactly one | the human's macOS machine (`manager`) | yes         | `fleet-sync`, the T3 desktop that links to every worker, and **every singleton service** |
-| **workers** | any         | Linux boxes (`workers`, Ubuntu 26.04) | no          | the T3 desktop app (UI plus server), agent tools, the Beszel agent; clients only         |
+| Role        | How many    | Machine                                        | Holds state | Runs                                                                                     |
+| ----------- | ----------- | ---------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------- |
+| **manager** | exactly one | the human's macOS machine (`manager`)          | yes         | `fleet-sync`, the T3 desktop that links to every worker, and **every singleton service** |
+| **workers** | any         | Linux boxes (`workers`, Ubuntu 26.04 or 24.04) | no          | the T3 desktop app (UI plus server), agent tools, the Beszel agent; clients only         |
 
 ## Manager
 
@@ -51,7 +52,9 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
 
 - Stateless cattle: turn one off, re-image it or add another at will. A worker
   is declared in `workers`, enrolled once (SSH trust, sudo, its own Vault
-  token), and then fully rebuilt by `fleet-sync` from Git and Vault.
+  token), and then fully rebuilt by `fleet-sync` from Git and Vault. What a
+  machine must offer before that is listed in
+  [worker requirements](worker-requirements.md).
 - Workers never host a singleton service. The proxy reports any local install
   on a worker as a duplicate owner, and the hub refuses to install anywhere but
   the manager.
@@ -73,5 +76,59 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
 
 - **Add or replace a worker:** add it to `workers`, enroll it with
   `fleet-sync`, done. Remove it by deleting the entry.
+- **Workers an infrastructure tool creates:** `workerRecords` in `fleet.json`
+  names a file (relative to `fleet.json`) or a command that returns worker
+  records, the provider-neutral description of a machine in
+  [`schema/worker-record.schema.json`](../schema/worker-record.schema.json):
+  `id`, `tailnetName` or `address`, `user`, `port`, `hostKey` and optional
+  `labels` and `billing`. Their workers join the inline list; dev-fleet only
+  reads them and never calls a provider or creates a machine. A record that
+  appears is a declared worker, enrolled by the next `fleet-sync`; one that
+  disappears (a file that is gone holds none) is retired by the next
+  `fleet-sync` exactly as `fleet-node-retire` retires one. A worker listed by
+  hand is never retired by itself. An invalid record is refused naming its
+  field, such as `$.workerRecords[0].workers[1].hostKey`.
+  [`examples/workers-from-infrastructure`](../examples/workers-from-infrastructure/main.tf)
+  shows the handoff with a local virtual machine, the seed going in and the
+  record coming out. The canary stays the one `canary` names, so the order
+  of generated records means nothing.
+- **Replace or retire a worker:** `fleet-node-replace` and `fleet-node-retire`
+  take everything of the old machine with it: its pinned host key, its
+  monitoring system (pointed at the new machine, or deleted), the manager's
+  T3 link to its environment (the new one is paired in the manager's T3), its
+  Vault token and its tailnet device. The device is deleted through the
+  control plane fleet.json declares under `tailnet`, asked with the secret
+  `tailnet-admin` (workers are not registered as ephemeral devices); without
+  either, `tailscale:device` is skipped and names the device to remove in the
+  admin console. `fleet-status --workers` warns about a monitoring system that
+  matches no declared worker (`beszel:leftover`), and `fleet-status` about a
+  device carrying the worker tag that is no declared worker, parked or not,
+  and no device the roster binds (`tailscale:leftover`).
+
+## Parked and idle workers
+
+A rented worker costs money while it runs. `devfleet fleet-node-park --id ID`
+records in the fleet state that it is stopped or destroyed on purpose: from
+then on `fleet-sync` and `fleet-status` list it as parked with the time since
+(`worker:parked`, not applicable), never contact it, never make it the
+canary, and it never changes an exit code. Parking refuses while agent turns
+run on it (`WORKER_BUSY`) unless `--force`. `devfleet fleet-node-resume --id
+ID` marks it active and runs `fleet-sync --node ID`, which converges and
+verifies it. `parking.stop` and `parking.start` in `fleet.json` name commands
+(an infrastructure tool, never a provider dev-fleet calls) run with the worker
+ID as their last argument. A parked worker found online on the tailnet is a
+warning (`worker:parked-online`); one that comes back as a new machine goes
+through `fleet-node-replace`.
+
+`fleet-status` reports, for every worker it reaches, its uptime, the agent
+turns under way and the time of the last agent activity, read from what T3
+records (status and times, never a session's content), in its text and as
+`workers` in its JSON. With `parking.idleAfterHours`, a worker with no agent
+activity for longer is `worker:idle` (a warning whose remedy is to park it);
+one with a turn under way never is. `billing.hourlyRate` on a worker (or its
+record) is only displayed and summed: `usage` says how many workers run, how
+many are idle and what the idle ones cost per day. `parking.autoPark: true`
+lets `fleet-watch` park idle workers by itself; it is off unless set.
+
 - **Replace the manager:** follow
   [replacing the manager](manager-recovery.md).

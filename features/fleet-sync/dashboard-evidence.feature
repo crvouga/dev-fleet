@@ -49,6 +49,23 @@ Feature: The health of the workers includes what the dashboard knows of them
         | beszel:connection   | pass   |
         | beszel:freshness    | pass   |
 
+    Scenario: A system that matches no declared worker is a leftover
+      A worker destroyed outside dev-fleet, or removed from fleet.json by
+      hand, leaves its system on the hub.
+      Given health reports, without any check yet, for:
+        | worker-one.tail0a1b2c.ts.net |
+        | worker-two.tail0a1b2c.ts.net |
+      And the hub and its public address answer their health checks
+      And the hub, at version "0.21.1" with the key "ssh-ed25519 x", accepts the fleet login
+      And the hub knows every machine as the system "aaaaaaaaaaaaaaa" with the status "up", and has just received a sample
+      And the hub also watches a system named "worker-gone"
+      When the evidence of the dashboard is added to the health reports
+      Then the health report of "dashboard" has exactly these checks:
+        | check                  | status |
+        | beszel:hub             | pass   |
+        | beszel:public-endpoint | pass   |
+        | beszel:leftover        | warn   |
+
     Scenario: An unreachable hub or a missing Vault session on the manager is reported, never passed
       Given every request to the hub fails with "private connection detail"
       And logging in to the hub fails with "BESZEL_ACCOUNT_REQUIRED"

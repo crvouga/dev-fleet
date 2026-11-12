@@ -2,6 +2,8 @@ import { join } from 'node:path';
 import { clockCheck } from './clock';
 import { healthChecks, parseProbe } from './machine-health';
 import type { Check, Runner } from './types';
+import policy from '../ansible/ubuntu/policy.json';
+import { supportedSessions } from './worker-sizing';
 
 export async function workerCapacity(
   root: string,
@@ -35,6 +37,9 @@ export async function workerCapacity(
       summary: check.detail,
       ...(check.fix ? { remedy: { action: check.fix } } : {}),
     })),
+    ...(sample.memTotalMb === undefined
+      ? []
+      : [sessionsCheck(sample.memTotalMb, sample.agentSessions)]),
     clockCheck(
       'worker:clock',
       sample,
@@ -43,4 +48,30 @@ export async function workerCapacity(
         : sample.epoch - reference
     ),
   ];
+}
+
+const SESSIONS_EXHAUSTED = 'AGENT_SESSION_CAPACITY_EXHAUSTED';
+
+/** How many agent sessions this worker's memory policy supports, and how
+ * many run. The size of a session is an estimate (`sizing.agentSessionMiB`),
+ * so more sessions than that only warns.
+ */
+export function sessionsCheck(memoryMiB: number, running?: number): Check {
+  const supported = supportedSessions(memoryMiB);
+  const each = policy.sizing.agentSessionMiB;
+  const now = running === undefined ? 'an unknown number' : String(running);
+  const over = running !== undefined && running > supported;
+  return {
+    id: 'worker:agent-sessions',
+    status: over ? 'warn' : 'pass',
+    summary: `${over ? `${SESSIONS_EXHAUSTED}: ` : ''}${now} agent sessions running; the memory policy supports ${supported} at once on ${memoryMiB} MiB (an estimated ${each} MiB each).`,
+    ...(over
+      ? {
+          remedy: {
+            action:
+              'More agent sessions run than the memory policy supports: each is still capped, so the largest may be stopped under pressure. Finish some, or move work to a worker with more memory.',
+          },
+        }
+      : {}),
+  };
 }

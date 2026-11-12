@@ -1,4 +1,5 @@
-import { homedir } from 'node:os';
+import { statSync } from 'node:fs';
+import { homedir, userInfo } from 'node:os';
 import { join } from 'node:path';
 import macos from '../ansible/macos/policy.json';
 import type { Check, Runner } from './types';
@@ -9,14 +10,159 @@ import type { Check, Runner } from './types';
  */
 export async function managerHealth(
   run: Runner,
-  home = homedir()
+  home = homedir(),
+  { uid, user }: { uid: number; user: string } = {
+    uid: userInfo().uid,
+    user: userInfo().username,
+  }
 ): Promise<Check[]> {
   return [
     await managerRelease(run),
     await managerUpdates(run),
     await managerDisk(run),
     await containerWatchdog(run, home),
+    await managerClock(run),
+    await managerWatch(run, uid),
+    await managerJobLogs(run, home, user),
   ];
+}
+
+/** The one grant every administrator step of the manager is given with. */
+const GRANT =
+  'ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml';
+
+/** The manager keeps network time: every worker's clock is measured against
+ * it. Reading the setting needs root, through the grant manager-privilege.yml
+ * installs; manager.yml asserts the same reading.
+ */
+export async function managerClock(run: Runner): Promise<Check> {
+  const result = await run(
+    ['sudo', '-n', '/usr/sbin/systemsetup', '-getusingnetworktime'],
+    { timeoutMs: 10_000 }
+  );
+  const on = /Network Time:\s*On\b/i.test(result.stdout);
+  const off = /Network Time:\s*Off\b/i.test(result.stdout);
+  if (!result.ok || (!on && !off))
+    return {
+      id: 'manager:clock',
+      status: 'warn',
+      summary: 'MANAGER_CLOCK_UNOBSERVED',
+      remedy: {
+        action: `Reading whether network time is on needs the manager's grant. Give it once, as an administrator, from the dev-fleet checkout fleet-sync runs: ${GRANT}`,
+      },
+    };
+  if (on)
+    return {
+      id: 'manager:clock',
+      status: 'pass',
+      summary: 'The manager keeps its clock on network time.',
+    };
+  return {
+    id: 'manager:clock',
+    status: 'fail',
+    summary: 'MANAGER_CLOCK_NOT_SYNCHRONISED',
+    remedy: {
+      action:
+        'Turn on Set time and date automatically in System Settings > General > Date & Time (sudo systemsetup -setusingnetworktime on). Every worker clock is measured against the manager.',
+    },
+  };
+}
+
+/** fleet-watch runs on a schedule as the launchd job manager.yml installs:
+ * without it no heartbeat is stored and no notification is sent.
+ */
+export async function managerWatch(run: Runner, uid: number): Promise<Check> {
+  const label = macos.fleetWatch.label;
+  const result = await run(['/bin/launchctl', 'print', `gui/${uid}/${label}`], {
+    timeoutMs: 10_000,
+  });
+  if (!result.ok)
+    return {
+      id: 'manager:watch',
+      status: 'fail',
+      summary: 'MANAGER_WATCH_NOT_LOADED',
+      remedy: {
+        action: `Run devfleet fleet-sync on the manager: it installs and loads ${label} with ansible/macos/manager.yml. Until then no heartbeat reaches the bucket, and the heartbeat workflow fails.`,
+      },
+    };
+  // launchd keeps how the last run ended; a job that never ran has none.
+  const exit = /last exit code = (\d+)/.exec(result.stdout)?.[1];
+  if (exit !== undefined && exit !== '0')
+    return {
+      id: 'manager:watch',
+      status: 'warn',
+      summary: `MANAGER_WATCH_FAILING exit ${exit}`,
+      remedy: {
+        action: `Its last run failed. Read ~/${macos.jobLogs.directory}/${label}.err.log, and run devfleet fleet-watch on the manager to see the same failure.`,
+      },
+    };
+  return {
+    id: 'manager:watch',
+    status: 'pass',
+    summary: `fleet-watch runs on a schedule (${label}).`,
+  };
+}
+
+/** The logs of the manager's scheduled jobs, the size newsyslog keeps them
+ * under, and the drop-in manager-privilege.yml installs for it.
+ */
+export function jobLogs(home: string): string[] {
+  return [macos.fleetSync.label, macos.fleetWatch.label].flatMap((label) =>
+    ['out', 'err'].map((stream) =>
+      join(home, macos.jobLogs.directory, `${label}.${stream}.log`)
+    )
+  );
+}
+
+export const newsyslogDropIn = (user: string): string =>
+  `/etc/newsyslog.d/dev-fleet-${user}.conf`;
+
+/** The logs of the scheduled jobs stay under a fixed size: the newsyslog
+ * drop-in that rotates them is in place, names each of them, and none has
+ * grown past twice the size it is rotated at (newsyslog runs hourly).
+ */
+export async function managerJobLogs(
+  run: Runner,
+  home: string,
+  user: string
+): Promise<Check> {
+  const logs = jobLogs(home);
+  const dropIn = await run(['cat', newsyslogDropIn(user)]);
+  const declared =
+    dropIn.ok &&
+    dropIn.stdout.includes('# Managed by dev-fleet: manager job logs') &&
+    logs.every((log) => dropIn.stdout.includes(`${log} `));
+  if (!declared)
+    return {
+      id: 'manager:job-logs',
+      status: 'warn',
+      summary: 'MANAGER_JOB_LOG_ROTATION_MISSING',
+      remedy: {
+        action: `newsyslog keeps the logs of the scheduled jobs under ${macos.jobLogs.maxKiB} KiB once the manager's grant installs its drop-in. Give it once, as an administrator, from the dev-fleet checkout fleet-sync runs: ${GRANT}`,
+      },
+    };
+  const limit = 2 * macos.jobLogs.maxKiB * 1024;
+  const large = logs.filter((log) => {
+    try {
+      return statSync(log).size > limit;
+    } catch {
+      return false;
+    }
+  });
+  if (large.length)
+    return {
+      id: 'manager:job-logs',
+      status: 'warn',
+      summary: `MANAGER_JOB_LOG_OVERSIZED ${large.length} logs`,
+      remedy: {
+        action: `newsyslog rotates these logs once they pass ${macos.jobLogs.maxKiB} KiB but has not: check that it runs (sudo newsyslog -nv -f ${newsyslogDropIn(user)}) and read /var/log/system.log for its errors.`,
+      },
+    };
+  return {
+    id: 'manager:job-logs',
+    status: 'pass',
+    summary: `newsyslog keeps the scheduled jobs' logs under ${macos.jobLogs.maxKiB} KiB.`,
+  };
 }
 
 /** The manager runs at least the macOS release the policy names. */

@@ -24,6 +24,7 @@ import {
 import { isOperator, stateDefinition } from './state/operator';
 import type { BucketLocation } from './state/bucket';
 import { definitionPath, stateRoot } from './state/paths';
+import { expandRecords } from './worker-records';
 
 /** Where every machine keeps the fleet configuration fleet-sync approved.
  * Launchers and scheduled jobs get no environment and read it from here.
@@ -96,7 +97,8 @@ function read(path: string): FleetDefinition {
       `The fleet configuration at ${path} is not readable JSON.`
     );
   }
-  return parseDefinition(value);
+  // A project's fleet.json may name generated worker records beside it.
+  return parseDefinition(expandRecords(value, dirname(path)));
 }
 
 function load(): FleetDefinition {

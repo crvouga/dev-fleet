@@ -4,12 +4,13 @@ A fleet is described in two places you own. Your project in Git holds
 `fleet.json` and pins the dev-fleet version. Everything else the manager
 cannot rebuild from Git is the **fleet state**:
 
-| Document     | What it is                                                            |
-| ------------ | --------------------------------------------------------------------- |
-| `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device)  |
-| `enrollment` | The revision `fleet-sync` approved and the one it last applied        |
-| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json`  |
-| `history`    | The last 90 days of `fleet-sync` runs (at most 500), and the schedule |
+| Document     | What it is                                                                                                         |
+| ------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device)                                               |
+| `enrollment` | The revision `fleet-sync` approved and the one it last applied                                                     |
+| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json`                                               |
+| `history`    | The last 90 days of `fleet-sync` runs (at most 500), and the schedule                                              |
+| `workers`    | Per worker: its pinned SSH host key, whether it is parked and since when, and whether it came from a worker record |
 
 `devfleet fleet-watch` also keeps `watch.json` in the bucket, beside the
 database: the health of each worker when it last looked, and when that was
@@ -194,6 +195,12 @@ state that is replicated differently or not at all:
 | CLI proxy: provider logins, keys, Tailscale identity | `~/Library/Application Support/cliproxy-fleet/state`     | Restored from its own encrypted restic snapshots ([cliproxy](../cliproxy/README.md)); needs `vault`    |
 | Monitoring hub (Beszel) database                     | `~/Library/Application Support/personal-beszel`          | `fleet-sync` recreates accounts and systems; metric history, alerts and settings made by hand are lost |
 | T3 ownership record                                  | `~/.t3/userdata/personal-managed.json`                   | `t3-apply --import ID` adopts instances again                                                          |
+
+The manager reaches a worker that has no SSH alias against
+`~/.local/share/dev-fleet/ssh/known_hosts` (beside the state directory): a
+cache rendered from the host keys the `workers` document pins and the worker
+records declare, rewritten before every session. Delete it and the next
+command writes it again; nothing is ever learned into it.
 
 Everything else under `~/.local/share/personal/fleet` and
 `~/.local/state/personal/fleet` (the copy of the source repository, run

@@ -85,6 +85,49 @@ Feature: The health of a machine itself
       Then the check "worker:clock" fails
       And the remedy of the check "worker:clock" mentions "systemd-timesyncd"
 
+  Rule: The manager measures each worker's clock against its own
+    fleet-sync reads the worker's clock on the last line of the same SSH
+    probe that reads its release and its size. The worker read it somewhere
+    between the moment the manager sent the probe and the moment the answer
+    came back, so only the smallest
+    offset that window allows is judged: a slow link never reads as a skewed
+    clock.
+
+    Scenario Outline: A worker whose clock read <worker> while the manager's went from <sent> to <received> <verdict>
+      Given every command prints:
+        """
+        ubuntu
+        26.04
+        x86_64
+        machine
+        kvm
+        4
+        16384
+        102400
+        <worker>
+        """
+      When the manager inspects the worker, its own clock reading <sent> when it sends the probe and <received> when the answer comes back
+      Then the check "worker:clock-offset" <verdict>
+      And the summary of the check "worker:clock-offset" mentions "<summary>"
+
+      Examples:
+        | worker               | sent       | received   | verdict | summary                       |
+        | 1800000000.500000000 | 1800000000 | 1800000001 | passes  | within 2 s of the manager's   |
+        | 1800000025           | 1800000000 | 1800000030 | passes  | within 2 s of the manager's   |
+        | 1800000004.5         | 1800000000 | 1800000001 | warns   | CLOCK_DRIFTING 3.5 s ahead of |
+        | 1799999960           | 1800000000 | 1800000001 | fails   | CLOCK_SKEWED 40.0 s behind    |
+
+    Scenario: A worker that prints no clock is not judged on it
+      Given every command prints:
+        """
+        ubuntu
+        26.04
+        x86_64
+        machine
+        """
+      When the manager inspects the worker, its own clock reading 1800000000 when it sends the probe and 1800000001 when the answer comes back
+      Then there is no check "worker:clock-offset"
+
   Rule: A pending reboot is reported with its age, and fails once it is old
 
     Scenario: A worker with nothing pending passes
@@ -141,7 +184,7 @@ Feature: The health of a machine itself
       When the Tailscale key of the computer "manager" is checked on "2026-11-11T00:00:00Z"
       Then the check "tailscale:key-expiry" passes
 
-  Rule: The manager runs a supported macOS with its updates installed and room on its disk
+  Rule: The manager runs a supported macOS with its updates installed, room on its disk, network time and its watch job
 
     Background:
       Given these commands print:
@@ -151,6 +194,9 @@ Feature: The health of a machine itself
         | df             | Filesystem 1024-blocks Used Available Capacity Mounted␊/dev/disk3s5 1 1 104857600 1% /x |
         | docker         | 10GB␊1.5GB␊0B␊500MB                                                                     |
         | cat            | {}                                                                                      |
+        | sudo -n /usr/sbin/systemsetup | Network Time: On |
+        | /bin/launchctl print gui/501/dev.devfleet.fleet-watch | state = not running |
+        | cat /etc/newsyslog.d/dev-fleet-dev.conf | # Managed by dev-fleet: manager job logs␊/Users/dev/.local/share/personal/fleet/manager/logs/personal-fleet-sync.out.log dev:staff 600 3 1024 * NZ␊/Users/dev/.local/share/personal/fleet/manager/logs/personal-fleet-sync.err.log dev:staff 600 3 1024 * NZ␊/Users/dev/.local/share/personal/fleet/manager/logs/dev.devfleet.fleet-watch.out.log dev:staff 600 3 1024 * NZ␊/Users/dev/.local/share/personal/fleet/manager/logs/dev.devfleet.fleet-watch.err.log dev:staff 600 3 1024 * NZ |
 
     Scenario: A manager with nothing to do passes every check
       When the health of the manager is checked
@@ -174,6 +220,40 @@ Feature: The health of a machine itself
         | 2 GiB free                   | manager:disk    | df             | Filesystem 1024-blocks Used Available Capacity Mounted␊/dev/disk3s5 1 1 2097152 99% /x                                                 | fails   | MANAGER_DISK_FULL          |
         | 10 GiB free                  | manager:disk    | df             | Filesystem 1024-blocks Used Available Capacity Mounted␊/dev/disk3s5 1 1 10485760 90% /x                                                | warns   | MANAGER_DISK_LOW           |
         | 80 GB in Docker              | manager:disk    | docker         | 80GB                                                                                                                                  | warns   | MANAGER_DOCKER_DISK_LARGE  |
+
+    Scenario: A manager whose clock is off network time fails, and is told how to turn it on
+      Given the command "sudo -n /usr/sbin/systemsetup" prints "Network Time: Off"
+      When the health of the manager is checked
+      Then the check "manager:clock" fails
+      And the summary of the check "manager:clock" mentions "MANAGER_CLOCK_NOT_SYNCHRONISED"
+      And the remedy of the check "manager:clock" mentions "Date & Time"
+
+    Scenario: Without the grant the manager's clock is not read, and the grant is named
+      Given the command "sudo -n /usr/sbin/systemsetup" fails
+      When the health of the manager is checked
+      Then the check "manager:clock" warns
+      And the summary of the check "manager:clock" mentions "MANAGER_CLOCK_UNOBSERVED"
+      And the remedy of the check "manager:clock" mentions "manager-privilege.yml"
+
+    Scenario: A manager whose watch job is not loaded fails: no heartbeat reaches the bucket
+      Given the command "/bin/launchctl print gui/501/dev.devfleet.fleet-watch" fails
+      When the health of the manager is checked
+      Then the check "manager:watch" fails
+      And the summary of the check "manager:watch" mentions "MANAGER_WATCH_NOT_LOADED"
+      And the remedy of the check "manager:watch" mentions "devfleet fleet-sync"
+
+    Scenario: A watch job whose last run failed warns, and points at its log
+      Given the command "/bin/launchctl print gui/501/dev.devfleet.fleet-watch" prints "state = not running␊last exit code = 1"
+      When the health of the manager is checked
+      Then the check "manager:watch" warns
+      And the summary of the check "manager:watch" mentions "MANAGER_WATCH_FAILING exit 1"
+      And the remedy of the check "manager:watch" mentions "dev.devfleet.fleet-watch.err.log"
+
+    Scenario: A rotation that misses a log of a scheduled job is not in place
+      Given the command "cat /etc/newsyslog.d/dev-fleet-dev.conf" prints "# Managed by dev-fleet: manager job logs␊/Users/dev/.local/share/personal/fleet/manager/logs/personal-fleet-sync.out.log dev:staff 600 3 1024 * NZ"
+      When the health of the manager is checked
+      Then the check "manager:job-logs" warns
+      And the summary of the check "manager:job-logs" mentions "MANAGER_JOB_LOG_ROTATION_MISSING"
 
     Scenario: The names of pending updates are never reported
       Given these commands print:

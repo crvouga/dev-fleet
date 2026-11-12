@@ -18,17 +18,27 @@ import {
   convergeT3Service,
   runningVersionCheck,
   t3StartedAt,
+  t3Unit,
 } from './platform/t3-service';
+import {
+  featuresCheck,
+  presentParts,
+  workerFeatures,
+  type WorkerFeatures,
+} from './worker-features';
 import { userInfo } from 'node:os';
 import { resolve } from 'node:path';
 import { auditUbuntu } from './platform/ubuntu-audit';
+import { detectMachineClass } from './machine/machine-class';
 import { convergeGitIdentity } from './git-identity';
 import { workerSelection } from '../bootstrap/worker-tools';
+import { workerExposure } from './exposure';
 import {
   applyAgentProfiles,
   attempt,
   configureWorkstation,
 } from './node-converge-shared';
+import { loginServer } from './tailnet-control';
 import type { Check, Runner } from './types';
 
 /** Ubuntu worker convergence: Ansible owns OS policy, services and recovery; the
@@ -36,10 +46,11 @@ import type { Check, Runner } from './types';
  */
 export async function convergeLinux(
   root: string,
-  target: { node: string; revision: string },
+  target: { node: string; revision: string; restartBusy?: boolean },
   run: Runner
 ): Promise<Check[]> {
   const { node, revision } = target;
+  const restartBusy = target.restartBusy === true;
   const audit = await auditUbuntu(run);
   if (!audit.supported || !audit.passwordlessSudo)
     return [
@@ -58,12 +69,23 @@ export async function convergeLinux(
   const checks: Check[] = [];
   checks.push(
     ...(await attempt('tailscale:configuration', async () => [
-      await applyTailscale(root, run),
+      await applyTailscale(root, node, run),
     ]))
   );
+  const features = workerFeatures(fleet, node);
+  const before = await presentParts(run, userInfo().username, features);
   const { baseline, verified } = await baselineStep(root, run, node);
   checks.push(...baseline, ...verified);
-  checks.push(...(await t3AfterBaseline(root, { node, baseline, run })));
+  checks.push(
+    featuresCheck(
+      features,
+      await presentParts(run, userInfo().username, features),
+      before
+    )
+  );
+  checks.push(
+    ...(await t3AfterBaseline(root, { node, baseline, run, restartBusy }))
+  );
   checks.push(
     ...(await attempt('workstation:configuration', () =>
       configureWorkstation(root, run, node)
@@ -120,9 +142,10 @@ async function baselineStep(
   run: Runner,
   node: string
 ): Promise<{ baseline: Check[]; verified: Check[] }> {
+  const { machine } = await detectMachineClass(run);
   const measure = async () => [
     ...(await attempt('ubuntu:boot-policy', () =>
-      verifyUbuntuBoot(userInfo().username, run)
+      verifyUbuntuBoot(userInfo().username, run, machine)
     )),
     ...(await attempt('ubuntu:resource-safety', () =>
       verifyResourceSafety(userInfo().homedir, run)
@@ -151,6 +174,7 @@ async function applyBaseline(
   node: string
 ): Promise<{ cached: boolean; checks: Check[] }> {
   const user = userInfo();
+  const features = workerFeatures(fleet, node);
   const ubuntu = resolve(root, 'ansible/ubuntu');
   const result = await runAnsibleWithReceipt(
     run,
@@ -165,13 +189,18 @@ async function applyBaseline(
         development_home: user.homedir,
         // The web profile brings headless Chromium (tasks/browser.yml).
         worker_tool_profiles: workerSelection(fleet, node).profiles,
+        // What the firewall opens beyond the tailnet (tasks/firewall.yml).
+        worker_exposure: workerExposure(fleet, node).policy,
+        // What the declared features leave out (tasks/features.yml).
+        worker_containers: features.containers,
+        worker_session: features.session,
       }),
     },
     {
       name: 'ubuntu-baseline',
       sources: [ubuntu, resolve(root, 'ansible/github')],
       force,
-      verify: () => baselineServicesActive(run),
+      verify: () => baselineServicesActive(run, features),
     }
   );
   return {
@@ -191,14 +220,17 @@ async function applyBaseline(
 }
 
 /** Cheap probe for what the baseline owns: system services and user timers. */
-async function baselineServicesActive(run: Runner): Promise<boolean> {
+async function baselineServicesActive(
+  run: Runner,
+  features: WorkerFeatures
+): Promise<boolean> {
   const system = await run([
     'systemctl',
     'is-active',
     '--quiet',
     'ssh.service',
     'tailscaled.service',
-    'docker.service',
+    ...(features.containers ? ['docker.service'] : []),
   ]);
   if (!system.ok) return false;
   const user = await run([
@@ -212,12 +244,27 @@ async function baselineServicesActive(run: Runner): Promise<boolean> {
   return user.ok;
 }
 
-async function applyTailscale(root: string, run: Runner): Promise<Check> {
+/** A worker that was never logged in joins under its declared ID when the
+ * seed or the bootstrap left it a single-use key; the key carries the fleet's
+ * tag.
+ */
+async function applyTailscale(
+  root: string,
+  node: string,
+  run: Runner
+): Promise<Check> {
   const ubuntu = resolve(root, 'ansible/ubuntu');
   const tailscale = await runAnsibleWithReceipt(
     run,
     'tailscale.yml',
-    { cwd: ubuntu, timeoutMs: 300_000, input: '{}' },
+    {
+      cwd: ubuntu,
+      timeoutMs: 300_000,
+      input: JSON.stringify({
+        tailnet_hostname: node,
+        tailnet_login_server: loginServer(fleet.tailnet) ?? '',
+      }),
+    },
     {
       name: 'ubuntu-tailscale',
       sources: [ubuntu],
@@ -243,23 +290,30 @@ async function applyTailscale(root: string, run: Runner): Promise<Check> {
 async function convergeT3(
   root: string,
   node: string,
-  run: Runner
+  run: Runner,
+  restartBusy: boolean
 ): Promise<Check[]> {
   const artifact = managedT3();
-  const startedAt = await t3StartedAt(run);
-  const checks = await convergeT3Service(
-    artifact,
-    run,
-    async () => {
-      const staged = await stageT3Policy(root, artifact.path, run, node);
+  const { session } = workerFeatures(fleet, node);
+  const startedAt = await t3StartedAt(run, session);
+  const checks = await convergeT3Service(artifact, run, {
+    prepare: async () => {
+      const staged = await stageT3Policy(root, artifact.path, run, {
+        node,
+        restartBusy,
+      });
       return staged.status === 'pass' ? [] : [staged];
     },
-    () => installT3Desktop(root, run)
-  );
+    install: () =>
+      session === 'headless'
+        ? installT3Headless(root, artifact.path, run, restartBusy)
+        : installT3Desktop(root, run, restartBusy),
+    session,
+  });
   if (checks.every((check) => check.status === 'pass'))
     checks.push(
       await loadedT3Policy(artifact.path, run, {
-        restarted: startedAt !== (await t3StartedAt(run)),
+        restarted: startedAt !== (await t3StartedAt(run, session)),
       })
     );
   // Settings are watched by T3: providers, names and the profile apply
@@ -275,12 +329,16 @@ async function convergeT3(
   const serviceReady = checks.some(
     (check) => check.id === 't3:service' && check.status === 'pass'
   );
-  if (serviceReady) checks.push(await runningVersionCheck(run, userInfo().uid));
+  if (serviceReady)
+    checks.push(
+      await runningVersionCheck(run, userInfo().uid, Date.now(), session)
+    );
   if (serviceReady)
     checks.push(
       ...(await convergeT3Route(run, () => publishT3Route(root, run)))
     );
-  if (serviceReady) checks.push(...(await enableWorkerRecovery(root, run)));
+  if (serviceReady)
+    checks.push(...(await enableWorkerRecovery(root, run, session)));
   return checks;
 }
 
@@ -293,7 +351,11 @@ async function publishT3Route(root: string, run: Runner): Promise<boolean> {
   return result.ok;
 }
 
-async function installT3Desktop(root: string, run: Runner): Promise<boolean> {
+async function installT3Desktop(
+  root: string,
+  run: Runner,
+  restartBusy: boolean
+): Promise<boolean> {
   const user = userInfo();
   const desktop = managedT3Desktop();
   const ubuntu = resolve(root, 'ansible/ubuntu');
@@ -311,6 +373,7 @@ async function installT3Desktop(root: string, run: Runner): Promise<boolean> {
         t3_desktop_url: desktop.url,
         t3_desktop_name: desktop.name,
         t3_desktop_sha256: desktop.sha256,
+        t3_restart_busy: restartBusy,
       }),
     },
     {
@@ -341,11 +404,55 @@ async function installT3Desktop(root: string, run: Runner): Promise<boolean> {
   return result.ok;
 }
 
+/** A headless worker's T3: the pinned server the toolchain installed, as a
+ * lingering user service (t3-headless.yml). */
+async function installT3Headless(
+  root: string,
+  server: string,
+  run: Runner,
+  restartBusy: boolean
+): Promise<boolean> {
+  const user = userInfo();
+  const ubuntu = resolve(root, 'ansible/ubuntu');
+  const unit = t3Unit('headless');
+  const result = await runAnsibleWithReceipt(
+    run,
+    resolve(ubuntu, 't3-headless.yml'),
+    {
+      cwd: ubuntu,
+      timeoutMs: 600_000,
+      input: JSON.stringify({
+        development_source: root,
+        development_user: user.username,
+        development_uid: user.uid,
+        development_home: user.homedir,
+        t3_server_path: server,
+        t3_restart_busy: restartBusy,
+      }),
+    },
+    {
+      name: 'ubuntu-t3-headless',
+      sources: [ubuntu],
+      // A stopped or disabled server reruns the play, which starts it.
+      verify: async () =>
+        (await run(['systemctl', '--user', 'is-enabled', '--quiet', unit]))
+          .ok &&
+        (await run(['systemctl', '--user', 'is-active', '--quiet', unit])).ok,
+    }
+  );
+  return result.ok;
+}
+
 async function t3AfterBaseline(
   root: string,
-  context: { node: string; baseline: Check[]; run: Runner }
+  context: {
+    node: string;
+    baseline: Check[];
+    run: Runner;
+    restartBusy: boolean;
+  }
 ): Promise<Check[]> {
-  const { node, baseline, run } = context;
+  const { node, baseline, run, restartBusy } = context;
   if (baseline.some((check) => check.status !== 'pass'))
     return [
       {
@@ -358,12 +465,13 @@ async function t3AfterBaseline(
         },
       },
     ];
-  return attempt('t3:service', () => convergeT3(root, node, run));
+  return attempt('t3:service', () => convergeT3(root, node, run, restartBusy));
 }
 
 async function enableWorkerRecovery(
   root: string,
-  run: Runner
+  run: Runner,
+  session: WorkerFeatures['session']
 ): Promise<Check[]> {
   const user = userInfo();
   const ubuntu = resolve(root, 'ansible/ubuntu');
@@ -378,6 +486,7 @@ async function enableWorkerRecovery(
         development_user: user.username,
         development_uid: user.uid,
         development_home: user.homedir,
+        ...(session === 'headless' ? { t3_unit: t3Unit(session) } : {}),
       }),
     },
     {
@@ -400,7 +509,7 @@ async function enableWorkerRecovery(
       id: 'worker:service-recovery',
       status: result.ok ? 'pass' : 'fail',
       summary: result.ok
-        ? 'T3 recovery enabled: a stopped desktop app is started and an unresponsive one restarted after three failed one-minute health checks.'
+        ? `T3 recovery enabled: a stopped ${session === 'headless' ? 'server' : 'desktop app'} is started and an unresponsive one restarted after three failed one-minute health checks.`
         : 'WORKER_RECOVERY_SETUP_FAILED',
     },
   ];

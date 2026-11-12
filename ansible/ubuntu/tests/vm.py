@@ -9,10 +9,17 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import tomllib
 import urllib.request
 
 ROOT = Path('/artifacts')
 BOOTSTRAP = Path('/bootstrap/revision').exists()
+# The desktop session needs a desktop installed in the guest: several GiB and
+# a graphical login on QEMU's virtual display. Opt in with FLEET_TEST_DESKTOP=1.
+DESKTOP = os.environ.get('FLEET_TEST_DESKTOP') == '1'
+HOME = '/home/fleettest'
+SERVER = 't3code-headless.service'
+APP = 't3code-desktop.service'
 IMAGE_SHA = '5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5'
 
 
@@ -56,22 +63,24 @@ ssh_keys:
     (ROOT / 'meta-data').write_text('instance-id: disposable-fleet-test\nlocal-hostname: disposable-fleet-test\n')
     run(['cloud-localds', str(ROOT / 'seed.img'), str(ROOT / 'user-data'), str(ROOT / 'meta-data')])
     if not (ROOT / 'guest.qcow2').exists():
-        run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', str(image), str(ROOT / 'guest.qcow2'), '64G' if BOOTSTRAP else '12G'])
+        run(['qemu-img', 'create', '-f', 'qcow2', '-F', 'qcow2', '-b', str(image), str(ROOT / 'guest.qcow2'), '64G' if BOOTSTRAP else '24G'])
     ssh = ['ssh', '-i', str(ROOT / 'client'), '-o', 'IdentitiesOnly=yes', '-o', 'StrictHostKeyChecking=yes', '-o', f'UserKnownHostsFile={ROOT}/known_hosts', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=3', '-p', '2222', 'fleettest@127.0.0.1']
     log = (ROOT / 'serial.log').open('w')
-    vm = subprocess.Popen(['qemu-system-x86_64', '-enable-kvm', '-cpu', 'host', '-smp', '2', '-m', '3072', '-display', 'none', '-serial', 'stdio', '-drive', f'file={ROOT}/guest.qcow2,if=virtio', '-drive', f'file={ROOT}/seed.img,format=raw,if=virtio', '-netdev', 'user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22', '-device', 'virtio-net-pci,netdev=net0'], stdout=log, stderr=log)
+    vm = subprocess.Popen(['qemu-system-x86_64', '-enable-kvm', '-cpu', 'host', '-smp', '2', '-m', '4096', '-display', 'none', '-serial', 'stdio', '-drive', f'file={ROOT}/guest.qcow2,if=virtio', '-drive', f'file={ROOT}/seed.img,format=raw,if=virtio', '-netdev', 'user,id=net0,hostfwd=tcp:127.0.0.1:2222-:22', '-device', 'virtio-net-pci,netdev=net0'], stdout=log, stderr=log)
     try:
         for _ in range(120):
             attempt = subprocess.run(ssh + ['true'], capture_output=True, timeout=5)
             if attempt.returncode == 0:
                 break
             time.sleep(2)
-        run(ssh + ['cloud-init status --wait --long'])
-        print('fresh verified SSH and cloud-init complete', flush=True)
         if BOOTSTRAP:
+            # The bootstrap starts as soon as SSH answers, as a pipeline would:
+            # it waits for the machine's own first boot (cloud-init) itself.
+            print('fresh verified SSH; first boot may still be running', flush=True)
             # The official cloud image includes Git. Remove it only in this
-            # disposable fixture to exercise the minimal-target boundary.
-            run(ssh + ['sudo apt-get remove --yes git'])
+            # disposable fixture to exercise the minimal-target boundary,
+            # waiting for any package work first boot is still doing.
+            run(ssh + ['sudo apt-get -o DPkg::Lock::Timeout=900 remove --yes git'])
             run(ssh + ['! command -v node && ! command -v bun && ! command -v mise && ! command -v git'])
             print('fresh target has no Node, Bun, mise or Git; invoking production SSH bootstrap', flush=True)
             run(ssh + ['mkdir -p work && printf preserved > work/uncommitted'])
@@ -86,6 +95,10 @@ ssh_keys:
             assert run(ssh + [evidence]).stdout == before, 'repeat changed work, SSH identity or unchanged managed files'
             print('production remote bootstrap and repeat passed the baseline; live auth remains unverified', flush=True)
             return
+        # The baseline-only run applies Ansible directly, which first boot
+        # installs (packages above): it waits for first boot itself.
+        run(ssh + ['cloud-init status --wait --long'])
+        print('fresh verified SSH and cloud-init complete', flush=True)
         verification = Path('/verification/verify')
         assert verification.exists(), 'Compile the tracked runtime-check.ts fixture and mount /verification first'
         subprocess.run(ssh + ['cat > verify && chmod 700 verify'], input=verification.read_bytes(), capture_output=True, check=True, timeout=60)
@@ -100,27 +113,17 @@ ssh_keys:
         assert 'changed=0' in second.stdout, 'repeat run changed configuration'
         test_drift(ssh, command)
         run(ssh + ['test "$(cat work/uncommitted)" = preserved && sudo visudo -c && test "$(systemctl is-enabled sleep.target)" = masked'])
-        t3_tested = test_t3(ssh)
+        # No tailnet here and the session arrives from outside it: the firewall
+        # loads, but keeps SSH open rather than lock the test out.
+        run(ssh + ['sudo sshd -T | grep -qx "passwordauthentication no" && sudo sshd -T | grep -qx "permitrootlogin no" && sudo nft list table inet personal_fleet | grep -q "policy drop" && sudo nft list table inet personal_fleet | grep -q public-ssh'])
+        t3 = test_headless(ssh)
         test_agent(ssh)
-        boot = run(ssh + ['cat /proc/sys/kernel/random/boot_id']).stdout
-        subprocess.run(ssh + ['sudo reboot'], capture_output=True, timeout=10)
-        time.sleep(3)
-        for _ in range(120):
-            result = subprocess.run(ssh + ['cat /proc/sys/kernel/random/boot_id'], capture_output=True, text=True, timeout=5)
-            if result.returncode == 0 and result.stdout != boot:
-                break
-            time.sleep(2)
-        assert result.returncode == 0 and result.stdout != boot, 'reboot reconnect failed'
-        run(ssh + ['test "$(systemctl is-enabled sleep.target)" = masked && test "$(cat work/uncommitted)" = preserved'])
-        if t3_tested:
-            run(ssh + ['systemctl --user is-active t3code.service && test \"$(cat ~/.t3/fleet-test-preserved)\" = preserved'])
-            for _ in range(30):
-                policy = run(ssh + ['tools/t3-0.1.7-linux-x64/t3 policy show']).stdout
-                if 'loaded this policy.' in policy:
-                    break
-                time.sleep(1)
-            (ROOT / 't3-policy-check.log').write_text(policy)
-            assert 'loaded this policy.' in policy, 'running T3 did not load managed update policy'
+        reboot(ssh)
+        run(ssh + ['test "$(systemctl is-enabled sleep.target)" = masked && test "$(cat work/uncommitted)" = preserved && sudo nft list table inet personal_fleet | grep -q "policy drop"'])
+        if t3:
+            after_headless_reboot(ssh, t3)
+            if DESKTOP:
+                test_desktop(ssh, t3)
         verification = Path('/verification/verify')
         if verification.exists():
             subprocess.run(ssh + ['cat > verify && chmod 700 verify'], input=verification.read_bytes(), capture_output=True, check=True, timeout=60)
@@ -128,7 +131,7 @@ ssh_keys:
             (ROOT / 'boot-policy-evidence.json').write_text(evidence.stdout)
             print('production boot-policy observer passed after VM reboot', flush=True)
         run(ssh + ['systemctl is-active beszel-agent.service && test \"$(sudo cat /var/lib/beszel-agent/fixture-preserved)\" = preserved'])
-        print(json.dumps({'passed': ['Ubuntu baseline apply', 'repeat no-op', 'sudoers validation', 'sleep target masked', 'reboot and fresh SSH', 'uncommitted file preserved', 'sleep/SSH drift repair and injected capacity gate', 'native Beszel agent no-op/crash/reboot with intentionally unreachable fixture hub'] + (['native T3 service install, no-op, crash recovery, managed update policy and reboot'] if t3_tested else []), 'unverified': ['Tailscale', 'paired T3', 'Beszel agent/private metrics', 'full remote bootstrap']}), flush=True)
+        print(json.dumps({'passed': ['Ubuntu baseline apply', 'repeat no-op', 'sudoers validation', 'sleep target masked', 'reboot and fresh SSH', 'uncommitted file preserved', 'sleep/SSH drift repair and injected capacity gate', 'native Beszel agent no-op/crash/reboot with intentionally unreachable fixture hub', 'keys-only sshd without root login, and the fleet firewall loaded at apply and boot with SSH kept open while no tailnet session proves the manager path'] + (['headless T3 server: install, no-op, killed process restarted, stopped server started by the recovery timer, started at boot with nobody logged in, managed update policy'] if t3 else []) + (['desktop T3 app: switch from headless keeping ~/.t3, auto-login after reboot, stopped app started by the recovery timer'] if t3 and DESKTOP else []), 'unverified': ['Tailscale', 'closing public SSH over a tailnet session', 'paired T3', 'Beszel agent/private metrics', 'full remote bootstrap'] + ([] if DESKTOP else ['desktop session (FLEET_TEST_DESKTOP=1)'])}), flush=True)
     finally:
         # Preserve failure evidence on disk before terminating the disposable VM.
         # This is fixture cleanup, not a claimed power-loss acceptance test.
@@ -145,28 +148,137 @@ ssh_keys:
         log.close()
 
 
-def test_t3(ssh):
-    artifact = Path('/t3/t3.tar.gz')
-    if not artifact.exists():
-        return False
-    assert hashlib.file_digest(artifact.open('rb'), 'sha256').hexdigest() == 'c089892bf7922e2e73c6f44a5d1ea125c99f70e378c18361cbbed2fba1920e6c'
-    subprocess.run(ssh + ['mkdir -p tools && cat > tools/t3.tar.gz'], input=artifact.read_bytes(), capture_output=True, check=True, timeout=120)
-    run(ssh + ['tar -xzf tools/t3.tar.gz -C tools'])
-    run(ssh + ["cd baseline && ansible-playbook t3-policy.yml --extra-vars '{\"t3_executable\":\"/home/fleettest/tools/t3-0.1.7-linux-x64/t3\"}'"])
-    run(ssh + ['tools/t3-0.1.7-linux-x64/t3 service install'])
-    run(ssh + ['systemctl --user is-active t3code.service && printf preserved > ~/.t3/fleet-test-preserved'])
-    pid = run(ssh + ['systemctl --user show t3code.service -p MainPID --value']).stdout
-    run(ssh + ['tools/t3-0.1.7-linux-x64/t3 service install'])
-    assert run(ssh + ['systemctl --user show t3code.service -p MainPID --value']).stdout == pid, 'native service needlessly restarted'
-    run(ssh + ['systemctl --user kill -s SIGKILL t3code.service'])
-    time.sleep(8)
-    run(ssh + ['systemctl --user is-active t3code.service'])
-    assert run(ssh + ['systemctl --user show t3code.service -p MainPID --value']).stdout != pid, 'native crash recovery did not replace process'
-    print('native T3 no-op and injected crash recovery passed', flush=True)
-    return True
+def pins():
+    """The T3 release mise.toml pins, with its digests: never written here."""
+    with open('/workspace/mise.toml', 'rb') as source:
+        variables = tomllib.load(source)['vars']
+    return variables['t3_version'], variables['t3_linux_x64_sha256'], variables['t3_desktop_amd64_sha256']
 
 
+def download(url, target, digest):
+    if not target.exists():
+        with urllib.request.urlopen(url, timeout=120) as response, target.open('wb') as out:
+            while chunk := response.read(1024 * 1024):
+                out.write(chunk)
+    assert hashlib.file_digest(target.open('rb'), 'sha256').hexdigest() == digest, f'{target.name} does not match its pin'
 
+
+def variables(**extra):
+    return json.dumps({'development_user': 'fleettest', 'development_uid': 1000, 'development_home': HOME, 'development_source': f'{HOME}/source', **extra})
+
+
+def play(ssh, playbook, **extra):
+    return run(ssh + [f"cd baseline && ansible-playbook {playbook} --extra-vars '{variables(**extra)}'"])
+
+
+def user(ssh, command):
+    return run(ssh + [f'XDG_RUNTIME_DIR=/run/user/1000 {command}'])
+
+
+def main_pid(ssh, unit):
+    return user(ssh, f'systemctl --user show {unit} -p MainPID --value').stdout.strip()
+
+
+def wait_for(ssh, command, seconds, message):
+    deadline = time.monotonic() + seconds
+    while time.monotonic() < deadline:
+        if subprocess.run(ssh + [command], capture_output=True, timeout=20).returncode == 0:
+            return time.monotonic() - (deadline - seconds)
+        time.sleep(5)
+    raise AssertionError(message)
+
+
+def answers(unit):
+    return f'XDG_RUNTIME_DIR=/run/user/1000 systemctl --user is-active --quiet {unit} && curl --fail --silent --max-time 10 http://127.0.0.1:3773/.well-known/t3/environment | grep -q environmentId'
+
+
+def reboot(ssh):
+    boot = run(ssh + ['cat /proc/sys/kernel/random/boot_id']).stdout
+    subprocess.run(ssh + ['sudo reboot'], capture_output=True, timeout=10)
+    time.sleep(3)
+    for _ in range(120):
+        result = subprocess.run(ssh + ['cat /proc/sys/kernel/random/boot_id'], capture_output=True, text=True, timeout=5)
+        if result.returncode == 0 and result.stdout != boot:
+            break
+        time.sleep(2)
+    assert result.returncode == 0 and result.stdout != boot, 'reboot reconnect failed'
+
+
+def test_headless(ssh):
+    """A headless worker on a stock server image: the pinned T3 server as a
+    lingering user service (t3-headless.yml), recovered by the timer."""
+    version, server_sha, _ = pins()
+    name = f't3-{version}-linux-x64'
+    archive = ROOT / f'{name}.tar.gz'
+    download(f'https://github.com/pingdotgg/t3code/releases/download/v{version}/{name}.tar.gz', archive, server_sha)
+    tools = f'{HOME}/.local/share/personal/tools'
+    subprocess.run(ssh + [f'mkdir -p {tools} && cat > {tools}/{name}.tar.gz'], input=archive.read_bytes(), capture_output=True, check=True, timeout=300)
+    run(ssh + [f'tar -xzf {tools}/{name}.tar.gz -C {tools} && {tools}/{name}/t3 --version'])
+    server = f'{tools}/{name}/t3'
+    # The plays read the revision's scripts from development_source.
+    run(ssh + ['mkdir -p source/ansible && ln -sfn ~/baseline source/ansible/ubuntu'])
+    run(ssh + ['! command -v gdm3 && ! test -e /etc/gdm3/custom.conf'])
+    play(ssh, 't3-policy.yml', t3_executable=server)
+    first = play(ssh, 't3-headless.yml', t3_server_path=server)
+    (ROOT / 't3-headless-first.log').write_text(first.stdout + first.stderr)
+    wait_for(ssh, answers(SERVER), 60, 'the headless T3 server did not answer its local API')
+    run(ssh + ['printf preserved > ~/.t3/fleet-test-preserved'])
+    pid = main_pid(ssh, SERVER)
+    repeat = play(ssh, 't3-headless.yml', t3_server_path=server)
+    (ROOT / 't3-headless-repeat.log').write_text(repeat.stdout + repeat.stderr)
+    assert 'changed=0' in repeat.stdout, 'a second t3-headless.yml run changed the worker'
+    assert main_pid(ssh, SERVER) == pid, 'the T3 server restarted on a no-change run'
+    play(ssh, 'recovery.yml', t3_unit=SERVER)
+    user(ssh, 'systemctl --user is-active personal-worker-recovery.timer')
+    # A killed process is restarted by its own unit (Restart=always) ...
+    user(ssh, f'systemctl --user kill -s SIGKILL {SERVER}')
+    wait_for(ssh, answers(SERVER), 60, 'the killed T3 server was not restarted')
+    assert main_pid(ssh, SERVER) != pid, 'the killed T3 server process was not replaced'
+    # ... and a stopped one by the recovery timer: every minute, the
+    # documented bound, plus one run of the health script.
+    user(ssh, f'systemctl --user stop {SERVER}')
+    took = wait_for(ssh, answers(SERVER), 150, 'the recovery timer did not start the stopped T3 server')
+    print(f'headless T3 server: no-op, killed process restarted, stopped server started by the timer in {took:.0f} s', flush=True)
+    return {'server': server, 'version': version}
+
+
+def after_headless_reboot(ssh, t3):
+    """After a reboot nobody has logged in to: the server started with the
+    user manager, before the SSH session that checks it."""
+    wait_for(ssh, answers(SERVER), 120, 'the headless T3 server did not start after a reboot')
+    started = int(user(ssh, f'systemctl --user show {SERVER} -p ActiveEnterTimestampMonotonic --value').stdout.strip())
+    session = int(run(ssh + ['loginctl show-session "$XDG_SESSION_ID" -p TimestampMonotonic --value']).stdout.strip())
+    assert 0 < started < session, 'the T3 server was not started before anyone logged in'
+    run(ssh + ['test "$(loginctl show-user fleettest -p Linger --value)" = yes && test "$(cat ~/.t3/fleet-test-preserved)" = preserved'])
+    for _ in range(30):
+        policy = run(ssh + [f'{t3["server"]} policy show']).stdout
+        if 'loaded this policy.' in policy:
+            break
+        time.sleep(1)
+    (ROOT / 't3-policy-check.log').write_text(policy)
+    assert 'loaded this policy.' in policy, 'running T3 did not load managed update policy'
+    print('headless T3 server started at boot with nobody logged in and loaded the managed policy', flush=True)
+
+
+def test_desktop(ssh, t3):
+    """Opt-in: the same worker switched to the desktop session keeps ~/.t3,
+    runs the desktop app in the auto-login session after a reboot, and the
+    recovery timer starts a stopped app."""
+    version, _, desktop_sha = pins()
+    name = f'T3-Code-{version}-amd64.deb'
+    package = ROOT / name
+    download(f'https://github.com/pingdotgg/t3code/releases/download/v{version}/{name}', package, desktop_sha)
+    run(ssh + ['sudo DEBIAN_FRONTEND=noninteractive apt-get install --yes ubuntu-desktop-minimal'])
+    applied = play(ssh, 't3-desktop.yml', t3_desktop_url=f'https://github.com/pingdotgg/t3code/releases/download/v{version}/{name}', t3_desktop_name=name, t3_desktop_sha256=desktop_sha)
+    (ROOT / 't3-desktop-first.log').write_text(applied.stdout + applied.stderr)
+    run(ssh + [f'! test -e ~/.config/systemd/user/{SERVER} && test "$(cat ~/.t3/fleet-test-preserved)" = preserved'])
+    play(ssh, 'recovery.yml')
+    reboot(ssh)
+    wait_for(ssh, answers(APP), 300, 'the desktop app did not start in the auto-login session after a reboot')
+    user(ssh, f'systemctl --user stop {APP}')
+    took = wait_for(ssh, answers(APP), 150, 'the recovery timer did not start the stopped desktop app')
+    run(ssh + ['test "$(cat ~/.t3/fleet-test-preserved)" = preserved'])
+    print(f'desktop T3 app: switched from headless keeping ~/.t3, auto-login after reboot, stopped app started by the timer in {took:.0f} s', flush=True)
 
 
 def test_drift(ssh, command):
@@ -180,7 +292,7 @@ def test_drift(ssh, command):
     (ROOT / 'drift-repeat.log').write_text(repeated.stdout + repeated.stderr)
     assert 'changed=0' in repeated.stdout, 'repaired baseline did not converge'
     # Simulate a resource-policy rejection without filling a disk or killing work.
-    low_disk = subprocess.run(ssh + [command + ' --extra-vars \'{"minimumFreeDiskMiB":1000000000}\''], capture_output=True, text=True, timeout=120)
+    low_disk = subprocess.run(ssh + [command + ' --extra-vars \'{"worker_minimum_free_disk_mib":1000000000}\''], capture_output=True, text=True, timeout=120)
     (ROOT / 'capacity-refusal.log').write_text(low_disk.stdout + low_disk.stderr)
     assert low_disk.returncode != 0 and 'RESOURCE_CAPACITY_REQUIRED' in low_disk.stdout
     print('source-owned sleep/SSH drift repaired; injected capacity refusal preserved work', flush=True)

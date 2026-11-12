@@ -21,6 +21,8 @@ interface Measuring {
   packages: [string, string][];
   tools: Record<string, { version: string }[]>;
   units: [string, string][];
+  /** The `VERSION_ID` the worker reports, when the scenario names one. */
+  release?: string;
   measured: WorkerManifest[];
   reference?: string;
 }
@@ -43,6 +45,7 @@ function listing(state: Measuring, reverse = false): string {
     JSON.stringify(tools),
     '@units',
     ...order(state.units).map(([name, value]) => `${name}=${value}`),
+    ...(state.release ? ['@release', state.release] : []),
     '',
   ].join('\n');
 }
@@ -73,6 +76,19 @@ Given(
       measured: [],
     });
     answer(world);
+  }
+);
+
+Given(
+  'the worker runs Ubuntu {string}, with every package at the pin of that release',
+  async (world, release: string) => {
+    const policy = await ubuntuPolicy();
+    const state = measuring(world);
+    state.release = release;
+    state.packages = Object.entries({
+      ...policy.packages,
+      ...policy.releases.find((entry) => entry.release === release)?.packages,
+    });
   }
 );
 

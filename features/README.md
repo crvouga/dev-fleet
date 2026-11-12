@@ -10,6 +10,7 @@ bun test                                 # every feature
 bun test features/state                  # one area
 DEVFLEET_TEST_FRESH_BOX=1 bun test features/fresh-box
 DEVFLEET_TEST_AGENT_BOX=1 bun test features/monitoring
+DEVFLEET_TEST_TAILNET_BOX=1 bun test features/tailnet-box
 ```
 
 ## Layout
@@ -73,7 +74,9 @@ Then('the report lists these checks:', (world, table: DataTable) => { … });
 - Nothing real runs. A subprocess is answered by `Commands`, and no scenario
   contacts a machine, a bucket or an account. The exceptions say so in a tag
   and are skipped unless asked for: `@fresh-box` (a disposable container),
-  and the Litestream scenarios in `state/`.
+  `@agent-box` and `@tailnet-box` (disposable systemd machines, the second
+  on a private tailnet with a self-hosted control plane), and the Litestream
+  scenarios in `state/`.
 - Keep a step short and reusable. When two steps differ by a value, capture
   the value.
 
@@ -82,17 +85,18 @@ Then('the report lists these checks:', (world, table: DataTable) => { … });
 A scenario that cannot run everywhere says so in a tag, and is reported as
 skipped where it cannot.
 
-| Tag           | Runs                                                                         |
-| ------------- | ---------------------------------------------------------------------------- |
-| `@slow`       | With ten times the area's timeout                                            |
-| `@fresh-box`  | When `DEVFLEET_TEST_FRESH_BOX` is set; needs Docker and an SSH client        |
-| `@agent-box`  | When `DEVFLEET_TEST_AGENT_BOX` is set; needs Docker that can run systemd     |
-| `@litestream` | Where the pinned Litestream is installed; required in CI                     |
-| `@s3`         | Where `DEVFLEET_TEST_S3` names a throwaway S3 service                        |
-| `@vault`      | Where `vault` is on PATH, or `DEVFLEET_TEST_VAULT=required`; a dev server    |
-| `@required`   | Only where `DEVFLEET_TEST_LITESTREAM=required`, to prove nothing was skipped |
-| `@macos`      | On macOS only; the manager job of CI runs them                               |
-| `@posix`      | Not on Windows                                                               |
-| `@linux`      | On Linux only                                                                |
-| `@bash`       | Where `/bin/bash` exists                                                     |
-| `@zsh`        | Where `/bin/zsh` exists                                                      |
+| Tag            | Runs                                                                                     |
+| -------------- | ---------------------------------------------------------------------------------------- |
+| `@slow`        | With ten times the area's timeout                                                        |
+| `@fresh-box`   | When `DEVFLEET_TEST_FRESH_BOX` is set; needs Docker and an SSH client                    |
+| `@agent-box`   | When `DEVFLEET_TEST_AGENT_BOX` is set; needs Docker that can run systemd                 |
+| `@tailnet-box` | When `DEVFLEET_TEST_TAILNET_BOX` is set; needs Docker that can run systemd and `openssl` |
+| `@litestream`  | Where the pinned Litestream is installed; required in CI                                 |
+| `@s3`          | Where `DEVFLEET_TEST_S3` names a throwaway S3 service                                    |
+| `@vault`       | Where `vault` is on PATH, or `DEVFLEET_TEST_VAULT=required`; a dev server                |
+| `@required`    | Only where `DEVFLEET_TEST_LITESTREAM=required`, to prove nothing was skipped             |
+| `@macos`       | On macOS only; the manager job of CI runs them                                           |
+| `@posix`       | Not on Windows                                                                           |
+| `@linux`       | On Linux only                                                                            |
+| `@bash`        | Where `/bin/bash` exists                                                                 |
+| `@zsh`         | Where `/bin/zsh` exists                                                                  |

@@ -1,38 +1,77 @@
 import type { CommandResult, FleetNode, Check } from './types';
+import { fleet } from './fleet-config';
+import {
+  connectionOptions,
+  declaredConnection,
+  renderKnownHosts,
+  SSH_SESSION,
+  SSH_TRANSPORT,
+  sshOptionArgs,
+} from './ssh-connection';
 
 export function shellQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function sshArgs(node: FleetNode): string[] {
+/** The worker fleet.json declares for a roster entry that is reached from
+ * declared data, if it is one. No configuration (a fresh machine) is none.
+ */
+function declaredWorker(node: Pick<FleetNode, 'id' | 'ssh'>) {
+  try {
+    const worker = declaredConnection(
+      fleet.workers.find((entry) => entry.id === node.id)
+    );
+    return worker && worker.network.tailscaleName === node.ssh ? worker : null;
+  } catch {
+    return null;
+  }
+}
+
+/** One SSH session to a node: unattended, strict about the host key,
+ * forwarding nothing. A worker without an alias is reached from its declared
+ * user, port and tailnet name, against the fleet-owned known_hosts.
+ */
+export function sshArgs(node: Pick<FleetNode, 'id' | 'ssh'>): string[] {
+  const declared = declaredWorker(node);
   return [
     'ssh',
     '-T',
     '-a',
-    '-o',
-    'BatchMode=yes',
-    '-o',
-    'StrictHostKeyChecking=yes',
-    '-o',
-    'UpdateHostKeys=no',
-    '-o',
-    'ConnectTimeout=8',
-    '-o',
-    'ConnectionAttempts=1',
-    '-o',
-    'ServerAliveInterval=15',
-    '-o',
-    'ServerAliveCountMax=4',
-    '-o',
-    'ClearAllForwardings=yes',
-    '-o',
-    'PermitLocalCommand=no',
-    '-o',
-    'ControlMaster=no',
-    '-o',
-    'ControlPath=none',
+    ...sshOptionArgs(SSH_TRANSPORT),
+    ...(declared
+      ? sshOptionArgs(connectionOptions(declared, renderKnownHosts(fleet)))
+      : []),
+    ...sshOptionArgs(SSH_SESSION),
     node.ssh,
   ];
+}
+
+/** How a package playbook that addresses a worker over SSH itself
+ * (ansible/ubuntu/worker-account.yml, ansible/ubuntu/reboot.yml) reaches it:
+ * the options every direct session takes, as one `ansible_ssh_common_args`
+ * value, and the account a worker reached from declared data logs in as. The
+ * play names the login itself (root, or the declared account), so the
+ * declared user is not among the options.
+ */
+export function playbookConnection(node: Pick<FleetNode, 'id' | 'ssh'>): {
+  options: string;
+  user: string | null;
+} {
+  const declared = declaredWorker(node);
+  const options = [
+    ...SSH_TRANSPORT,
+    ...(declared
+      ? connectionOptions(declared, renderKnownHosts(fleet)).filter(
+          ([name]) => name !== 'User'
+        )
+      : []),
+  ];
+  return {
+    options: sshOptionArgs(options)
+      .map((arg) => (arg === '-o' ? arg : shellQuote(arg)))
+      .join(' '),
+    user: declared?.network.user ?? null,
+  };
 }
 
 export function remoteCommand(node: FleetNode, request: object): string[] {
@@ -48,7 +87,7 @@ const FAILURES = [
     id: 'ssh:host-key',
     summary: 'SSH host key is unknown or changed.',
     action:
-      'Verify the host fingerprint out of band, then update known_hosts manually. Never disable host-key checking.',
+      'The worker presented a host key other than the pinned one. Verify its fingerprint out of band, then pin the new key: devfleet fleet-node-replace --id ID --host-key "TYPE BASE64" --apply --yes, or change hostKey in its worker record. A worker reached through your own SSH alias is checked against your known_hosts instead. Never disable host-key checking.',
   },
   {
     pattern:

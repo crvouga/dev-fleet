@@ -3,6 +3,7 @@ import { verifyT3Endpoint } from '../t3-endpoint';
 import type { Check, NodeReport, Runner } from '../types';
 import { fleet as definition } from '../fleet-config';
 import { enrolledRoster } from '../definition';
+import { readParked } from '../state/workers';
 import type { Tailnet } from '../tailscale';
 import type { FleetNode } from '../types';
 import {
@@ -12,6 +13,7 @@ import {
 } from '../monitoring/beszel';
 import { hubAccess } from '../monitoring/hub-access';
 import { hubUrl } from '../topology';
+import { leftoverSystems, listSystems } from '../monitoring/systems';
 
 export interface DashboardAccess {
   (hub: string): Promise<{ request: BeszelRequest }>;
@@ -76,6 +78,7 @@ async function nodeEvidence(
         ) ?? dashboard;
       report.checks.push(...evidence.checks);
     }
+    dashboard.checks.push(...(await leftovers(request)));
   } catch (error) {
     dashboard.checks.push({
       id: 'beszel:access',
@@ -89,6 +92,21 @@ async function nodeEvidence(
           'Authenticate this manager to Vault so BESZEL_FLEET_AUTH can be read, then rerun fleet-status --workers. Node registration and metric freshness are unverified until then.',
       },
     });
+  }
+}
+
+/** Systems the hub watches that no declared worker (parked ones included)
+ * and not the manager is named after. A hub whose list cannot be read says
+ * nothing here; its access is reported above.
+ */
+async function leftovers(request: BeszelRequest): Promise<Check[]> {
+  try {
+    return leftoverSystems(await listSystems(request), [
+      definition.manager.id,
+      ...definition.workers.map((worker) => worker.id),
+    ]);
+  } catch {
+    return [];
   }
 }
 
@@ -155,7 +173,13 @@ export function managedHealthScope(
   roster: FleetNode[],
   includeManager = true
 ) {
-  const canonical = definition;
+  // A parked worker is off on purpose: it is not audited, not missing and
+  // its device is not expected online (fleet-status lists it as parked).
+  const parked = readParked();
+  const canonical = {
+    ...definition,
+    workers: definition.workers.filter((entry) => !parked[entry.id]),
+  };
   const declared = roster.filter((node) =>
     canonical.workers.some((entry) => entry.id === node.id)
   );

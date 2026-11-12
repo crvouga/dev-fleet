@@ -1,0 +1,37 @@
+name: Tailnet
+# A worker joins a real tailnet unattended, is reached only through it and
+# leaves no device behind: features/tailnet-box, against a self-hosted
+# Headscale pinned in features/tailnet-box/support/lock.json, with no account
+# on any hosted service. The same command reproduces a failure on any Linux
+# machine with Docker. It runs weekly, by hand, and before every release (the
+# Release workflow calls it for the commit it publishes and publishes nothing
+# unless it passed).
+on:
+  schedule:
+    - cron: '41 4 * * 1'
+  workflow_dispatch: {}
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to test
+        type: string
+        required: true
+permissions:
+  contents: read
+jobs:
+  tailnet:
+    name: Tailnet enrolment on a self-hosted control plane
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - name: Join, refuse, match, firewall and clean up on a private tailnet
+        run: bun test features/tailnet-box
+        env:
+          DEVFLEET_TEST_TAILNET_BOX: required

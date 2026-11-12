@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { Standing } from '../state/sync';
 import type { Runner } from '../types';
+import { featureRemovals, workerFeatures } from '../worker-features';
 
 /** A tool whose pin changes between the applied and the selected revision. */
 export interface ToolChange {
@@ -31,6 +32,9 @@ export interface SyncPlan {
   tools: ToolChange[];
   restarts: Restart[];
   nodes: { node: string; from: string | null; to: string; changes: boolean }[];
+  /** What a sync removes from a worker because the fleet configuration
+   * turned one of its features off since it was last applied. */
+  removals: { node: string; removes: string[] }[];
 }
 
 /** The coding agents' CLIs: a new version is used by the next session, and a
@@ -84,16 +88,24 @@ export function toolChanges(
 }
 
 /** What restarts follow from the changes, as the playbooks and the toolchain
- * setup act on them.
+ * setup act on them. A worker's T3 restarts only while it runs no agent turn
+ * (`ansible/ubuntu/tasks/t3-restart.yml`) unless `--restart-busy` asks for it
+ * anyway: only then do running turns end.
  */
-export function restarts(tools: ToolChange[], files: string[]): Restart[] {
+export function restarts(
+  tools: ToolChange[],
+  files: string[],
+  restartBusy = false
+): Restart[] {
   const found: Restart[] = [];
+  const when = restartBusy
+    ? 'at once (--restart-busy): its running agent turns end.'
+    : 'once it runs no agent turn: running turns keep going and the restart is pending until then.';
   if (tools.some((change) => change.tool === 't3'))
     found.push({
       service: 't3',
-      reason:
-        'T3 is upgraded and restarted on every machine; its running agent turns end.',
-      endsRunningTurns: true,
+      reason: `T3 is upgraded on every worker and restarted ${when}`,
+      endsRunningTurns: restartBusy,
     });
   else if (
     files.some((file) =>
@@ -102,9 +114,8 @@ export function restarts(tools: ToolChange[], files: string[]): Restart[] {
   )
     found.push({
       service: 't3',
-      reason:
-        'The managed T3 policy may change: a T3 that has not loaded it is restarted, and its running agent turns end.',
-      endsRunningTurns: true,
+      reason: `The managed T3 policy may change: a T3 that has not loaded it is restarted ${when}`,
+      endsRunningTurns: restartBusy,
     });
   const agents = tools.filter((change) => AGENT_TOOLS.includes(change.tool));
   if (agents.length)
@@ -136,6 +147,11 @@ export async function syncPlan(
     state: Standing;
     nodes: string[];
     sources: string[];
+    /** `--restart-busy`: a T3 restart does not wait for idle. */
+    restartBusy?: boolean;
+    /** The fleet configuration last applied (from the fleet state), when
+     * there is one, and the one this sync applies. */
+    definitions?: { applied: unknown; selected: unknown };
   },
   run: Runner
 ): Promise<SyncPlan> {
@@ -163,14 +179,52 @@ export async function syncPlan(
     revision: { from: input.from, to: input.to },
     known: changes !== null,
     tools: changes?.tools ?? [],
-    restarts: changes ? restarts(changes.tools, changes.files) : [],
+    restarts: changes
+      ? restarts(changes.tools, changes.files, input.restartBusy === true)
+      : [],
     nodes: input.nodes.map((node) => ({
       node,
       from: input.from,
       to: input.to,
       changes: differs,
     })),
+    removals: input.definitions ? removals(input.nodes, input.definitions) : [],
   };
+}
+
+/** Per worker, what turning its features off removes. Nothing is known to
+ * be removed from a worker the applied configuration does not name. */
+function removals(
+  nodes: string[],
+  definitions: { applied: unknown; selected: unknown }
+): SyncPlan['removals'] {
+  const workers = (definition: unknown): Record<string, unknown>[] => {
+    const list =
+      typeof definition === 'object' && definition !== null
+        ? (definition as Record<string, unknown>)['workers']
+        : undefined;
+    return Array.isArray(list)
+      ? list.filter(
+          (entry): entry is Record<string, unknown> =>
+            typeof entry === 'object' && entry !== null
+        )
+      : [];
+  };
+  return nodes.flatMap((node) => {
+    const before = workers(definitions.applied).find(
+      (entry) => entry['id'] === node
+    );
+    if (!before) return [];
+    const network = workers(definitions.selected).find(
+      (entry) => entry['id'] === node
+    )?.['network'] as { user?: unknown } | undefined;
+    const removes = featureRemovals(
+      workerFeatures(definitions.applied, node),
+      workerFeatures(definitions.selected, node),
+      typeof network?.user === 'string' ? network.user : 'the worker user'
+    );
+    return removes.length ? [{ node, removes }] : [];
+  });
 }
 
 export const planSources = (workspace: string, root: string): string[] => [
@@ -196,5 +250,7 @@ export function planText(plan: SyncPlan): string {
     );
   for (const restart of plan.restarts)
     lines.push(`  Restarts ${restart.service}: ${restart.reason}`);
+  for (const removal of plan.removals ?? [])
+    lines.push(`  Removes from ${removal.node}: ${removal.removes.join(', ')}`);
   return lines.join('\n');
 }

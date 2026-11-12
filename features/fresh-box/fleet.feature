@@ -12,8 +12,12 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
   That makes every run here a partial verification: it must say so, and must
   not record the revision as applied.
 
+  The machines run the Ubuntu release under test, as in the single-machine
+  feature: DEVFLEET_TEST_FRESH_BOX_RELEASE, or else the newest release the
+  Ubuntu policy accepts.
+
   Background:
-    Given these fresh Ubuntu 26.04 machines, each with only an SSH server and an account that can use sudo:
+    Given these fresh machines of the Ubuntu release under test, each with only an SSH server and an account that can use sudo:
       | fleet-a |
       | fleet-b |
     And the tailnet shows each of them online under its own name
@@ -78,20 +82,34 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
     Then the bootstrap reports "SOURCE_CHECKOUT_CONFLICT" with a remedy
     And "notes.txt" is still in that checkout on "fleet-b"
 
-  Scenario: A package installation fleet-sync started and that was interrupted is finished on the next run
+  Scenario Outline: A package installation <starter> started and that was interrupted is finished on the next run
+    Whoever started it, the bootstrap finishes an interrupted package run
+    once, bounded, before it installs what it lacks: the next sync heals
+    without a person.
     Given every machine has been bootstrapped
     And "fleet-b" lacks the bootstrap package "unzip"
-    And a package installation fleet-sync started on "fleet-b" was interrupted after unpacking "unzip"
+    And a package installation <starter> started on "fleet-b" was interrupted after unpacking "unzip"
     When the manager bootstraps "fleet-b"
     Then the bootstrap reaches node convergence
+    And the package database of "fleet-b" is consistent
     And the package "unzip" is installed on "fleet-b"
 
-  Scenario: An interrupted package installation fleet-sync did not start is left to the operator
+    Examples:
+      | starter      |
+      | fleet-sync   |
+      | someone else |
+
+  Scenario: A sync cut off while it upgraded one of the bootstrap's own packages is finished by the bootstrap of the next run
+    The upgrade unpacked the new "unzip" and was cut off before it was
+    configured, so the bootstrap finds one of its own prerequisites not
+    installed and the package database inconsistent. It finishes the run
+    instead of stopping with DPKG_INTERRUPTED.
     Given every machine has been bootstrapped
-    And "fleet-b" lacks the bootstrap package "unzip"
-    And a package installation someone else started on "fleet-b" was interrupted after unpacking "unzip"
+    And the upgrade of the bootstrap package "unzip" on "fleet-b" was cut off after unpacking it
     When the manager bootstraps "fleet-b"
-    Then the bootstrap reports "DPKG_INTERRUPTED" with a remedy that says "dpkg --configure -a"
+    Then the bootstrap reaches node convergence
+    And the package database of "fleet-b" is consistent
+    And the package "unzip" is installed on "fleet-b"
 
   Scenario: A package run cut off by a power loss is finished by the Ubuntu baseline of the next run
     A package the bootstrap does not need is left unpacked and not
@@ -145,7 +163,7 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
     And the fleet configuration on "fleet-b" was not written again
 
   Scenario: A machine with too little disk is refused before anything is installed
-    Given a fresh Ubuntu 26.04 machine "fleet-small" whose home has 64 MB free
+    Given a fresh machine "fleet-small" of the Ubuntu release under test whose home has 64 MB free
     When the manager bootstraps "fleet-small"
     Then the bootstrap reports "BOOTSTRAP_DISK_CAPACITY_REQUIRED" with a remedy
     And "fleet-small" still has none of these commands:

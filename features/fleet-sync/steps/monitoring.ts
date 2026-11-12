@@ -132,6 +132,10 @@ Given(
   }
 );
 
+Given('the hub also watches a system named {string}', (world, name: string) => {
+  world.hubExtra = [...(world.hubExtra ?? []), name];
+});
+
 Given('logging in to the hub fails with {string}', (world, message: string) => {
   world.hubLogin = () => {
     throw new Error(message);
@@ -161,6 +165,19 @@ function access(world: FleetSyncWorld) {
         }
         if (path.endsWith('/info'))
           return { v: described.version, key: described.key };
+        // The list of every system, by name: the declared workers and any
+        // the scenario says the hub also watches.
+        if (path.includes('/systems/') && path.includes('perPage=500'))
+          return {
+            items: [
+              ...definition.workers.map((worker) => worker.id),
+              ...(world.hubExtra ?? []),
+            ].map((name, index) => ({
+              id: String(index).padStart(15, 'a'),
+              name,
+              host: `${name}.tail0a1b2c.ts.net`,
+            })),
+          };
         if (path.includes('/systems/'))
           return { items: described.system ? [described.system] : [] };
         if (path.includes('/fingerprints/')) return { items: [] };

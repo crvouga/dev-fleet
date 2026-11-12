@@ -133,3 +133,38 @@ Feature: The watchdog keeps a worker's T3 up, responsive and on its installed re
       Then it says "T3_RESTART_PENDING"
       And it has restarted nothing
       And the pending restart is kept
+
+  Rule: A headless worker's server is recovered the same way, with no session to wait for
+    A headless worker (fleet.json features.session "headless") runs the
+    pinned T3 server as a lingering user service, t3code-headless.service.
+    Nobody logs in to it, so a missing graphical session is not a fault: the
+    server is started, restarted and moved to its installed release like the
+    desktop app. The installed release is the versioned directory its unit
+    runs the server from.
+
+    Scenario: A killed server is started at the next check, with nobody logged in
+      Given the T3 server of the headless session is stopped
+      And there is no graphical session
+      And T3 does not answer its health check
+      When the watchdog runs
+      Then it exits with 0
+      And it runs "systemctl --user reset-failed t3code-headless.service" before "systemctl --user start t3code-headless.service"
+      And it does not run "sudo -n systemctl restart display-manager.service"
+      And it does not run "systemctl --user start t3code-desktop.service"
+
+    Scenario: An unresponsive server is restarted after three failed checks
+      Given the T3 server of the headless session is running
+      And there is no graphical session
+      And T3 does not answer its health check
+      And the watchdog has run 2 times
+      When the watchdog runs
+      Then it runs "systemctl --user reset-failed t3code-headless.service" before "systemctl --user restart t3code-headless.service"
+
+    Scenario: A server still running the previous release is restarted once it is idle
+      Given the T3 server of the headless session is running
+      And there is no graphical session
+      And the installed release is "0.1.8"
+      And T3 answers its health check as release "0.1.7"
+      And T3 runs no agent turn
+      When the watchdog runs
+      Then it runs "systemctl --user restart t3code-headless.service"

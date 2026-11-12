@@ -167,7 +167,7 @@ export function keyExpiryCheck(
   const remedy = {
     action: computer.self
       ? 'Renew the node key of the manager before it expires: tailscale up --force-reauth on the manager, or disable key expiry for it in the Tailscale admin console.'
-      : 'Disable key expiry for the worker in the Tailscale admin console, or tag it (tagged nodes do not expire). After an expiry, re-join it as docs/operations.md describes (Tailscale key expiry).',
+      : 'Disable key expiry for the worker in the Tailscale admin console, or tag it (tagged nodes do not expire). With tailnet and the secret tailnet-admin declared, fleet-sync enrols workers tagged and disables expiry for an enrolled worker that still has one. After an expiry, re-join it as docs/operations.md describes (Tailscale key expiry).',
   };
   if (days < 0)
     return { id, status: 'fail', summary: 'TAILSCALE_KEY_EXPIRED', remedy };

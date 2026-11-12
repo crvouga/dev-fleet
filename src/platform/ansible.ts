@@ -30,6 +30,14 @@ export function ansibleCommand(
       ];
 }
 
+/** The package's Ansible configuration (ansible/ansible.cfg): how Ansible
+ * reaches a worker over SSH (timeouts, retries, pipelining, connection
+ * reuse) beside the options src/ssh-connection.ts gives every session.
+ */
+export function ansibleConfig(root = PACKAGE_ROOT): NodeJS.ProcessEnv {
+  return { ANSIBLE_CONFIG: join(root, 'ansible', 'ansible.cfg') };
+}
+
 /** Private fleet state on disk, never /tmp: a worker's /tmp is RAM-backed with a
  * per-user quota that agent caches can exhaust, and the baseline that bounds it
  * must still be able to run then.
@@ -45,7 +53,11 @@ export function variablesDirectory(home = homedir()): string {
 export async function runAnsible(
   run: Runner,
   playbook: string,
-  options: CommandOptions & { input: string },
+  options: CommandOptions & {
+    input: string;
+    /** Run in check mode: report what would change, change nothing. */
+    check?: boolean;
+  },
   scratch = variablesDirectory()
 ): Promise<CommandResult> {
   if (Buffer.byteLength(options.input) > 256 * 1024)
@@ -55,12 +67,36 @@ export async function runAnsible(
   const path = join(directory, 'variables.json');
   try {
     await writeFile(path, options.input, { mode: 0o600, flag: 'wx' });
-    const { input: _input, ...commandOptions } = options;
+    const { input: _input, check, ...commandOptions } = options;
     return await run(
-      [...ansibleCommand(), playbook, '--extra-vars', '@' + path],
-      commandOptions
+      [
+        ...ansibleCommand(),
+        playbook,
+        ...(check ? ['--check'] : []),
+        '--extra-vars',
+        '@' + path,
+      ],
+      { ...commandOptions, env: { ...ansibleConfig(), ...commandOptions.env } }
     );
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+/** A playbook of the package, applied from the manager with these variables:
+ * one that addresses a worker over SSH itself (ansible/ubuntu/reboot.yml).
+ * Scenarios answer it in place of Ansible.
+ */
+export type PackagePlaybook = (
+  name: string,
+  variables: object,
+  timeoutMs: number
+) => Promise<CommandResult>;
+
+export function packagePlaybook(run: Runner): PackagePlaybook {
+  return (name, variables, timeoutMs) =>
+    runAnsible(run, join(PACKAGE_ROOT, 'ansible', name), {
+      input: JSON.stringify(variables),
+      timeoutMs,
+    });
 }

@@ -12,14 +12,19 @@ import {
   type TailnetComputer,
 } from './tailscale';
 import { matchComputers } from './tailnet-matching';
+import { rebootStopsRollout } from './worker-reboot';
 import { sshArgs, sshFailure } from './ssh';
 import type { FleetDefinition, MachineDefinition } from './definition';
 import { publicHubUrl } from './monitoring/beszel';
 import {
   evaluateEnvironment,
+  evaluateMachineClass,
   evaluatePlatform,
+  evaluateSize,
   PLATFORM_PROBE,
+  probedClock,
 } from './machine/platform';
+import { clockOffsetCheck } from './clock';
 
 export interface ManagerNode extends NodeReport {
   /** The singleton manager converges locally; workers over SSH. */
@@ -39,6 +44,10 @@ export interface ManagerReport {
   desiredRevision: string | null;
   /** The worker that proved a revision new to the fleet first, when one did. */
   canary?: string;
+  /** The workers this run enrolled (added to the roster, or bound to their
+   * tailnet device).
+   */
+  enrolled?: string[];
   checks: Check[];
   nodes: ManagerNode[];
   candidates: number;
@@ -49,17 +58,30 @@ export type DeployNode = (
   revision: string
 ) => Promise<NodeReport>;
 
-/** Minimal read-only POSIX inspection requires no workspace, Node, Bun or Git. */
+/** Minimal read-only POSIX inspection requires no workspace, Node, Bun or Git.
+ * Given the manager's clock, it also measures the worker's clock against it
+ * (`worker:clock-offset`).
+ */
 export async function inspectBootstrap(
   node: FleetNode,
-  run: Runner
+  run: Runner,
+  clock?: () => number
 ): Promise<Check[]> {
+  const sentAt = clock?.();
   const result = await run([...sshArgs(node), PLATFORM_PROBE], {
     timeoutMs: 20_000,
   });
+  const receivedAt = clock?.();
   if (!result.ok) return [sshFailure(result)];
   const baseline = evaluatePlatform(result.stdout);
   const environment = evaluateEnvironment(result.stdout);
+  const remote = probedClock(result.stdout);
+  const offset =
+    remote === undefined || sentAt === undefined || receivedAt === undefined
+      ? []
+      : [clockOffsetCheck(remote, sentAt, receivedAt)];
+  const machine = evaluateMachineClass(result.stdout);
+  const size = evaluateSize(result.stdout);
   return [
     {
       id: 'ssh:fresh-session',
@@ -85,6 +107,25 @@ export async function inspectBootstrap(
           'Run the worker on a physical or virtual machine of its own; docs/support-matrix.md lists what is supported.',
       },
     },
+    { id: machine.id, status: 'pass', summary: machine.summary },
+    ...(size
+      ? [
+          {
+            id: size.id,
+            status: size.supported ? ('pass' as const) : ('fail' as const),
+            summary: size.summary,
+            ...(size.supported
+              ? {}
+              : {
+                  remedy: {
+                    action:
+                      'Resize the machine to at least the minimum worker size docs/worker-contract.md states, then run fleet-sync. Nothing was installed.',
+                  },
+                }),
+          },
+        ]
+      : []),
+    ...offset,
   ];
 }
 
@@ -98,11 +139,17 @@ export async function synchronizeManager(
     revision: string;
     apply: boolean;
     canary?: string;
+    /** One worker at a time, canary first; a worker a reboot left unready
+     * stops the ones after it.
+     */
+    serial?: boolean;
     progress?: (node: string, phase: string) => void;
     /** Called once per node as soon as its result is final. */
     finished?: (node: ManagerNode) => void;
     /** Converges the manager locally; omitted in tests. */
     manager?: () => Promise<ManagerNode>;
+    /** The manager's clock, in milliseconds; workers are measured against it. */
+    clock?: () => number;
   },
   run: Runner,
   deploy: DeployNode
@@ -146,6 +193,7 @@ export async function synchronizeManager(
           revision: input.revision,
           computers: tailnet.computers,
           matches,
+          clock: input.clock ?? Date.now,
         },
         run
       );
@@ -192,6 +240,7 @@ async function applyNodes(
     nodes: FleetNode[];
     revision: string;
     canary?: string;
+    serial?: boolean;
     progress?: (node: string, phase: string) => void;
     finished?: (node: ManagerNode) => void;
   },
@@ -216,7 +265,16 @@ async function applyNodes(
     const deployable = await step(canary);
     if (!deployable || canary.checks.some(blocksPromotion)) blocked = true;
   }
-  await Promise.all(workers.filter((node) => node !== canary).map(step));
+  const rest = workers.filter((node) => node !== canary);
+  if (!input.serial) {
+    await Promise.all(rest.map(step));
+    return;
+  }
+  if (canary && rebootStopsRollout(canary)) blocked = true;
+  for (const node of rest) {
+    await step(node);
+    if (rebootStopsRollout(node)) blocked = true;
+  }
 }
 
 /** A revision new to the fleet is proven on one worker first: the preferred
@@ -322,6 +380,7 @@ async function inspectManagerNode(
     revision: string;
     computers: TailnetComputer[];
     matches: Map<string, FleetNode[]>;
+    clock: () => number;
   },
   run: Runner
 ): Promise<ManagerNode> {
@@ -357,7 +416,9 @@ async function inspectManagerNode(
       },
     });
   else {
-    checks.push(...(await inspectBootstrap(node, run)));
+    // fleet-sync runs on the manager: the worker's clock is measured
+    // against the manager's own.
+    checks.push(...(await inspectBootstrap(node, run, context.clock)));
     checks.push(...identityChecks(node, peer));
     if (peer) checks.push(keyExpiryCheck(peer));
   }

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Executed over strict SSH from the selected verified Git revision. stdin is
 # one line holding the base64 fleet configuration (empty when there is none),
-# then the base64 Git bundle (nothing in cached mode). All executable content
-# remains in this tracked source. The Ubuntu releases workers may run are
+# one line holding a single-use tailnet enrolment key (empty when there is
+# none), then the base64 Git bundle (nothing in cached mode). All executable
+# content remains in this tracked source. The Ubuntu releases workers may run are
 # named once, in ansible/ubuntu/policy.json; the manager passes them in.
 set -eu
 umask 077
@@ -11,7 +12,11 @@ bundle_sha=$2
 node=$3
 source_mode=${4:-transfer}
 releases=${5:-}
+# Whether a worker's T3 restarts while agent turns run (fleet-sync
+# --restart-busy); an older manager passes nothing and turns are kept.
+t3_restart=${6:-keep-turns}
 case "$source_mode" in cached|transfer) ;; *) exit 2;; esac
+case "$t3_restart" in keep-turns|restart-busy) ;; *) exit 2;; esac
 case "$releases" in *[!0-9.\ ]*|'') exit 2;; esac
 case "$revision" in *[!a-f0-9]*|'') exit 2;; esac
 [ "${#revision}" = 40 ] || exit 2
@@ -23,12 +28,17 @@ bundle=''
 code=0
 apt_log=''
 failure_code=REMOTE_BOOTSTRAP_INCOMPLETE
+# How long a machine's own first boot (cloud-init) may still run, in seconds.
+first_boot_wait=900
 die() { failure_code=$1; exit 1; }
 # One remedy per failure: what the operator does next. Never raw output.
 remedy() {
   case "$1" in
     FLEET_REMOTE_LOCKED) echo 'Another fleet operation holds this machine. Wait for it to finish; rerun fleet-sync afterwards. Never remove the lock while its holder runs.';;
-    ROOT_DEVELOPMENT_USER_REJECTED) echo 'Connect as the non-root developer account the fleet configuration names.';;
+    ROOT_DEVELOPMENT_USER_REJECTED) echo 'Connect as the non-root developer account the fleet configuration names (workers[].network.user). With that account declared, fleet-sync creates it once over the root login (ansible/ubuntu/worker-account.yml) and continues as it.';;
+    FIRST_BOOT_PENDING) echo 'The machine is still finishing its first boot (cloud-init). Nothing was changed; rerun fleet-sync in a few minutes.';;
+    FIRST_BOOT_FAILED) echo 'The first boot of the machine (cloud-init) ended in an error, so it is half-provisioned and was not converged. Read cloud-init status --long on the worker, fix the image or its user data, and recreate the machine.';;
+    TAILNET_KEY_INVALID|TAILNET_KEY_DELIVERY_FAILED) echo 'The single-use tailnet key could not be handed to the worker. Rerun fleet-sync; it mints a new one. The worker needs passwordless sudo to receive it.';;
     UBUNTU_BASELINE_MISMATCH|UBUNTU_ARCHITECTURE_UNSUPPORTED|PLATFORM_UNSUPPORTED) echo 'Workers run an Ubuntu release docs/support-matrix.md lists, on x86_64 or aarch64. Reinstall the machine; fleet-sync never upgrades an operating system.';;
     WORKER_ENVIRONMENT_UNSUPPORTED) echo 'WSL2 is not a worker. Run the worker on a physical or virtual machine of its own (docs/support-matrix.md).';;
     FLEET_STATE_PATH_UNSAFE) echo 'A fleet state directory under ~/.local/share/personal is a symbolic link. Replace it with a real directory.';;
@@ -39,7 +49,7 @@ remedy() {
     APT_DNS_UNAVAILABLE) echo 'The worker cannot resolve the Ubuntu archive. Restore its DNS, then rerun fleet-sync.';;
     APT_REPOSITORY_UNAVAILABLE) echo 'The Ubuntu archive could not be reached. Check the network or archive status, then rerun fleet-sync.';;
     APT_DISK_FULL) echo 'Package installation ran out of disk space. Free space under /var and /usr, then rerun fleet-sync.';;
-    DPKG_INTERRUPTED) echo 'An earlier package installation that fleet-sync did not start was interrupted. Run sudo dpkg --configure -a once no package process is running, then rerun fleet-sync.';;
+    DPKG_INTERRUPTED) echo 'An interrupted package installation could not be finished: dpkg --configure -a, run once and bounded, left the package database inconsistent. Read sudo dpkg --audit on the worker, repair the packages it names, then rerun fleet-sync.';;
     APT_UPDATE_FAILED|APT_INSTALL_FAILED) echo 'Run sudo apt-get update and install the bootstrap packages by hand to see the error, then rerun fleet-sync.';;
     SOURCE_CACHE_CHANGED|SOURCE_STATUS_FAILED|SOURCE_CHECKOUT_CONFLICT) echo 'The fleet-owned checkout of this revision holds changes fleet-sync did not make. Inspect and remove that revisions directory, then rerun fleet-sync.';;
     CONFIGURATION_INSTALL_FAILED) echo 'The fleet configuration could not be written under ~/.config/dev-fleet. Check that directory, then rerun fleet-sync.';;
@@ -47,9 +57,12 @@ remedy() {
     *) echo 'Inspect the remote operation lock and rerun the approved revision. No success receipt advanced.';;
   esac
 }
+# apt-failure: begin
 # Names an APT failure by the fixed messages of the pinned Ubuntu release.
 apt_failure() {
-  if grep -q 'Could not get lock' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
+  # APT names a held lock in several ways: with the process that holds it,
+  # without one (it could not read the holder), or in dpkg's own words.
+  if grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|Unable to lock the administration directory|locked by another process' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
   elif grep -q 'No space left on device' "$apt_log" 2>/dev/null; then die APT_DISK_FULL
   elif grep -qE 'Temporary failure resolving|Could not resolve' "$apt_log" 2>/dev/null; then die APT_DNS_UNAVAILABLE
   elif grep -qE 'Failed to fetch|Unable to connect|Connection failed|Unable to locate package' "$apt_log" 2>/dev/null; then die APT_REPOSITORY_UNAVAILABLE
@@ -57,6 +70,7 @@ apt_failure() {
   else die "$1"
   fi
 }
+# apt-failure: end
 fail() {
   printf '{"version":1,"checks":[{"id":"bootstrap:%s","status":"fail","summary":"%s","remedy":{"action":"%s"}}]}\n' "$phase" "$failure_code" "$(remedy "$failure_code")"
 }
@@ -101,12 +115,32 @@ operation lock
 # runs never write it at once. It holds no secret.
 phase='configuration-install'
 IFS= read -r configuration || configuration=''
+# Held in this shell only (never exported, never an argument) until it is
+# written to a root-only file for the Tailscale play.
+IFS= read -r tailnet_key || tailnet_key=''
 if [ -n "$configuration" ]; then
   config_dir="$HOME/.config/dev-fleet"
   mkdir -p "$config_dir" || die CONFIGURATION_INSTALL_FAILED
   printf '%s' "$configuration" | base64 -d >"$config_dir/fleet.json.new" || die CONFIGURATION_INSTALL_FAILED
   mv "$config_dir/fleet.json.new" "$config_dir/fleet.json" || die CONFIGURATION_INSTALL_FAILED
 fi
+phase=first-boot
+# first-boot: begin
+# A new machine answers SSH before its own first boot has finished: cloud-init
+# may still be growing the disk and installing packages. Wait for it, within a
+# bound, before any package work. A machine without cloud-init has nothing to
+# wait for. Exit 2 is a first boot that finished with recoverable errors.
+if command -v cloud-init >/dev/null 2>&1; then
+  operation first-boot
+  first_boot=0
+  timeout "$first_boot_wait" cloud-init status --wait >/dev/null 2>&1 || first_boot=$?
+  case "$first_boot" in
+    0|2) ;;
+    124) die FIRST_BOOT_PENDING;;
+    *) die FIRST_BOOT_FAILED;;
+  esac
+fi
+# first-boot: end
 phase=resources
 operation resources
 # A bootstrap floor protects source transfer and minimal prerequisites. The
@@ -123,37 +157,60 @@ base64 -d >"$bundle"
 printf '%s  %s\n' "$bundle_sha" "$bundle" | sha256sum -c - >/dev/null 2>&1 || die SOURCE_DIGEST_MISMATCH
 fi
 phase=prerequisites
-missing=''
-for package in git curl ca-certificates unzip xz-utils build-essential python3 ansible-core; do
-  dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed || missing="$missing $package"
-done
+# prerequisites: begin
+missing_prerequisites() {
+  missing=''
+  for package in git curl ca-certificates unzip xz-utils build-essential python3 ansible-core; do
+    dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed || missing="$missing $package"
+  done
+}
+missing_prerequisites
 if [ -n "$missing" ]; then
   sudo -n true >/dev/null 2>&1 || die SUDO_AUTHORIZATION_REQUIRED
   # APT's own messages, in a private file read only for fixed patterns and
   # removed on exit: they tell a held lock, DNS, an unreachable archive and a
   # full disk apart. Nothing of them is reported.
   apt_log=$(mktemp "$root/apt.XXXXXX")
-  pending="$root/prerequisites-pending"
-  # An installation this script started and that was interrupted (the shell
-  # killed, the machine powered off) leaves dpkg half-configured. Finishing
-  # our own transaction is safe; one fleet-sync did not start is reported.
+  # A package run that was cut off (the shell killed, the machine powered
+  # off) leaves dpkg half-configured, whoever started it: this script, the
+  # Ubuntu baseline upgrading one of these very packages, or the release's
+  # own updates. Finishing it is the standard safe repair, the one the
+  # baseline makes (ansible/ubuntu/tasks/dpkg.yml): tried once, bounded,
+  # waiting while another package process holds the lock (never killing it).
+  # Only a database still inconsistent afterwards stops the run.
   # dpkg reads its database lock even to audit, which needs root.
   if [ -n "$(sudo -n dpkg --audit 2>/dev/null)" ]; then
-    [ -f "$pending" ] || die DPKG_INTERRUPTED
+    lock_waits=0
     # shellcheck disable=SC2024
-    sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C dpkg --configure -a >"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
+    until sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C dpkg --configure -a >"$apt_log" 2>&1; do
+      grep -q 'locked by another process' "$apt_log" 2>/dev/null && [ "$lock_waits" -lt 24 ] || break
+      lock_waits=$((lock_waits + 1))
+      sleep 5
+    done
+    if [ -n "$(sudo -n dpkg --audit 2>/dev/null)" ]; then
+      ! grep -q 'locked by another process' "$apt_log" 2>/dev/null || die APT_LOCK_CONTENDED
+      ! grep -q 'No space left on device' "$apt_log" 2>/dev/null || die APT_DISK_FULL
+      die DPKG_INTERRUPTED
+    fi
+    # The repair finishes the prerequisite a cut-off run was upgrading.
+    missing_prerequisites
   fi
-  : >"$pending"
-  # The log belongs to the developer account; sudo only runs the command.
-  # shellcheck disable=SC2024
-  # Never remove APT locks or kill package processes. Timeout keeps genuine
-  # transactions bounded; Ubuntu archive signatures/TLS remain enabled.
-  sudo -n timeout 300 env LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 update >"$apt_log" 2>&1 || apt_failure APT_UPDATE_FAILED
-  # shellcheck disable=SC2086,SC2024
-  sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >>"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
-  rm -f -- "$pending" "$apt_log"
+  # Earlier revisions marked their own installation here; the repair above
+  # no longer asks who started a run, so the marker is only removed.
+  rm -f -- "$root/prerequisites-pending"
+  if [ -n "$missing" ]; then
+    # The log belongs to the developer account; sudo only runs the command.
+    # Never remove APT locks or kill package processes. Timeout keeps genuine
+    # transactions bounded; Ubuntu archive signatures/TLS remain enabled.
+    # shellcheck disable=SC2024
+    sudo -n timeout 300 env LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 update >"$apt_log" 2>&1 || apt_failure APT_UPDATE_FAILED
+    # shellcheck disable=SC2086,SC2024
+    sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >>"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
+  fi
+  rm -f -- "$apt_log"
   apt_log=''
 fi
+# prerequisites: end
 phase=source-verification
 deployment="$root/revisions/$revision"
 [ ! -L "$root/revisions" ] && [ ! -L "$deployment" ] || exit 1
@@ -248,6 +305,15 @@ for old in $(ls -1t "$root/revisions"); do
   [ "$kept" -gt 2 ] || continue
   rm -rf -- "${root:?}/revisions/$old" || true
 done
+phase=tailnet-key
+# The key the manager minted for a worker that is not on the tailnet yet: a
+# root-only file tailscale.yml joins with and deletes. sudo reads it from
+# stdin, so it never appears in a process's arguments.
+if [ -n "$tailnet_key" ]; then
+  case "$tailnet_key" in *[!A-Za-z0-9_-]*) die TAILNET_KEY_INVALID;; esac
+  printf '%s\n' "$tailnet_key" | sudo -n sh -c 'umask 077 && mkdir -p /run/devfleet && cat >/run/devfleet/tailnet-auth-key' || die TAILNET_KEY_DELIVERY_FAILED
+fi
+tailnet_key=''
 phase=configuration
 operation configuration
 trap - EXIT INT TERM
@@ -255,7 +321,7 @@ trap - EXIT INT TERM
 # session: the session may be gone by the time it ends. The evidence is then
 # printed for the manager that is still connected, under the same lock.
 code=0
-mise exec --locked bun -- bun src/node-converge.ts "$node" "$revision" >"$result.partial" 2>"$root/remote-operation.log" || code=$?
+mise exec --locked bun -- bun src/node-converge.ts "$node" "$revision" "$t3_restart" >"$result.partial" 2>"$root/remote-operation.log" || code=$?
 mv -f -- "$result.partial" "$result"
 operation finished ",\"finished\":$(date +%s),\"exit\":$code"
 cat -- "$result" || true

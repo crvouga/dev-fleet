@@ -12,8 +12,9 @@ export async function stageT3Policy(
   root: string,
   executable: string,
   run: Runner,
-  node: string
+  target: { node: string; restartBusy?: boolean }
 ): Promise<Check> {
+  const { node } = target;
   const instances = await desired(
     resolve(root, 'agents/t3.json'),
     await stableWorkspace(root),
@@ -37,6 +38,7 @@ export async function stageT3Policy(
       development_user: user.username,
       development_uid: user.uid,
       development_home: user.homedir,
+      t3_restart_busy: target.restartBusy === true,
     }),
     timeoutMs: 120_000,
   });

@@ -24,13 +24,13 @@ Nothing else is needed. You never clone dev-fleet, copy its files or write a
 wrapper script around a checkout of it: the npm package is the tool, and the
 version in `package.json` is the commit every machine runs.
 
-| Concept     | Meaning                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------ |
-| manager     | The one macOS machine you run `devfleet fleet-sync` on. Hosts the CLI proxy and the monitoring hub.    |
-| worker      | An Ubuntu 26.04 machine the manager converges over SSH. Stateless: rebuilt from Git and your secrets.  |
-| fleet state | One SQLite database (roster, approved revision, configuration last applied) replicated to your bucket. |
-| bucket      | Any S3-compatible bucket you own, or a directory. The source of truth for the fleet state.             |
-| revision    | The dev-fleet commit the installed package was published from (`npx devfleet --version`).              |
+| Concept     | Meaning                                                                                                        |
+| ----------- | -------------------------------------------------------------------------------------------------------------- |
+| manager     | The one macOS machine you run `devfleet fleet-sync` on. Hosts the CLI proxy and the monitoring hub.            |
+| worker      | An Ubuntu 26.04 or 24.04 machine the manager converges over SSH. Stateless: rebuilt from Git and your secrets. |
+| fleet state | One SQLite database (roster, approved revision, configuration last applied) replicated to your bucket.         |
+| bucket      | Any S3-compatible bucket you own, or a directory. The source of truth for the fleet state.                     |
+| revision    | The dev-fleet commit the installed package was published from (`npx devfleet --version`).                      |
 
 ## Rules for agents
 
@@ -75,25 +75,30 @@ On the manager (the Mac this project is checked out on):
 | Tailscale signed in                                      | `tailscale status --json` (look for `"BackendState":"Running"`) |
 | An SSH alias per worker that works without a prompt      | `ssh -o BatchMode=yes WORKER_ALIAS true` for each worker        |
 
-On every worker:
+On every worker, check each row of
+[what a machine must offer to be a worker](worker-requirements.md): the
+image, architecture and size, the access, the first-boot data and the
+network. Each row says how to verify it. If `sudo -n true` fails, that is fine
+for the first, interactive run, which asks for the password once and installs
+a sudo rule for the fleet; it is not fine for unattended runs.
 
-| Requirement                          | Verify, from the manager                                           |
-| ------------------------------------ | ------------------------------------------------------------------ |
-| Ubuntu 26.04, amd64 or arm64         | `ssh WORKER_ALIAS '. /etc/os-release; echo $VERSION_ID; uname -m'` |
-| A non-root account that can use sudo | `ssh WORKER_ALIAS 'id -u; sudo -n true && echo sudo-ok'`           |
-| Joined to the same tailnet           | the worker appears in `tailscale status` on the manager            |
+A worker is reached in one of two ways, always with `BatchMode=yes` and
+`StrictHostKeyChecking=yes`; never add `StrictHostKeyChecking=no` or
+`accept-new`.
 
-A worker needs nothing else beforehand: no Git, curl, Python, Node, Bun or
-mise. `fleet-sync` installs them. If `sudo -n true` fails, that is fine for
-the first, interactive run, which asks for the password once and installs a
-sudo rule for the fleet; it is not fine for unattended runs.
-
-The `ssh` value of a worker in `fleet.json` is an alias from the manager's
-`~/.ssh/config`. dev-fleet always connects with `BatchMode=yes` and
-`StrictHostKeyChecking=yes`, so the host key must already be in
-`known_hosts`. **Ask** the human to verify each fingerprint out of band and
-connect once by hand; never add `StrictHostKeyChecking=no` or
-`accept-new`. A typical alias:
+- **From declared data (no alias).** Leave `ssh` out: dev-fleet connects as
+  `network.user` on `network.sshPort` to `network.tailscaleName`, and checks
+  the host key against a known_hosts file of its own, rendered from the key
+  the fleet state pins. The human's `~/.ssh/config` and `~/.ssh/known_hosts`
+  are neither needed nor changed. The key is pinned without trusting a first
+  connection: `npx devfleet fleet-node-seed --id ID --output PATH --apply
+--yes` generates it for a new machine, `npx devfleet fleet-node-replace
+--id ID --host-key "TYPE BASE64" --apply --yes` pins one the human verified
+  out of band, and a worker record (below) may carry it as `hostKey`.
+- **Through the human's own alias.** `ssh` names a Host alias in the
+  manager's `~/.ssh/config`, and its host key must already be in their
+  `known_hosts`. **Ask** the human to verify each fingerprint out of band and
+  connect once by hand. A typical alias:
 
 ```
 Host worker-one
@@ -301,6 +306,14 @@ An agent cannot answer those prompts, and `--json`, `--non-interactive` or a
 ```sh
 npx devfleet fleet-sync
 ```
+
+A worker that needs none of those prompts is enrolled without the human: a
+run with `--json` or `--non-interactive` enrolls a declared worker when its
+pinned host key matched, `sudo -n` works on it, and exactly one tailnet device
+matches it (or none, when `fleet.json` declares `tailnet` and its secret
+`tailnet-admin`, so the run joins it with a single-use key). The report lists
+what it enrolled (`enrolled` in the JSON). A machine made with
+`devfleet fleet-node-seed` meets all of these.
 
 It converges the manager first, then the canary worker, then the rest. It
 prints one table and the path of the full JSON report

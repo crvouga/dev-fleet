@@ -27,7 +27,7 @@ function check(
   summary: string,
   action: string
 ): Check {
-  return { id: `beszel:${id}`, status, summary, remedy: { action } };
+  return { id, status, summary, remedy: { action } };
 }
 /** Public dashboard hostname served through the Cloudflare
  * tunnel `beszel`. Agents and the manager keep using the private hub URL.
@@ -68,7 +68,7 @@ export async function verifyBeszel(
     if (!object(info) || info['v'] !== lock.version) {
       result.checks.push(
         check(
-          'version',
+          'beszel:version',
           'fail',
           'BESZEL_VERSION_MISMATCH',
           'Apply the pinned hub release before using its versioned API contract.'
@@ -78,7 +78,7 @@ export async function verifyBeszel(
     }
     result.checks.push(
       check(
-        'version',
+        'beszel:version',
         'pass',
         `Authenticated hub reports ${lock.version}.`,
         'None.'
@@ -93,7 +93,7 @@ export async function verifyBeszel(
     if (records.length !== 1) {
       result.checks.push(
         check(
-          'registration',
+          'beszel:registration',
           'fail',
           records.length ? 'BESZEL_DUPLICATE_NODE' : 'BESZEL_NODE_MISSING',
           'Review the canonical node in the hub. Preserve its fingerprint and history; do not create a replacement identity.'
@@ -105,7 +105,7 @@ export async function verifyBeszel(
   } catch {
     result.checks.push(
       check(
-        'api',
+        'beszel:api',
         'fail',
         'BESZEL_API_UNVERIFIED',
         'Verify private reachability and a valid hub account with access to this node. Raw HTTP bodies are withheld.'
@@ -147,7 +147,7 @@ async function verifySample(
     throw new Error('BESZEL_PROTOCOL');
   result.checks.push(
     check(
-      'registration',
+      'beszel:registration',
       'pass',
       'Exactly one canonical node record is visible to this account.',
       'None.'
@@ -155,7 +155,7 @@ async function verifySample(
   );
   result.checks.push(
     check(
-      'connection',
+      'beszel:connection',
       record['status'] === 'up' ? 'pass' : 'fail',
       record['status'] === 'up'
         ? 'Hub reports node connected.'
@@ -187,7 +187,7 @@ async function checkFreshness(
     : null;
   result.checks.push(
     check(
-      'freshness',
+      'beszel:freshness',
       fresh ? 'pass' : 'fail',
       fresh
         ? `Hub received sample ${result.receivedAt}; within 180 seconds.`

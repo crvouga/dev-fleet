@@ -4,8 +4,12 @@ import { useProjectConfig } from './project';
 import { actAsOperator } from '../state/operator';
 import { databasePath } from '../state/paths';
 import { readDocument } from '../state/store';
+import { readPinsWith } from '../ssh-connection';
+import { readPins } from '../state/workers';
 
 actAsOperator((root) => readDocument(databasePath(root), 'definition'));
+// Host keys pinned in the fleet state reach the fleet-owned known_hosts.
+readPinsWith(() => readPins());
 useProjectConfig();
 
 try {

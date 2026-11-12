@@ -2,21 +2,24 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { FleetDefinition } from '../definition';
-import { ubuntuRelease } from '../platform/ubuntu-release';
+import { tailscalePins, ubuntuRelease } from '../platform/ubuntu-release';
 import { FleetUsageError } from '../errors';
 import { fleet, secret } from '../fleet-config';
 import type { SecretsProvider } from '../secrets';
-import type { Check } from '../types';
 import {
-  generateHostKey,
-  renderSeed,
-  seedUserData,
-  tailscalePins,
-} from '../worker-seed';
+  controlRemedy,
+  fleetTailnetControl,
+  loginServer,
+  TailnetControlError,
+  type ControlHttp,
+} from '../tailnet-control';
+import type { Check } from '../types';
+import { generateHostKey, renderSeed, seedUserData } from '../worker-seed';
 import type { CommandOutcome } from './contracts';
 import {
   keyName,
   lifecycleServices,
+  pinHostKey,
   type NodeLifecycleServices,
 } from './fleet-node-lifecycle';
 
@@ -31,19 +34,23 @@ export interface NodeSeedOptions {
 
 export interface NodeSeedServices extends Pick<
   NodeLifecycleServices,
-  'run' | 'playbook' | 'knownHosts'
+  'run' | 'playbook' | 'knownHosts' | 'state' | 'now'
 > {
   definition: () => FleetDefinition;
   secret: SecretsProvider;
   home: string;
+  /** The tailnet control plane's HTTP; answered in scenarios. */
+  http?: ControlHttp;
 }
 
 export function seedServices(roster: string): NodeSeedServices {
-  const { run, playbook, knownHosts } = lifecycleServices(roster);
+  const { run, playbook, knownHosts, state, now } = lifecycleServices(roster);
   return {
     run,
     playbook,
     knownHosts,
+    state,
+    now,
     definition: () => fleet,
     secret,
     home: homedir(),
@@ -75,11 +82,8 @@ export async function fleetNodeSeed(
       `No manager public key at ${keyFile}; name one with --public-key PATH.`
     );
   });
-  const authKey = await services.secret('tailnet-auth-key');
-  if (!authKey)
-    throw new FleetUsageError(
-      'The secrets provider holds no tailnet-auth-key. Store a short-lived, single-use, tagged Tailscale auth key there first.'
-    );
+  const tailnet = services.definition().tailnet;
+  const authKey = await seedAuthKey(worker.id, services);
   const release = ubuntuRelease(services.definition().ubuntu.release);
   if (!release)
     throw new FleetUsageError(
@@ -92,36 +96,20 @@ export async function fleetNodeSeed(
       managerKey,
       authKey,
       hostKey,
-      tailscale: await tailscalePins(),
+      tailscale: tailscalePins(release),
       codename: release.codename,
+      ...(loginServer(tailnet) ? { loginServer: loginServer(tailnet)! } : {}),
     }),
     Boolean(options.autoinstall)
   );
   await writeFile(options.output, seed, { mode: 0o600 });
   const host = await keyName(worker, services.run);
   const publicKey = hostKey.public.split(' ').slice(0, 2).join(' ');
+  // Pinned before the machine answers: in the fleet state for a worker
+  // reached from declared data, else in the operator's known_hosts.
   const pin: Check =
     options.apply && options.yes
-      ? (await services.playbook('macos/worker-host-key.yml', {
-          host,
-          pin: 'present',
-          key: publicKey,
-          known_hosts: services.knownHosts,
-        }))
-        ? {
-            id: 'ssh:host-key',
-            status: 'pass',
-            summary: `The manager trusts the seed's host key for ${host}.`,
-          }
-        : {
-            id: 'ssh:host-key',
-            status: 'fail',
-            summary: 'SSH_HOST_KEY_NOT_CHANGED',
-            remedy: {
-              action:
-                'The pinned Ansible could not change known_hosts; run the command again.',
-            },
-          }
+      ? await pinHostKey(worker, host, publicKey, services)
       : {
           id: 'ssh:host-key',
           status: 'skip',
@@ -148,4 +136,32 @@ export async function fleetNodeSeed(
         '.',
     ].join('\n'),
   };
+}
+
+/** The key the seed carries: one minted for this worker by the control plane
+ * fleet.json declares, or else the secret tailnet-auth-key.
+ */
+async function seedAuthKey(
+  worker: string,
+  services: NodeSeedServices
+): Promise<string> {
+  const config = services.definition().tailnet;
+  if (config)
+    try {
+      const control = await fleetTailnetControl(
+        config,
+        services.secret,
+        services.http
+      );
+      return (await control!.createAuthKey({ worker })).key;
+    } catch (error) {
+      if (!(error instanceof TailnetControlError)) throw error;
+      throw new FleetUsageError(`${error.code}: ${controlRemedy(error.code)}`);
+    }
+  const key = await services.secret('tailnet-auth-key');
+  if (!key)
+    throw new FleetUsageError(
+      'The secrets provider holds no tailnet-auth-key. Declare tailnet in fleet.json with the secret tailnet-admin so a key is minted per worker, or store a short-lived, single-use, tagged Tailscale auth key there first.'
+    );
+  return key;
 }

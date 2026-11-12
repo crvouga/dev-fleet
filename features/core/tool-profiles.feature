@@ -8,6 +8,10 @@ Feature: Workers add locked tool profiles to their base tools
   Background:
     Given the example fleet configuration
 
+  Scenario: tmux is a base tool, pinned and locked like the others
+    Then the base tools include "tmux"
+    And every base tool is pinned in mise.toml and locked in mise.lock
+
   Scenario Outline: The profile "<profile>" names only tools mise.toml pins and mise.lock locks
     Then the tool profile "<profile>" adds "<tools>"
     And every tool of the profile "<profile>" is pinned in mise.toml and locked in mise.lock

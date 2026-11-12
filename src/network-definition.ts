@@ -1,4 +1,8 @@
-import { type FleetDefinition, type MachineDefinition } from './definition';
+import {
+  sshTarget,
+  type FleetDefinition,
+  type MachineDefinition,
+} from './definition';
 import { record } from './config';
 import { FleetUsageError } from './errors';
 
@@ -19,8 +23,11 @@ export function networkProjection(
     node.network
       ? [
           {
-            alias: node.ssh,
-            ...node.network,
+            alias: sshTarget(node),
+            tailscaleName: node.network.tailscaleName,
+            user: node.network.user,
+            sshPort: node.network.sshPort,
+            t3Port: node.network.t3Port,
             os: node.os,
             identityFile: identities[node.id] ?? '',
           },
@@ -34,7 +41,9 @@ function compatible(
 ): node is MachineDefinition {
   return Boolean(
     node?.network &&
-    Object.entries(node.network).every(([key, value]) => host[key] === value) &&
+    Object.entries(node.network)
+      .filter(([key]) => key !== 'hostKey')
+      .every(([key, value]) => host[key] === value) &&
     node.os === host['os']
   );
 }

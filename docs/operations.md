@@ -1,6 +1,7 @@
 > This document was written for the fleet dev-fleet was extracted from. Paths and
 > commands were updated; some statements still describe that fleet and are being
-> revised. The README is authoritative.
+> revised. The README is authoritative, and what a machine must offer to be a
+> worker is listed only in [worker requirements](worker-requirements.md).
 
 # Developer fleet
 
@@ -22,7 +23,7 @@ Use `devfleet fleet-sync` to reconcile all declared workers and
 `devfleet fleet-status --workers` to inspect remaining gaps. See
 [worker-contract.md](worker-contract.md) for bootstrap, ownership and the exact
 scope of readiness. `fleet-status` without flags diagnoses the local roster.
-Workers are Ubuntu 26.04; the manager is macOS and never sleeps on AC power
+Workers are Ubuntu 26.04 or 24.04; the manager is macOS and never sleeps on AC power
 (`ansible/macos/manager.yml`). Machine policy (never sleep, no automatic
 logout, always-on Tailscale/SSH/Docker/Beszel, memory and disk safety, per-node
 credential renewal) is
@@ -133,6 +134,26 @@ A node drops off the tailnet on the day its key expires. Keep workers from
 expiring: tag them, or disable key expiry for each in the Tailscale admin
 console (tagged nodes do not expire). `tailscale:key-expiry` warns two weeks
 ahead and fails three days ahead.
+
+With `tailnet` in `fleet.json` and the secret `tailnet-admin`, nothing needs
+renewing: every worker joins with a key that carries the fleet's tag, and a
+tagged device has key expiry disabled on the hosted Tailscale. For an enrolled
+worker whose key still expires (one that joined before it was tagged),
+`fleet-sync` disables expiry through the control plane
+(`tailscale:key-expiry-policy`); `tailscale:key-expiry` measures the result on
+the next run. Headscale gives a node registered with a pre-authorised key no
+expiry.
+
+### Maintenance reboots
+
+Kernel and library updates apply only after a reboot (`worker:reboot-pending`).
+`devfleet fleet-sync --maintenance-reboot` reboots each worker that has one
+pending: one at a time, the canary first, only while it runs no agent turn
+(`--force` ends them), through `ansible/ubuntu/reboot.yml`. Each worker is
+converged again once it answers; a worker that does not come back ready stops
+the ones after it. A new worker that was never ready is rebooted once after its
+first converge in any `fleet-sync`, so it reaches ready in one run; a worker
+that was ready before is rebooted only by `--maintenance-reboot`.
 
 To re-join a worker whose key expired, a person signs it in again, because
 only a person's identity can authorise a device:
@@ -259,12 +280,45 @@ A notification carries node and check IDs only. `devfleet fleet-watch --test`
 sends one test notification to every target.
 
 Every run stores what it saw, and when, as `watch.json` beside the fleet state
-in the bucket. That time is the manager's heartbeat. A watcher on the manager
-notices nothing when the manager itself is off, so call the reusable
-`fleet-heartbeat.yml` workflow from the repository that holds your
-`fleet.json` (its header shows the one `uses:` line): it fails, and GitHub
-notifies you, when the heartbeat is older than `max-age-minutes`. `bun run health` remains the separate
-single read-only **cloud platform** report.
+in the bucket. That time is the manager's heartbeat. Nobody has to run it:
+`fleet-sync` installs it on the manager as the launchd job
+`dev.devfleet.fleet-watch` (`ansible/macos/manager.yml`), which runs every
+`manager.schedule.watchMinutes` minutes of `fleet.json` (15 by default) from
+the checkout `fleet-sync` last applied, and `manager:watch` fails when it is
+not loaded. It reads the bucket credentials `fleet-state --init` saved.
+
+A watcher on the manager notices nothing when the manager itself is off, so
+call the reusable `fleet-heartbeat.yml` workflow from the repository that
+holds your `fleet.json` (its header shows the one `uses:` line): it fails, and
+GitHub notifies you, when the heartbeat is older than `max-age-minutes`
+(60 by default). With the watch job every 15 minutes and the workflow every
+30, a manager that is turned off fails the workflow within about 90 minutes
+(the age limit plus one interval of the workflow's schedule; GitHub may delay
+a scheduled run). Keep `max-age-minutes` well above `watchMinutes`.
+
+The CLI proxy is checked off the manager the same way:
+`.github/workflows/cliproxy-health.yml` is a reusable workflow, called with one
+`uses:` line. It needs no stored secret: it reads the Vault address and the
+proxy endpoint from your `fleet.json`, logs in to Vault with GitHub's OIDC
+token (the read-only role `vault-role` names, `github-actions` by default) and
+runs the checks of the dev-fleet release your `package.json` pins. Copy
+[`cliproxy/docs/health-workflow.example.yml`](../cliproxy/docs/health-workflow.example.yml)
+into `.github/workflows/` and name the release tag in its `uses:` line; it
+runs the free readiness check every 15 minutes, a light inference check hourly
+and the full suite nightly, and keeps one tracking issue in your repository.
+
+### The logs of the manager's scheduled jobs
+
+`fleet-sync --schedule` and the watch job write to
+`~/.local/share/personal/fleet/manager/logs/<label>.{out,err}.log`. newsyslog
+rotates each once it passes `jobLogs.maxKiB` of `ansible/macos/policy.json`
+(1024 KiB) and keeps `jobLogs.keep` compressed archives, from the drop-in
+`/etc/newsyslog.d/dev-fleet-USER.conf` that the manager's one administrator
+grant (`ansible/macos/manager-privilege.yml`) installs. `manager:job-logs`
+warns when the drop-in is missing, or a log has grown past twice that size.
+
+`bun run health` remains the separate single read-only **cloud platform**
+report.
 
 ## Development
 

@@ -53,6 +53,25 @@
         "neverSleepOnPower": {
           "const": true,
           "description": "Workers depend on the manager's singleton services, so it never sleeps on AC power."
+        },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How often the manager's scheduled jobs run. Each defaults to the interval in ansible/macos/policy.json.",
+          "properties": {
+            "syncMinutes": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 1440,
+              "description": "fleet-sync --schedule converges the fleet this often (default 30)."
+            },
+            "watchMinutes": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 1440,
+              "description": "fleet-watch checks the fleet and stores its heartbeat this often (default 15). Keep it well under the max-age-minutes of the heartbeat workflow."
+            }
+          }
         }
       }
     },
@@ -62,7 +81,7 @@
       "items": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id", "ssh", "os"],
+        "required": ["id", "os"],
         "properties": {
           "id": {
             "type": "string",
@@ -72,7 +91,7 @@
           "ssh": {
             "type": "string",
             "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$",
-            "description": "The worker's Host alias in the manager's ~/.ssh/config. It must work with BatchMode=yes and a host key already in known_hosts."
+            "description": "Optional: a Host alias in the operator's own ~/.ssh/config, checked against their own known_hosts. Without one the worker is reached from its network block (user, sshPort, tailscaleName) with a host key pinned in the fleet state or given as network.hostKey, against a known_hosts file dev-fleet owns; the operator's ~/.ssh is neither read for it nor changed."
           },
           "os": {
             "const": "linux",
@@ -104,8 +123,37 @@
                 "minimum": 1,
                 "maximum": 65535,
                 "description": "The port the worker T3 server listens on, normally 3773."
+              },
+              "hostKey": {
+                "type": "string",
+                "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{16,}$",
+                "description": "The SSH host public key, \"TYPE BASE64\", given as data (a worker record writes it). It is the pinned key; a worker without one is pinned in the fleet state (fleet-node-replace --host-key, fleet-node-seed --apply)."
               }
             }
+          },
+          "features": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "preset": {
+                "enum": ["editing"],
+                "description": "A named set of features, applied before the fields beside it. editing: no containers, a headless session and only the base tools (it adds no tool profile)."
+              },
+              "containers": {
+                "type": "boolean",
+                "description": "Docker on the worker: its packages, service, docker group membership, the docker-cli tool and the Docker step of the disk GC. Default true. Turning it off on an existing worker removes what dev-fleet installed for it; fleet-sync --dry-run lists what."
+              },
+              "session": {
+                "enum": ["desktop", "headless"],
+                "description": "How the worker runs T3. desktop (default): the pinned desktop app in an auto-login graphical session. headless: the pinned T3 server as a lingering user service, with no display manager. ~/.t3 is kept when this changes."
+              }
+            },
+            "description": "This worker's features, over the fleet-wide worker.features."
+          },
+          "powerRecoveryNote": {
+            "type": "string",
+            "pattern": "^[^\\n\\r]{1,120}$",
+            "description": "On a virtual machine, who restarts it after a power loss (for example: provider restarts instances). Shown with worker:power-loss-recovery, which is not applicable to a virtual machine."
           },
           "toolProfiles": {
             "type": "array",
@@ -114,6 +162,75 @@
               "enum": ["web", "go", "rust", "jvm"]
             },
             "description": "Tool profiles this worker installs on top of the fleet-wide ones: web (pnpm, Deno, Yarn), go, rust (with CMake and Ninja), jvm (Temurin). Each is a locked tool set dev-fleet ships."
+          },
+          "exposure": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What this worker opens beyond loopback and the tailnet. A field named here replaces the one of worker.exposure.",
+            "properties": {
+              "publicSsh": {
+                "type": "boolean",
+                "description": "Break-glass: keep the SSH port open beyond the tailnet. Default false: after enrolment SSH is reached only over the tailnet."
+              },
+              "publicPorts": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["protocol", "port"],
+                  "properties": {
+                    "protocol": {
+                      "enum": ["tcp", "udp"]
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    }
+                  }
+                },
+                "description": "Ports opened on every interface; a listener on one passes worker:exposure. Default none."
+              },
+              "otherListeners": {
+                "enum": ["warn", "fail"],
+                "description": "How worker:exposure reports a listener beyond loopback and the tailnet that no fleet service owns, such as an agent's development server on 0.0.0.0. The firewall closes it either way. Default warn; a fleet service there always fails."
+              }
+            }
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "pattern": "^[^\\u0000-\\u001f\\u007f]{0,128}$"
+            },
+            "description": "Free-form labels, from a worker record; only displayed. Names are lowercase, at most 32 of them."
+          },
+          "billing": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hourlyRate"],
+            "properties": {
+              "hourlyRate": {
+                "type": "number",
+                "minimum": 0,
+                "description": "What one hour of running costs, as you declare it. dev-fleet asks no pricing API; it only displays and sums it."
+              },
+              "currency": {
+                "type": "string",
+                "pattern": "^[A-Z]{3}$"
+              },
+              "note": {
+                "type": "string",
+                "pattern": "^[^\\u0000-\\u001f\\u007f]{1,200}$"
+              }
+            },
+            "description": "What the worker costs while it runs: fleet-status sums it for idle workers."
+          },
+          "origin": {
+            "const": "records",
+            "description": "Written by dev-fleet for a worker read from workerRecords, in the copy it installs and stores; do not write it."
           }
         }
       }
@@ -122,6 +239,74 @@
       "type": "string",
       "pattern": "^[a-z][a-z0-9-]{0,62}$",
       "description": "The id of the worker that proves a revision new to the fleet first. When it is unreachable, the next reachable worker proves it instead. Default: the first reachable worker."
+    },
+    "workerRecords": {
+      "type": "array",
+      "maxItems": 8,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["file"],
+            "properties": {
+              "file": {
+                "type": "string",
+                "description": "A JSON file of worker records (schema/worker-record.schema.json), relative to fleet.json."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["command"],
+            "properties": {
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                },
+                "description": "A command run where fleet.json is that prints worker records, such as an infrastructure tool printing its outputs."
+              }
+            }
+          }
+        ]
+      },
+      "description": "Where generated worker records are read: their workers join the list above. An infrastructure tool writes them; dev-fleet only reads them and never creates a machine. A worker whose record disappears is retired by the next fleet-sync."
+    },
+    "parking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "idleAfterHours": {
+          "type": "number",
+          "minimum": 1,
+          "maximum": 8760,
+          "description": "A worker that has run no agent turn for longer is reported as worker:idle."
+        },
+        "autoPark": {
+          "type": "boolean",
+          "description": "fleet-watch parks a worker idle longer than idleAfterHours. Off unless true."
+        },
+        "stop": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Run with the worker ID as its last argument when the worker is parked."
+        },
+        "start": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string"
+          },
+          "description": "Run with the worker ID as its last argument when the worker is resumed."
+        }
+      },
+      "description": "Workers that are stopped on purpose (fleet-node-park) and when an idle one is reported."
     },
     "services": {
       "type": "object",
@@ -166,7 +351,9 @@
                       },
                       "order": {
                         "type": "array",
-                        "items": { "type": "string" },
+                        "items": {
+                          "type": "string"
+                        },
                         "description": "Account labels (sign-in emails) first, in this order; the others follow in the order of their routing prefix."
                       }
                     }
@@ -263,7 +450,9 @@
         },
         "architectures": {
           "type": "array",
-          "items": { "enum": ["amd64", "arm64"] },
+          "items": {
+            "enum": ["amd64", "arm64"]
+          },
           "description": "Exactly the architectures the policy names for that release."
         }
       },
@@ -323,6 +512,25 @@
         "neverSleep": {
           "const": true
         },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "enum": ["editing"],
+              "description": "A named set of features, applied before the fields beside it. editing: no containers, a headless session and only the base tools (it adds no tool profile)."
+            },
+            "containers": {
+              "type": "boolean",
+              "description": "Docker on the worker: its packages, service, docker group membership, the docker-cli tool and the Docker step of the disk GC. Default true. Turning it off on an existing worker removes what dev-fleet installed for it; fleet-sync --dry-run lists what."
+            },
+            "session": {
+              "enum": ["desktop", "headless"],
+              "description": "How the worker runs T3. desktop (default): the pinned desktop app in an auto-login graphical session. headless: the pinned T3 server as a lingering user service, with no display manager. ~/.t3 is kept when this changes."
+            }
+          },
+          "description": "Features every worker has unless its own features say otherwise. Absent: containers and a desktop session, as before features existed."
+        },
         "toolProfiles": {
           "type": "array",
           "uniqueItems": true,
@@ -339,6 +547,42 @@
             "pattern": "^[A-Za-z0-9@:/._-]{1,75}$"
           },
           "description": "Single tools every worker installs: names of tools dev-fleet's mise.toml pins (for example fd or ripgrep). A tool it does not pin is refused; ask for it in an issue."
+        },
+        "exposure": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What every worker opens beyond loopback and the tailnet. Without it inbound traffic arrives only over loopback and the tailnet, sshd takes keys only and no root login, and published container ports are closed beyond the tailnet.",
+          "properties": {
+            "publicSsh": {
+              "type": "boolean",
+              "description": "Break-glass: keep the SSH port open beyond the tailnet. Default false: after enrolment SSH is reached only over the tailnet."
+            },
+            "publicPorts": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["protocol", "port"],
+                "properties": {
+                  "protocol": {
+                    "enum": ["tcp", "udp"]
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                }
+              },
+              "description": "Ports opened on every interface; a listener on one passes worker:exposure. Default none."
+            },
+            "otherListeners": {
+              "enum": ["warn", "fail"],
+              "description": "How worker:exposure reports a listener beyond loopback and the tailnet that no fleet service owns, such as an agent's development server on 0.0.0.0. The firewall closes it either way. Default warn; a fleet service there always fails."
+            }
+          }
         }
       },
       "description": "Policy every worker must meet. All but the two logins, the capabilities and the tools are fixed."
@@ -359,7 +603,9 @@
       "type": "array",
       "minItems": 1,
       "uniqueItems": true,
-      "items": { "enum": ["t3"] },
+      "items": {
+        "enum": ["t3"]
+      },
       "description": "The IDEs every machine runs. Defaults to [\"t3\"]; the README's support matrix lists the supported ones."
     },
     "t3": {
@@ -372,16 +618,23 @@
           "description": "Top-level T3 settings every machine holds the same (tool servers, projects, selected preferences). Keys not named here stay local; a key edited on a machine since dev-fleet last wrote it is reported as a conflict, never overwritten.",
           "propertyNames": {
             "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
-            "not": { "const": "providerInstances" }
+            "not": {
+              "const": "providerInstances"
+            }
           }
         },
         "requiredModels": {
           "type": "object",
           "description": "Models T3 must offer, and the proxy must serve, for every account of a tool, by tool (claude, codex, opencode).",
-          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" },
+          "propertyNames": {
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$"
+          },
           "additionalProperties": {
             "type": "array",
-            "items": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }
+            "items": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+            }
           }
         }
       }
@@ -646,6 +899,22 @@
                     }
                   },
                   "description": "Optional: a short-lived, single-use, tagged Tailscale auth key a new worker joins the tailnet with (fleet-node-seed)."
+                },
+                "tailnet-admin": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  },
+                  "description": "Only with tailnet: an API credential of the tailnet's control plane that creates single-use auth keys for new workers. It stays on the manager."
                 }
               },
               "description": "Required for every secret except github-token, which defaults to the field GITHUB_TOKEN beside proxy-client-key."
@@ -674,6 +943,10 @@
           "type": "string",
           "pattern": "^https://github\\.com/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$",
           "description": "A GitHub repository the fleet's account can push to, ideally private. Each node lists it through git with its own credentials."
+        },
+        "signing": {
+          "enum": ["ssh"],
+          "description": "Sign every commit and tag. ssh: each node makes an SSH key of its own (~/.ssh/dev-fleet-git-signing), which never leaves it, and signs with it; measured as worker:git-signing. GitHub shows the commits as verified once each node's public key is added as a signing key to the account."
         }
       }
     },
@@ -760,6 +1033,52 @@
           "description": "owner/name of a repository fleet-github-verify branches, pushes to and opens pull requests on, then cleans up."
         }
       }
+    },
+    "tailnet": {
+      "description": "Optional: the tailnet control plane fleet-sync and fleet-node-seed enrol new workers with, without a login on the machine. Its credential is the secret tailnet-admin.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api", "tag"],
+          "properties": {
+            "api": { "const": "tailscale" },
+            "url": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$",
+              "description": "The API origin. Default: https://api.tailscale.com."
+            },
+            "tag": {
+              "type": "string",
+              "pattern": "^tag:[a-z0-9][a-z0-9-]{0,62}$",
+              "description": "The tag every enrolled worker carries, so access rules and key expiry apply to workers as a group."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api", "url", "tag", "user"],
+          "properties": {
+            "api": { "const": "headscale" },
+            "url": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$",
+              "description": "The Headscale server: its API, and the login server workers join."
+            },
+            "tag": {
+              "type": "string",
+              "pattern": "^tag:[a-z0-9][a-z0-9-]{0,62}$",
+              "description": "The tag every enrolled worker carries, so access rules apply to workers as a group."
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._@-]{1,64}$",
+              "description": "The Headscale user the keys belong to (its ID from Headscale 0.26)."
+            }
+          }
+        }
+      ]
     }
   }
 }

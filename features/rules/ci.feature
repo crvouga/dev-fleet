@@ -25,12 +25,18 @@ Feature: Every pull request is checked the way machines run
       | ansible   |
       | manager   |
 
-  Scenario: The fresh worker check covers both architectures a worker may have
+  Scenario: The fresh worker check covers every accepted release on both architectures a worker may have
+    A release is accepted when every fresh-box scenario passes on it, so each
+    release the Ubuntu policy accepts runs them on each architecture.
     Then the "CI" workflow runs on "pull_request"
     And its "fresh-box" job runs once for each of:
-      | architecture | runner           |
-      | amd64        | ubuntu-latest    |
-      | arm64        | ubuntu-24.04-arm |
+      | release | architecture | runner           |
+      | 26.04   | amd64        | ubuntu-latest    |
+      | 26.04   | arm64        | ubuntu-24.04-arm |
+      | 24.04   | amd64        | ubuntu-latest    |
+      | 24.04   | arm64        | ubuntu-24.04-arm |
+    And its "fresh-box" job runs every release the Ubuntu policy accepts
+    And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX_RELEASE" to "${{ matrix.release }}"
 
   Scenario: A fresh worker is bootstrapped over SSH on every pull request
     Then the "CI" workflow runs on "pull_request"
@@ -55,7 +61,8 @@ Feature: Every pull request is checked the way machines run
     The manager runs only on macOS: launchd, pmset and Docker Desktop are
     proven there and not by stand-ins alone. The manager playbook is converged
     on the runner, then applied again and checked, and neither may change
-    anything.
+    anything. The one administrator grant (sudoers, newsyslog drop-in, T3
+    policy) is applied the same way, with the runner's sudo.
     Then the "CI" workflow runs on "pull_request"
     And its "manager" job has no condition
     And its "manager" job runs on "macos-latest"
@@ -63,11 +70,18 @@ Feature: Every pull request is checked the way machines run
     And its "manager" job runs "ansible/macos/manager.yml"
     And its "manager" job runs "converge --check --diff"
     And its "manager" job runs "changed=0"
+    And its "manager" job runs "ansible/macos/manager-privilege.yml"
 
   Scenario: The real Ubuntu machine is tested weekly and can be run by hand
     Then the "Ubuntu VM" workflow runs on "schedule"
     And the "Ubuntu VM" workflow runs on "workflow_dispatch"
     And its "vm" job runs "bun ansible/ubuntu/tests/run-vm.ts"
+
+  Scenario: Tailnet enrolment is tested weekly against a self-hosted control plane and can be run by hand
+    Then the "Tailnet" workflow runs on "schedule"
+    And the "Tailnet" workflow runs on "workflow_dispatch"
+    And its "tailnet" job runs "bun test features/tailnet-box"
+    And its "tailnet" job sets "DEVFLEET_TEST_TAILNET_BOX" to "required"
 
   Scenario: A release stamps the commit it is published from into the package
     fleet-sync run from the package converges every machine to the commit the
@@ -75,16 +89,18 @@ Feature: Every pull request is checked the way machines run
     When the "Pack the release" step of the "Release" workflow is read
     Then it runs "npm pkg set gitHead=\"$(git rev-parse HEAD)\"" before "npm pack"
 
-  Scenario: Nothing is published until the packed release ran and the VM test passed for its commit
-    A broken bin path, a file missing from the package or a machine the
-    release cannot bring up fails the run before npm sees anything.
-    Then the "Release" workflow's "release" job needs "pack", "smoke" and "vm"
+  Scenario: Nothing is published until the packed release ran and the VM and tailnet tests passed for its commit
+    A broken bin path, a file missing from the package, a machine the
+    release cannot bring up or a worker that cannot join the tailnet fails
+    the run before npm sees anything.
+    Then the "Release" workflow's "release" job needs "pack", "smoke", "vm" and "tailnet"
     And its "smoke" job runs "bun bootstrap/package-smoke.ts"
     And its "smoke" job runs once for each of:
       | node |
       | 22   |
       | 24   |
     And its "vm" job calls ".github/workflows/vm.yml" for the commit "pack" packed
+    And its "tailnet" job calls ".github/workflows/tailnet.yml" for the commit "pack" packed
     When the "Publish to npm" step of the "Release" workflow is read
     Then it runs "npm publish \"$TARBALL\"" before "--provenance"
 

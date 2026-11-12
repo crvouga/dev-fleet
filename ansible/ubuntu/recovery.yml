@@ -7,9 +7,16 @@
   # fleet-repair re-applies this play alone for worker:service-recovery.
   tags: [recovery]
   tasks:
-    - name: Verify the desktop unit runs before adding any recovery trigger
+    # t3_unit is t3code-headless.service on a headless worker.
+    - name: Verify the T3 unit runs before adding any recovery trigger
       ansible.builtin.command:
-        argv: [systemctl, --user, is-active, t3code-desktop.service]
+        argv:
+          [
+            systemctl,
+            --user,
+            is-active,
+            "{{ t3_unit | default('t3code-desktop.service') }}",
+          ]
       become: true
       become_user: '{{ development_user }}'
       environment:

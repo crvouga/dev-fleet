@@ -83,6 +83,36 @@ Feature: Native agents are verified on every machine
       Then the check "agent:grok:session" passes
       And the "grok-proxy.ts" launcher was run 2 times
 
+  Rule: A remembered session is proven again once the agent's configuration changes
+
+    A session is remembered under a key made of its pin, the launchers, the
+    proxy account roster, the client key and the agent's profile as it is
+    on the machine. A profile rendered again, edited or removed proves
+    nothing about the session that passed with the old one.
+
+    Background:
+      Given verified sessions are remembered
+      And the agent profiles of the machine "node-a" are rendered
+      And every agent reports the version mise.toml pins
+      And every launcher answers "OK"
+      And the agents of the machine "node-a" have been verified once
+
+    Scenario: Nothing changed, so no session is launched again
+      When the agents of the machine "node-a" are verified
+      Then no launcher was run again
+      And every check passes
+
+    Scenario Outline: The <agent> profile changed, so only its session is launched again
+      Given the "<tool>" profile of the machine "node-a" now holds something else
+      When the agents of the machine "node-a" are verified
+      Then only the launcher "<launcher>" was run again
+      And every check passes
+
+      Examples:
+        | agent  | tool     | launcher          |
+        | codex  | codex    | codex-proxy.ts    |
+        | muse   | opencode | opencode-proxy.ts |
+
   Rule: On a worker, a session runs in the environment T3 starts it in
 
     The sync runs over SSH with the pinned tools on its PATH; T3 runs as a

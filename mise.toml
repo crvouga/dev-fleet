@@ -30,6 +30,8 @@ go = "1.27.3"
 jq = "1.8.2"
 yq = "4.54.1"
 ripgrep = "15.2.0"
+# Terminal multiplexer for long agent and build sessions on a worker.
+tmux = { version = "3.8", os = ["linux", "macos"] }
 fd = "10.5.0"
 fzf = "0.74.5"
 bat = "0.26.1"
@@ -109,7 +111,7 @@ docker_desktop_arm64_sha256 = "9c6f13ce4edda2abf20d801552b6acb96acd3d64b3e91b50c
 docker_desktop_amd64_sha256 = "96b53f9a4a807b6be6207d18f360b9778ff481e1d94b5027bdf1ae2a22d837cb"
 
 # Minimal remote development baseline; versions are resolved exclusively by tools + mise.lock.
-worker_tools = "bun,node,gh,python,uv,docker-cli,vault,jq,codex,claude,aqua:anomalyco/opencode,gemini,copilot,http:grok,http:antigravity"
+worker_tools = "bun,node,gh,python,uv,docker-cli,vault,jq,tmux,codex,claude,aqua:anomalyco/opencode,gemini,copilot,http:grok,http:antigravity"
 # Tool profiles a fleet adds to its workers (`worker.toolProfiles` in
 # fleet.json, fleet-wide or per worker): one `worker_profile_<name>` each,
 # naming tools pinned above. bootstrap/worker-tools.ts lists the names.

@@ -14,6 +14,14 @@ import { stateContext } from '../../../src/state/sync';
 import { failed, succeeded } from '../../support/commands';
 import type { DataTable } from '../../support/gherkin';
 import { definition, fleetSync, type FleetSyncWorld } from '../support/world';
+import { fleet } from '../../../src/fleet-config';
+import type { HubRequest } from '../../../src/monitoring/enroll';
+import { reconcileRecords } from '../../../src/cli/fleet-sync-records';
+import { changeWorkers, readWorkerStates } from '../../../src/state/workers';
+import { knownHostsPath } from '../../../src/ssh-connection';
+import { declareFleet, workersOf } from '../../support/fleet';
+import { tailnetCleanup } from '../../../src/tailnet-cleanup';
+import { controlPlane, http } from './tailnet';
 
 /** fleet-node-replace and fleet-node-retire, against a Vault, a tailnet and
  * Ansible that answer from memory.
@@ -30,6 +38,8 @@ interface Lifecycle {
   playbooks: { name: string; variables: Record<string, unknown> }[];
   computers: { id: string; dns: string; online: boolean }[];
   clock: number;
+  /** The systems the monitoring hub watches. */
+  systems: { id: string; name: string; host: string }[];
 }
 const lifecycles = new WeakMap<FleetSyncWorld, Lifecycle>();
 
@@ -55,6 +65,7 @@ function lifecycle(world: FleetSyncWorld): Lifecycle {
     playbooks: [],
     computers: [],
     clock: Date.parse('2026-11-01T00:00:00Z'),
+    systems: [],
   };
   lifecycles.set(world, found);
   vault(world, found);
@@ -134,12 +145,45 @@ function vault(world: FleetSyncWorld, state: Lifecycle): void {
   );
 }
 
+/** A monitoring hub that keeps its systems in memory. */
+function hub(state: Lifecycle): HubRequest {
+  return async (path, body, method) => {
+    const record = /\/systems\/records\/([a-z0-9]{15})$/.exec(path)?.[1];
+    if (record && method === 'PATCH') {
+      const system = state.systems.find((entry) => entry.id === record)!;
+      system.host = (body as { host: string }).host;
+      return system;
+    }
+    if (record && method === 'DELETE') {
+      state.systems = state.systems.filter((entry) => entry.id !== record);
+      return null;
+    }
+    if (path.includes('/fingerprints/')) return { items: [] };
+    const name = /name="([^"]+)"/.exec(decodeURIComponent(path))?.[1];
+    return {
+      items: state.systems.filter((entry) => !name || entry.name === name),
+    };
+  };
+}
+
 export function services(world: FleetSyncWorld): NodeLifecycleServices {
   const state = lifecycle(world);
   return {
     run: world.commands.run,
     roster: state.roster,
-    definition: () => definition,
+    definition: () => fleet,
+    monitoring: async () => hub(state),
+    // The real cleanup, against the control plane the scenario declares.
+    ...(controlPlane(world).config
+      ? {
+          tailnet: tailnetCleanup(
+            controlPlane(world).config!,
+            async (name) =>
+              name === 'tailnet-admin' ? controlPlane(world).credential : null,
+            http(world)
+          ),
+        }
+      : {}),
     vault: () => true,
     knownHosts: join(state.directory, 'known_hosts'),
     state: () => stateContext(world.commands.run),
@@ -344,3 +388,202 @@ Then(
     expect(enrollment?.workers?.[id]).toBeUndefined();
   }
 );
+
+// ── What a replaced or retired worker leaves behind ──────────────────────
+
+Given(
+  'the monitoring hub watches {string} at {string}',
+  (world, name: string, host: string) => {
+    lifecycle(world).systems.push({
+      id: `${name.replace(/[^a-z0-9]/g, '')}000000000000000`.slice(0, 15),
+      name,
+      host,
+    });
+  }
+);
+
+Given(
+  'the roster records the T3 environment {string} of {string}',
+  (world, environment: string, id: string) => {
+    const state = lifecycle(world);
+    writeFileSync(
+      state.roster,
+      JSON.stringify({
+        version: 1,
+        nodes: roster(world).nodes.map((node) =>
+          node.id === id ? { ...node, t3EnvironmentId: environment } : node
+        ),
+      })
+    );
+    world.commands.answer(
+      (command) => command[0] === 't3' && command[2] === 'unlink',
+      succeeded()
+    );
+  }
+);
+
+Then('the monitoring hub watches only:', (world, table: DataTable) => {
+  expect<object[]>(
+    lifecycle(world).systems.map(({ name, host }) => ({ name, host }))
+  ).toEqual(table.hashes());
+});
+
+Then(
+  "the manager's T3 forgot the environment {string}",
+  (world, environment: string) => {
+    expect(
+      world.commands.ran(
+        (command) => command[0] === 't3' && command[2] === 'unlink'
+      )
+    ).toEqual([['t3', 'environment', 'unlink', environment]]);
+  }
+);
+
+Then(
+  'the roster records no T3 environment of {string}',
+  (world, id: string) => {
+    const entry = roster(world).nodes.find((node) => node.id === id) as
+      { t3EnvironmentId?: string } | undefined;
+    expect(entry?.t3EnvironmentId).toBeUndefined();
+  }
+);
+
+Then(
+  /^the report has the check "([^"]+)" (passed|skipped|warning), saying "([^"]+)"$/,
+  (world, id: string, status: string, text: string) => {
+    const wanted = { passed: 'pass', skipped: 'skip', warning: 'warn' }[status];
+    const found = checks(world).filter(
+      (check) => check.id === id && check.status === wanted
+    ) as unknown as { summary: string }[];
+    expect(found.map((check) => check.summary).join('\n')).toContain(text);
+  }
+);
+
+Then(
+  'the remedy of the check {string} says {string}',
+  (world, id: string, text: string) => {
+    const found = checks(world).find((check) => check.id === id) as
+      { remedy?: { action: string } } | undefined;
+    expect(found?.remedy?.action).toContain(text);
+  }
+);
+
+Then(
+  'the control plane was asked to delete only the device {string}',
+  (world, device: string) => {
+    expect(
+      controlPlane(world)
+        .requests.filter((request) => request.method === 'DELETE')
+        .map((request) => request.url.split('/').at(-1))
+    ).toEqual([device]);
+  }
+);
+
+// ── A worker reached from declared data ──────────────────────────────────
+
+Given(
+  'fleet.json declares {string} with no SSH alias, so the roster reaches it by its tailnet name',
+  (world, id: string) => {
+    declareFleet(world, (declared) => {
+      const worker = workersOf(declared).find((entry) => entry['id'] === id)!;
+      delete worker['ssh'];
+    });
+    const state = lifecycle(world);
+    const name = definition.workers.find((worker) => worker.id === id)!.network!
+      .tailscaleName;
+    writeFileSync(
+      state.roster,
+      JSON.stringify({
+        version: 1,
+        nodes: roster(world).nodes.map((node) =>
+          node.id === id ? { ...node, ssh: name } : node
+        ),
+      })
+    );
+  }
+);
+
+Then(
+  'the fleet state pins {string} for {string}',
+  (_world, key: string, id: string) => {
+    expect(readWorkerStates().workers[id]?.hostKey).toBe(key);
+  }
+);
+
+Then('the fleet state pins no host key for {string}', (_world, id: string) => {
+  expect(readWorkerStates().workers[id]?.hostKey).toBeUndefined();
+});
+
+Then('the fleet-owned known_hosts pins exactly:', (_world, pins: string) => {
+  const lines = readFileSync(knownHostsPath(), 'utf8')
+    .split('\n')
+    .filter((line) => line && !line.startsWith('#'));
+  expect(lines).toEqual(pins ? pins.split('\n') : []);
+});
+
+Then('no personal known_hosts was changed', (world) => {
+  expect(lifecycle(world).playbooks).toEqual([]);
+});
+
+// ── Workers that come and go with their records ──────────────────────────
+
+function addToRoster(
+  world: FleetSyncWorld,
+  id: string,
+  ssh: string,
+  device: string
+): void {
+  writeFileSync(
+    lifecycle(world).roster,
+    JSON.stringify({
+      version: 1,
+      nodes: [
+        ...roster(world).nodes,
+        { id, ssh, workspace: `/home/dev/${id}`, tailscaleId: device },
+      ],
+    })
+  );
+}
+
+Given(
+  'the fleet state records that {string} was enrolled from a worker record, bound to the device {string}',
+  async (world, id: string, device: string) => {
+    addToRoster(world, id, `${id}.tail0a1b2c.ts.net`, device);
+    await changeWorkers(stateContext(world.commands.run), () => ({
+      [id]: { origin: 'records' },
+    }));
+  }
+);
+
+Given(
+  'the roster still holds {string}, which fleet.json listed by hand',
+  (world, id: string) => {
+    addToRoster(world, id, id, `device-${id}`);
+  }
+);
+
+When(
+  /^fleet-sync reads the worker records( to preview them)?$/,
+  async (world, preview: string | undefined) => {
+    world.checks = await reconcileRecords(
+      fleet,
+      lifecycle(world).roster,
+      world.commands.run,
+      { apply: !preview, services: () => services(world) }
+    );
+  }
+);
+
+Then('fleet-sync reports:', (world, table: DataTable) => {
+  expect<object[]>(
+    world.checks.map((check) => ({ id: check.id, status: check.status }))
+  ).toEqual(table.hashes());
+});
+
+Then('the roster holds {string}', (world, id: string) => {
+  expect(roster(world).nodes.map((entry) => entry.id)).toContain(id);
+});
+
+Then('the roster does not hold {string}', (world, id: string) => {
+  expect(roster(world).nodes.map((entry) => entry.id)).not.toContain(id);
+});

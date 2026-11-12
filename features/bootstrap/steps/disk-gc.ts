@@ -19,6 +19,7 @@ const DAY = 24 * 3600;
 
 interface Event {
   event: string;
+  step?: string;
   dry_run?: boolean;
   reclaimed_mib?: number;
 }
@@ -343,6 +344,54 @@ Then(
     );
   }
 );
+
+When(
+  /^the disk GC dry-runs on the whole machine( without containers)?, with a docker command on its path$/,
+  (world, without: string | undefined) => {
+    const state = collector(world);
+    // A docker that would only record a call: in a dry run none is made.
+    const bin = join(state.home, 'bin');
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, 'docker'), '#!/bin/sh\nexit 0\n', {
+      mode: 0o755,
+    });
+    const out = Bun.spawnSync(
+      [
+        'python3',
+        '-I',
+        '-B',
+        gc,
+        '--home',
+        state.home,
+        '--path',
+        state.home,
+        '--proc',
+        state.proc,
+        '--dry-run',
+        ...(without ? ['--no-docker'] : []),
+      ],
+      { env: { ...process.env, PATH: `${bin}:${process.env['PATH'] ?? ''}` } }
+    );
+    expect(out.exitCode).toBe(0);
+    state.events = out.stdout
+      .toString()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line) as Event);
+  }
+);
+
+Then('the run would prune these Docker steps:', (world, table: DataTable) => {
+  expect(
+    collector(world)
+      .events.filter(
+        (event) =>
+          event.event === 'would_run' &&
+          String(event.step).startsWith('docker_')
+      )
+      .map((event) => event.step)
+  ).toEqual(table.list().filter((step) => step !== '(none)'));
+});
 
 Given('a stand-in for mise that records how it is run', (world) => {
   const state = collector(world);

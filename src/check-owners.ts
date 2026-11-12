@@ -19,6 +19,9 @@ const DECLARATION =
 const HARDWARE =
   'It is a property of the hardware, the firmware or the operating system release, which no command changes.';
 
+const PARKING =
+  'Whether a worker runs is the operator’s choice: park it with fleet-node-park or resume it with fleet-node-resume.';
+
 export const CHECK_OWNERS: CheckOwner[] = [
   // Toolchain and workstation: automatic.
   { pattern: 'tool:*', repair: 'workspace' },
@@ -68,12 +71,46 @@ export const CHECK_OWNERS: CheckOwner[] = [
       'Re-converge the worker with fleet-sync: it applies the whole worker policy at the approved revision.',
   },
   { pattern: 'worker:power-loss-recovery', manual: HARDWARE },
+  {
+    pattern: 'worker:account',
+    manual:
+      'fleet-sync creates the declared account over a root login; when it cannot, the account is created by the operator on the machine, or declared in fleet.json.',
+  },
+  {
+    pattern: 'worker:reboot',
+    manual:
+      'A reboot ends running agent turns, so it waits for them: rerun fleet-sync --maintenance-reboot once they end, or with --force.',
+  },
+  {
+    pattern: 'tailscale:enrolment-key',
+    manual:
+      'The tailnet-admin credential and the tag it may use are the operator’s, kept in the secrets provider and the control plane.',
+  },
+  {
+    pattern: 'tailscale:key-expiry-policy',
+    manual:
+      'The tailnet-admin credential and the tag it may use are the operator’s, kept in the secrets provider and the control plane.',
+  },
+  {
+    pattern: 'tailscale:device',
+    manual:
+      'Removing a device needs the tailnet-admin credential and a declared control plane, both the operator’s; without them a person removes it in the admin console.',
+  },
+  {
+    pattern: 'tailscale:leftover',
+    manual:
+      'Whether a device tagged as a worker belongs to the fleet is the operator’s choice: declare it, or remove it from the tailnet.',
+  },
+  // Whether a worker runs is the operator's choice (fleet-node-park).
+  { pattern: 'worker:idle', manual: PARKING },
+  { pattern: 'worker:park*', manual: PARKING },
+  { pattern: 'worker:auto-park', manual: PARKING },
   { pattern: 'worker:github-principal', manual: IDENTITY },
   { pattern: 'worker:vault-renewal', manual: IDENTITY },
   {
     pattern: 'manager:*',
     manual:
-      'The manager converges itself in fleet-sync; a setting that needs an administrator is applied with ansible-playbook -K ansible/macos/manager.yml.',
+      'The manager converges itself in fleet-sync; what needs an administrator is granted once with ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml.',
   },
   { pattern: 'manager:identity', manual: DECLARATION },
   {
@@ -144,11 +181,33 @@ export const CHECK_OWNERS: CheckOwner[] = [
       'The roster reaches every node with devfleet fleet-sync --only accounts, run from the manager.',
   },
   { pattern: 'accounts:native-login', manual: IDENTITY },
+  { pattern: 'accounts:verification', manual: EVIDENCE },
   { pattern: 'configuration:*', manual: EVIDENCE },
   { pattern: 'source:*', manual: EVIDENCE },
   { pattern: 'bootstrap:*', manual: EVIDENCE },
   { pattern: 'rollout:*', manual: EVIDENCE },
   { pattern: 'repair:*', manual: EVIDENCE },
+  // A roster computer's checkout compared with the manager's.
+  {
+    pattern: 'revision',
+    manual:
+      'The checkout of that computer differs from the manager’s: reconcile its branch, or converge it with fleet-sync; dev-fleet never resets a working tree.',
+  },
+  {
+    pattern: 'sync:*',
+    manual:
+      'The checkout of that computer differs from the manager’s: reconcile its lockfiles and pins, or converge it with fleet-sync; dev-fleet never resets a working tree.',
+  },
+  {
+    pattern: 'restore:*',
+    manual:
+      'fleet-restore rebuilds a replacement manager from the bucket; what it needs first (the project’s fleet.json, the bucket’s credentials, Git, Docker Desktop, a tailnet sign-in) is the operator’s: follow the remedy, then run fleet-restore again.',
+  },
+  {
+    pattern: 'watch:*',
+    manual:
+      'The heartbeat is kept in the bucket fleet.json names: name it, or restore access to it, then run fleet-watch again.',
+  },
 ];
 
 const matches = (pattern: string, id: string): boolean =>
