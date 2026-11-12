@@ -30,14 +30,19 @@ rewrites them).
   makes `gh` git's credential helper and writes the declared identity
   (`git` in `fleet.json`, `ansible/github/git.yml`) on every node.
 - **The proxy client key** is read by each node from its own secrets provider
-  whenever a launcher starts an agent.
+  whenever a launcher starts an agent. The node keeps the last key it read in
+  `~/.cache/dev-fleet/proxy-client-key` (0600) and uses it only while the
+  provider cannot answer, so an unreachable Vault or an expired session leaves
+  that node's agents working until the Vault checks below are fixed.
 - **The monitoring hub's backup storage keys** are read on the manager by
   `fleet-sync` and handed to the hub's playbook in a private variables file.
 
 ## Rotation and failure
 
-Rotate a secret where the provider keeps it; the next read uses it, nothing
-caches it. A Vault token that is not renewed expires: `worker:vault-renewal`
+Rotate a secret where the provider keeps it; the next read uses it. Only the
+proxy client key is remembered, and only as a fallback; a rotated key reaches
+every node at its next launch, and `retire-key` should wait until every node
+has launched an agent since the rotation. A Vault token that is not renewed expires: `worker:vault-renewal`
 fails and the fix is one login of that machine. A GitHub token that stops
 working fails `auth:github` and `worker:git-push-auth`; store the new one in
 Vault and the worker restores itself within ten minutes. During a proxy

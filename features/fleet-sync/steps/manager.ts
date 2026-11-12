@@ -17,6 +17,7 @@ import {
   managerPower,
   pinnedDockerDesktop,
 } from '../../../src/cli/fleet-sync-manager';
+import { holdManagerVault } from '../../../src/cli/fleet-sync-vault';
 import { machineProviders } from '../../../src/t3/providers';
 import { MACOS_MANAGER } from '../../../src/platform/manager-host';
 import type { Check, Status } from '../../../src/types';
@@ -344,3 +345,82 @@ Given('the Docker engine does not answer', (world) => {
 When('the Docker Desktop of the manager is measured', async (world) => {
   world.checks = [await managerDocker(world.commands.run)];
 });
+
+// ── The manager's Vault session ──────────────────────────────────────────
+
+const vault = new WeakMap<
+  FleetSyncWorld,
+  { session: boolean; loaded: boolean; applied: string[] }
+>();
+
+function vaultOf(world: FleetSyncWorld) {
+  let found = vault.get(world);
+  if (!found)
+    vault.set(world, (found = { session: true, loaded: false, applied: [] }));
+  return found;
+}
+
+Given('the manager is logged in to Vault', (world) => {
+  vaultOf(world).session = true;
+});
+
+Given("the manager's Vault session has lapsed", (world) => {
+  vaultOf(world).session = false;
+});
+
+Given("the manager's Vault renewal job is not loaded", (world) => {
+  vaultOf(world).loaded = false;
+});
+
+async function holdVault(world: FleetSyncWorld, apply: boolean) {
+  const state = vaultOf(world);
+  world.commands.answer(
+    (command) => command[0] === 'vault' && command[2] === 'lookup',
+    () => (state.session ? succeeded() : failed())
+  );
+  world.commands.answer(
+    (command) => command[0] === 'launchctl' && command[1] === 'print',
+    () => (state.loaded ? succeeded() : failed())
+  );
+  world.commands.answer(
+    (command) => command.some((arg) => arg.endsWith('vault-renew.yml')),
+    (command) => {
+      // The variables file is removed after the run: read it while it exists.
+      const file = command[command.indexOf('--extra-vars') + 1]!.slice(1);
+      state.applied.push(readFileSync(file, 'utf8'));
+      state.applied.push(command.join(' '));
+      state.loaded = true;
+      return succeeded();
+    }
+  );
+  const scratch = mkdtempSync(join(tmpdir(), 'devfleet-vault-'));
+  world.defer(() => rmSync(scratch, { recursive: true, force: true }));
+  world.checks = await holdManagerVault(world.commands.run, {
+    apply,
+    root: ROOT,
+    home: '/Users/fixture',
+    uid: 501,
+    scratch,
+  });
+}
+
+When("an applying sync holds the manager's Vault session", (world) =>
+  holdVault(world, true)
+);
+
+When("the manager's Vault session is measured", (world) =>
+  holdVault(world, false)
+);
+
+Then(
+  'vault-renew.yml was applied for {string} without a password prompt',
+  (world, address: string) => {
+    const [variables, command] = vaultOf(world).applied;
+    expect(JSON.parse(variables!)).toEqual({
+      vault_address: address,
+      mise: '/Users/fixture/.local/bin/mise',
+    });
+    expect(command).not.toContain(' -K');
+    expect(command).not.toContain('--ask-become-pass');
+  }
+);
