@@ -13,6 +13,7 @@ import { installConfig } from '../fleet-config';
 import { IDES } from '../ide';
 import { enabled, managerChecks } from '../ide/orchestrate';
 import { idesOf } from '../ide/definition';
+import { convergeGitIdentity, gitChecks } from '../git-identity';
 import macos from '../../ansible/macos/policy.json';
 import { ansibleCommand } from '../platform/ansible';
 import { PACKAGE_ROOT } from '../package-info';
@@ -59,6 +60,14 @@ export async function convergeManager(
           managerAgentProfiles(id, input.workspace, run)
         ))
       );
+      // The same Git identity and GitHub credentials as every worker.
+      checks.push(
+        ...(await attempt('git:configuration', () =>
+          convergeGitIdentity(input.workspace, definition.git, run)
+        ))
+      );
+      if (definition.git)
+        checks.push(...(await gitChecks(definition.git, run)));
       const providers = await attempt('provider:verification', () =>
         verifyFleetProviders(id)
       );

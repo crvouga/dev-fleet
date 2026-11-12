@@ -29,3 +29,55 @@
     - [docker, compose, version]
     - [docker, buildx, version]
   changed_when: false
+# The engine answering is not proof that an agent can use it: run a pinned
+# image and build a one-line image as the developer, in a fresh session that
+# reads the docker group from scratch. The image is cached here so the same
+# test works offline in worker:docker-run.
+- name: Look for the cached smoke-test image
+  ansible.builtin.command:
+    argv:
+      [
+        docker,
+        image,
+        inspect,
+        --format,
+        '{{ "{{.Id}}" }}',
+        '{{ dockerSmokeTest.image }}',
+      ]
+  become_user: '{{ development_user }}'
+  check_mode: false
+  changed_when: false
+  failed_when: false
+  register: docker_smoke_image
+- name: Cache the pinned smoke-test image
+  ansible.builtin.command:
+    argv: [docker, pull, --quiet, '{{ dockerSmokeTest.image }}']
+  become_user: '{{ development_user }}'
+  when: docker_smoke_image.rc | default(0) != 0
+  changed_when: true
+- name: Run a container as the developer, offline (DOCKER_RUN_FAILED)
+  ansible.builtin.command:
+    argv:
+      [
+        docker,
+        run,
+        --rm,
+        --network,
+        none,
+        --pull,
+        never,
+        '{{ dockerSmokeTest.image }}',
+        'true',
+      ]
+  become_user: '{{ development_user }}'
+  timeout: '{{ dockerSmokeTest.timeoutSeconds }}'
+  changed_when: false
+- name: Build a one-line image as the developer, offline (DOCKER_BUILD_FAILED)
+  ansible.builtin.command:
+    argv: [docker, build, --quiet, --pull=false, --network, none, '-']
+    stdin: |
+      FROM {{ dockerSmokeTest.image }}
+      RUN true
+  become_user: '{{ development_user }}'
+  timeout: '{{ dockerSmokeTest.timeoutSeconds }}'
+  changed_when: false

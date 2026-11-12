@@ -181,19 +181,21 @@ wrangler login
 railway login
 ```
 
-Only sign into providers the task actually needs. Git identity is personal:
-set `git config --global user.name` and `git config --global user.email` after
-confirming the desired name/email. Do not guess an email or overwrite an existing
-identity. Enable Git LFS hooks when needed with `git lfs install`.
+Only sign into providers the task actually needs. On fleet machines the Git
+identity and the GitHub credential helper come from the `git` block of
+`fleet.json`: `fleet-sync` writes them in `~/.config/git/config` and checks
+them as `worker:git-identity` and `worker:git-push-auth`. Elsewhere set `git
+config --global user.name` and `user.email` after confirming them; do not guess
+an email or overwrite an existing identity. Enable Git LFS hooks when needed with `git lfs install`.
 
 Optional existing workstation/agent settings:
 
 ```sh
 sh bootstrap/install-launcher.sh
-personal workstation doctor
+devfleet fleet-status --local
 # Only for tasks needing the workspace's managed secrets:
 vault login --method=userpass username=example-user
-personal workstation sync
+devfleet fleet-sync
 ```
 
 The machine bootstrap installs tools/dependencies only. `personal:install` additionally
@@ -231,7 +233,7 @@ The manifest installs the **Docker client**. Containers also require a local or
 remote Docker engine, Compose v2 and Buildx plugins. These cannot be installed as
 one identical unprivileged binary on all OSes.
 
-- **macOS:** run `personal workstation tools docker-setup` to install the pinned,
+- **macOS:** run `bash bootstrap/docker-desktop.sh` to install the pinned,
   checksum-verified Docker Desktop bundle from this repository and open it.
   Complete its first-run agreement/setup in the app. Repeated invocation reuses
   an existing installation. The shared mise Docker client remains in use.
@@ -280,11 +282,11 @@ mise install --locked bun
 mise exec --locked bun -- bun bootstrap/setup.ts
 ```
 
-For an installed workstation CLI, `personal workstation update` pulls with a clean-tree/fast-forward
-guard, refreshes the toolchain/global config and frozen dependencies, and runs the
-existing workstation convergence. `personal workstation tools sync` reapplies tool pins/global config
-without pulling or touching project dependencies; `personal workstation tools check --json` verifies
-them. Sync is explicit; Git commits do not silently update other machines.
+On fleet machines `devfleet fleet-sync` refreshes the toolchain, the global
+configuration and frozen dependencies; `mise exec --locked bun -- bun
+bootstrap/setup.ts --tools-only` reapplies tool pins and the global
+configuration without touching project dependencies, and `bun
+bootstrap/doctor.ts --json` verifies them. Sync is explicit; Git commits do not silently update other machines.
 
 For multiple development computers, use [the fleet package](operations.md):
 `devfleet fleet-node-add` registers an existing SSH alias in a local roster,
@@ -395,6 +397,14 @@ It installs the `vars.worker_tools` subset from `mise.toml`, with versions and
 artifacts taken from the same `mise.lock`; native T3 and Ubuntu Docker/service
 policy remain source-pinned. `bun bootstrap/doctor.ts --worker --docker --json`
 checks that profile. It does not require unrelated cloud CLIs on workers.
+
+Tool profiles add locked tool sets on top of it: `worker.toolProfiles` in
+`fleet.json` (fleet-wide) or `toolProfiles` on one worker selects `web` (pnpm,
+Deno, Yarn and headless Chromium for browser tests), `go`, `rust` (with CMake
+and Ninja) or `jvm` (Temurin), each a `worker_profile_<name>` under `[vars]` in
+`mise.toml`. `worker.tools` adds single tools dev-fleet already pins. The setup
+installs them (`--node` reads the installed configuration) and the doctor
+checks each as `tool:<name>` (`--profiles`, `--tools`).
 The source-owned `worker-auth.ts` timer renews the worker's existing Vault token
 and can restore the declared GitHub account from its authorized Vault service
 credential, without copying another machine's login directory.

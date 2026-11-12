@@ -100,3 +100,62 @@
       delay: 2
       register: hub_health
       until: hub_health.status == 200
+    # Scheduled off-machine backups, as the fleet configuration declares them
+    # (services.monitoring.backups), through the hub's own superuser API. Only
+    # what differs is changed; the storage keys never leave the variables file.
+    - name: Converge the hub's scheduled off-machine backups
+      when:
+        - beszel_backup_schedule is defined
+        - beszel_fleet_password | default('') | length > 0
+      block:
+        - name: Sign in to the hub as its superuser
+          ansible.builtin.uri:
+            url: http://127.0.0.1:8090/api/collections/_superusers/auth-with-password
+            method: POST
+            body_format: json
+            body:
+              identity: '{{ beszel_fleet_identity }}'
+              password: '{{ beszel_fleet_password }}'
+            return_content: true
+          check_mode: false
+          no_log: true
+          register: hub_superuser
+        - name: Read the hub's backup settings
+          ansible.builtin.uri:
+            url: http://127.0.0.1:8090/api/settings
+            headers:
+              Authorization: '{{ hub_superuser.json.token }}'
+            return_content: true
+          check_mode: false
+          no_log: true
+          register: hub_settings
+        - name: Schedule backups to the declared off-machine storage (BESZEL_BACKUP_CONVERGENCE_FAILED)
+          ansible.builtin.uri:
+            url: http://127.0.0.1:8090/api/settings
+            method: PATCH
+            headers:
+              Authorization: '{{ hub_superuser.json.token }}'
+            body_format: json
+            body:
+              backups:
+                cron: '{{ beszel_backup_schedule }}'
+                cronMaxKeep: '{{ beszel_backup_keep | int }}'
+                s3:
+                  enabled: true
+                  bucket: '{{ beszel_backup_bucket }}'
+                  region: '{{ beszel_backup_region }}'
+                  endpoint: '{{ beszel_backup_endpoint }}'
+                  accessKey: '{{ beszel_backup_access_key }}'
+                  secret: '{{ beszel_backup_secret_key }}'
+                  forcePathStyle: '{{ beszel_backup_force_path_style | default(false) | bool }}'
+          no_log: true
+          changed_when: true
+          when: >-
+            (hub_settings.json.backups | default({})).cron | default('') != beszel_backup_schedule
+            or (hub_settings.json.backups | default({})).cronMaxKeep | default(0) | int != beszel_backup_keep | int
+            or not ((hub_settings.json.backups | default({})).s3 | default({})).enabled | default(false)
+            or ((hub_settings.json.backups | default({})).s3 | default({})).bucket | default('') != beszel_backup_bucket
+            or ((hub_settings.json.backups | default({})).s3 | default({})).region | default('') != beszel_backup_region
+            or ((hub_settings.json.backups | default({})).s3 | default({})).endpoint | default('') != beszel_backup_endpoint
+            or ((hub_settings.json.backups | default({})).s3 | default({})).accessKey | default('') != beszel_backup_access_key
+            or ((hub_settings.json.backups | default({})).s3 | default({})).forcePathStyle | default(false) != beszel_backup_force_path_style | default(false) | bool

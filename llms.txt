@@ -31,6 +31,8 @@ Rules for an agent working in a project that uses dev-fleet:
 - [Ubuntu fleet-sync reference](https://github.com/crvouga/dev-fleet/blob/main/docs/ubuntu-sync.md): enrollment, approval, machine policy by platform, remote-work safety
 - [Worker contract](https://github.com/crvouga/dev-fleet/blob/main/docs/worker-contract.md): what a worker guarantees and how readiness is scoped
 - [Operations](https://github.com/crvouga/dev-fleet/blob/main/docs/operations.md): roster, diagnostics and repairs
+- [Runbooks](https://github.com/crvouga/dev-fleet/blob/main/docs/runbooks.md): every failure code, how to confirm it, the fix and when to escalate
+- [Authentication and accounts](https://github.com/crvouga/dev-fleet/blob/main/docs/authentication.md): where each credential lives, how it reaches each node and how it rotates
 - [Coding agents on every node](https://github.com/crvouga/dev-fleet/blob/main/agents/setup.md): agent launchers and the T3 providers
 - [Releasing](https://github.com/crvouga/dev-fleet/blob/main/docs/releasing.md): how a version is published from one commit (for dev-fleet developers)
 - [Features](https://github.com/crvouga/dev-fleet/blob/main/features/README.md): the behaviour specified in Gherkin (for dev-fleet developers)

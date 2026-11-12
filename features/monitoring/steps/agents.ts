@@ -183,6 +183,7 @@ When('the hub is converged on the manager', async (world) => {
     account: async () => world.account,
     viewer: async () => world.viewer!,
     backups: async () => world.backups!,
+    backupStorage: async () => ({}),
     ...(world.receipts ? { receipts: world.receipts } : {}),
   });
 });

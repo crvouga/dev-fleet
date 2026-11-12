@@ -117,9 +117,8 @@ included, to the exact version in `ansible/ubuntu/policy.json`. The interactive 
   roster in the [fleet state](state.md), using the existing roster schema.
   Preserve workspace/runtime paths, capabilities and explicit `tailscaleId`
   bindings.
-- Workstation network consumers derive their inventory from Fleet. The old file
-  is retained only as `packages/fleet/migrations/workstation-network-v1.json` for
-  lossless identity-path migration; conflicts fail rather than silently winning.
+- Workstation network consumers derive their inventory from the fleet
+  configuration; conflicts fail rather than silently winning.
 - Manager approval: the `enrollment` document in the [fleet state](state.md).
   Manager deployment lock: `~/.local/share/personal/fleet/manager/sync.lock`.
 - Remote source: `~/.local/share/personal/fleet/revisions/FULL_SHA`.
@@ -211,8 +210,10 @@ vault kv get -field=FLEET_WORKER_TOKEN_WORKER_ONE secret/personal/prd \
   | ssh worker-one 'vault login -address=https://vault.example.com -no-print -'
 ```
 
-From then on the node's `personal-worker-auth` timer renews that token and its
-GitHub login, and renders provider configuration from Vault through Workstation.
+From then on the node's `personal-worker-auth` timer renews that token and
+restores its GitHub login from it (`bootstrap/worker-auth.ts`). It renders no
+provider configuration: agent profiles are applied by `fleet-sync`. See
+[Authentication and accounts](authentication.md).
 
 ## Ubuntu and remote-work safety
 
@@ -268,7 +269,7 @@ promise. Inspect disk/inodes, swap/memory pressure, `systemctl --failed`, and pr
 boot journal evidence locally; sanitize it before sharing. Do not enable automatic
 reboot-on-pressure or kill active work to obtain a green report.
 
-T3 0.1.7's supported administrator policy at `/etc/t3code/policy.json`
+The pinned T3's (`t3_version` in `mise.toml`) supported administrator policy at `/etc/t3code/policy.json`
 disables independent updates and declares the existing managed Codex instance
 plus an OpenCode instance for all five gateway models. Fleet reuses the
 existing `agents/t3.json` renderer; it does not edit the live settings database.

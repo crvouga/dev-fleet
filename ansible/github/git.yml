@@ -1,0 +1,66 @@
+---
+# The Git identity and GitHub credentials every node commits and pushes with,
+# the manager included, as the developer: no become. Written in Git's own
+# per-user file (~/.config/git/config), inside a marked block, so a person's
+# ~/.gitconfig is never touched. Variables arrive through a private 0600
+# variables file, never argv.
+- name: Converge the Git identity and GitHub credential helper
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars:
+    git_config: '{{ git_home }}/.config/git/config'
+    # gh answers for GitHub through the pinned toolchain's shim, so any
+    # session's PATH works.
+    git_credential_helper: "!'{{ git_home }}/.local/share/mise/shims/gh' auth git-credential"
+  tasks:
+    - name: Require a declared identity
+      ansible.builtin.assert:
+        that:
+          - git_name | length > 0
+          - git_email is match('^[^@ ]+@[^@ ]+$')
+          - git_home is match('^/')
+        fail_msg: GIT_IDENTITY_UNDECLARED; declare git.name and git.email in fleet.json.
+    - name: Create the per-user Git configuration directory
+      ansible.builtin.file:
+        path: '{{ git_home }}/.config/git'
+        state: directory
+        mode: '0700'
+    - name: Declare the identity and the GitHub credential helper
+      ansible.builtin.blockinfile:
+        path: '{{ git_config }}'
+        create: true
+        mode: '0600'
+        marker: '# {mark} dev-fleet: Git identity and GitHub credentials'
+        block: |
+          [user]
+          	name = "{{ git_name }}"
+          	email = {{ git_email }}
+          [credential "https://github.com"]
+          	helper =
+          	helper = {{ git_credential_helper }}
+          [credential "https://gist.github.com"]
+          	helper =
+          	helper = {{ git_credential_helper }}
+    - name: Read the effective identity and GitHub credential helper
+      ansible.builtin.command:
+        argv: [git, config, --global, --get-all, '{{ item }}']
+      environment:
+        HOME: '{{ git_home }}'
+      loop:
+        - user.name
+        - user.email
+        - credential.https://github.com.helper
+      register: git_effective
+      check_mode: false
+      changed_when: false
+      failed_when: false
+    - name: Require the declared identity and helper to be the effective ones (worker:git-identity)
+      ansible.builtin.assert:
+        that:
+          - git_effective.results[0].stdout_lines | default([]) | last | default('') == git_name
+          - git_effective.results[1].stdout_lines | default([]) | last | default('') == git_email
+          - git_effective.results[2].stdout_lines | default([]) | last | default('') == git_credential_helper
+        fail_msg: GIT_IDENTITY_OVERRIDDEN; another Git configuration (often ~/.gitconfig) sets user.name, user.email or the GitHub credential helper after dev-fleet's. Remove those lines.
+      when: not ansible_check_mode

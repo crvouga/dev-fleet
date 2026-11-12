@@ -1,6 +1,7 @@
 import { CAPABILITIES, record } from './config';
 import { FleetUsageError } from './errors';
 import type { Capability } from './types';
+import { TOOL_PROFILES, type ToolProfile } from '../bootstrap/worker-tools';
 
 export interface WorkerPolicy {
   requiredCapabilities: Capability[];
@@ -12,6 +13,10 @@ export interface WorkerPolicy {
   unattendedSudo: true;
   persistentT3: true;
   neverSleep: true;
+  /** Tool profiles every worker installs on top of the base tools. */
+  toolProfiles?: ToolProfile[];
+  /** Single tools pinned in dev-fleet's mise.toml every worker installs. */
+  tools?: string[];
 }
 const REQUIRED = [
   'github',
@@ -41,8 +46,11 @@ function validPolicy(value: Record<string, unknown>): boolean {
         'unattendedSudo',
         'persistentT3',
         'neverSleep',
+        'toolProfiles',
+        'tools',
       ].includes(key)
     ) &&
+    validTools(value) &&
     validCapabilities(value['requiredCapabilities']) &&
     typeof value['githubLogin'] === 'string' &&
     /^[a-zA-Z0-9-]{1,39}$/.test(value['githubLogin']) &&
@@ -52,6 +60,31 @@ function validPolicy(value: Record<string, unknown>): boolean {
     value['agentProfile'] === 'proxy' &&
     ['unattendedSudo', 'persistentT3', 'neverSleep'].every(
       (key) => value[key] === true
+    )
+  );
+}
+/** A list of known tool profiles, each once; null when it is not one. */
+export function toolProfiles(value: unknown): ToolProfile[] | null {
+  return Array.isArray(value) &&
+    new Set(value).size === value.length &&
+    value.every((item) => TOOL_PROFILES.includes(item as ToolProfile))
+    ? (value as ToolProfile[])
+    : null;
+}
+/** The optional tool profiles and single tools every worker adds. */
+function validTools(value: Record<string, unknown>): boolean {
+  return (
+    (value['toolProfiles'] === undefined ||
+      toolProfiles(value['toolProfiles']) !== null) &&
+    (value['tools'] === undefined || toolNames(value['tools']))
+  );
+}
+function toolNames(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    new Set(value).size === value.length &&
+    value.every(
+      (item) => typeof item === 'string' && /^[a-z0-9@:/._-]{1,75}$/i.test(item)
     )
   );
 }

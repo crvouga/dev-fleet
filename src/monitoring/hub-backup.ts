@@ -1,4 +1,5 @@
 import { record } from '../config';
+import type { HubBackups } from '../definition';
 import type { Check } from '../types';
 import {
   LOCAL_HUB,
@@ -10,6 +11,10 @@ import {
 
 /** A scheduled backup older than this means the schedule is not running. */
 export const BACKUP_MAX_AGE_MS = 48 * 60 * 60 * 1000;
+/** Declared backups that have not reached off-machine storage for this long
+ * fail: the grace covers a fresh hub and a storage outage of a few days.
+ */
+export const BACKUP_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
 
 function backupCheck(
   status: Check['status'],
@@ -24,21 +29,26 @@ function backupCheck(
   };
 }
 
-const SETTINGS =
-  'Open the hub as its superuser (/_/ on the manager), Settings > Backups.';
+const UNDECLARED =
+  'Declare services.monitoring.backups in fleet.json (a schedule, how many to keep and S3-compatible storage off the manager) and the secrets monitoring-backup-access-key and monitoring-backup-secret-key; fleet-sync then sets them through the hub.';
+const DECLARED =
+  "fleet-sync sets the backups declared under services.monitoring.backups. Check that the secrets monitoring-backup-access-key and monitoring-backup-secret-key are readable on the manager and that the manager's Vault session is logged in, then rerun fleet-sync.";
 
-/** Reads, never changes, the hub's own backup settings and its list of
- * backups through the stock PocketBase API of the pinned release (superuser
- * only: GET /api/settings and GET /api/backups). Backups are configured in
- * the hub's UI; this says whether they are scheduled, kept off the manager
- * and recent. Storage names, keys and endpoints are never reported.
+/** Reads the hub's own backup settings and its list of backups through the
+ * stock PocketBase API of the pinned release (superuser only: GET
+ * /api/settings and GET /api/backups): whether they are scheduled, kept off
+ * the manager and recent. fleet-sync sets them from the fleet configuration
+ * (`hub-darwin.yml`); with them declared, anything but that is a failure, a
+ * stale backup after a grace period. Storage names, keys and endpoints are
+ * never reported.
  */
 export async function verifyHubBackups(
   login: HubLogin | null,
   fetcher: typeof fetch = fetch,
   base: string = LOCAL_HUB,
-  now: number = Date.now()
+  options: { now?: number; declared?: HubBackups | undefined } = {}
 ): Promise<Check> {
+  const SETTINGS = options.declared ? DECLARED : UNDECLARED;
   if (!login)
     return backupCheck(
       'skip',
@@ -69,29 +79,65 @@ export async function verifyHubBackups(
       'BESZEL_BACKUP_UNVERIFIED',
       `The hub answered in a form this release does not expect. ${SETTINGS}`
     );
+  return judgeBackups(
+    policy,
+    newestBackup(backups),
+    options.now ?? Date.now(),
+    options.declared
+  );
+}
+
+/** Undeclared backups only warn; declared ones fail when they are not what
+ * the fleet configuration says, or have not reached storage for longer than
+ * the grace period.
+ */
+function judgeBackups(
+  policy: { cron: string; keep: number; offHost: boolean },
+  newest: number | null,
+  now: number,
+  declared: HubBackups | undefined
+): Check {
+  const SETTINGS = declared ? DECLARED : UNDECLARED;
+  const missing: Check['status'] = declared ? 'fail' : 'warn';
   if (!policy.cron)
     return backupCheck(
-      'warn',
+      missing,
       'BESZEL_BACKUP_UNSCHEDULED',
-      `The hub takes no scheduled backups, so its history, settings and machine identities are lost with the manager. ${SETTINGS} Set a schedule and how many to keep.`
+      `The hub takes no scheduled backups, so its history, settings and machine identities are lost with the manager. ${SETTINGS}`
     );
   if (!policy.offHost)
     return backupCheck(
-      'warn',
+      missing,
       'BESZEL_BACKUP_OFFHOST_REQUIRED',
-      `Scheduled backups stay on the manager's disk, which is not disaster recovery. ${SETTINGS} Store them in existing encrypted S3-compatible storage you already approved; do not create new storage or reuse unrelated credentials.`
+      `Scheduled backups stay on the manager's disk, which is not disaster recovery. ${SETTINGS} Use encrypted S3-compatible storage you already approved; do not create new storage or reuse unrelated credentials.`
     );
-  const newest = newestBackup(backups);
-  if (newest === null || now - newest > BACKUP_MAX_AGE_MS)
+  if (
+    declared &&
+    (policy.cron !== declared.schedule || policy.keep !== declared.keep)
+  )
     return backupCheck(
-      'warn',
+      'fail',
+      'BESZEL_BACKUP_NOT_CONVERGED',
+      `The hub's backup schedule is not the one the fleet configuration declares. ${SETTINGS}`
+    );
+  const age = newest === null ? null : now - newest;
+  if (age === null || age > BACKUP_MAX_AGE_MS)
+    return backupCheck(
+      staleStatus(age, declared !== undefined),
       'BESZEL_BACKUP_STALE',
-      `No backup newer than ${BACKUP_MAX_AGE_MS / 3_600_000} hours is listed although a schedule is set. ${SETTINGS} Check the schedule and the storage's credentials, then create a backup by hand.`
+      `No backup newer than ${BACKUP_MAX_AGE_MS / 3_600_000} hours is listed although a schedule is set. Check the storage's credentials and that the hub can reach it, then create a backup by hand (the hub's /_/ page, Settings > Backups). ${SETTINGS}`
     );
   return backupCheck(
     'pass',
-    `Scheduled backups go to off-host storage, keeping ${policy.keep}; the newest is from ${new Date(newest).toISOString()}.`
+    `Scheduled backups go to off-host storage, keeping ${policy.keep}; the newest is from ${new Date(now - age).toISOString()}.`
   );
+}
+
+/** A fresh hub has no backup yet; declared backups that stopped reaching
+ * storage fail once the grace period is over.
+ */
+function staleStatus(age: number | null, declared: boolean): Check['status'] {
+  return declared && age !== null && age > BACKUP_GRACE_MS ? 'fail' : 'warn';
 }
 
 function backupPolicy(

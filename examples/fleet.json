@@ -29,6 +29,14 @@
       "proxy-tunnel-token": {
         "path": "cliproxy-fleet/tunnel",
         "field": "TUNNEL_TOKEN"
+      },
+      "monitoring-backup-access-key": {
+        "path": "beszel/backups",
+        "field": "ACCESS_KEY_ID"
+      },
+      "monitoring-backup-secret-key": {
+        "path": "beszel/backups",
+        "field": "SECRET_ACCESS_KEY"
       }
     }
   },
@@ -73,7 +81,16 @@
       "hubPort": 8443,
       "publicUrl": "https://beszel.example.com",
       "managerAccount": "fleet-manager@example.com",
-      "viewerAccount": "public-viewer@example.com"
+      "viewerAccount": "public-viewer@example.com",
+      "backups": {
+        "schedule": "0 3 * * *",
+        "keep": 7,
+        "storage": {
+          "bucket": "my-fleet-hub-backups",
+          "endpoint": "https://s3.example.com",
+          "region": "auto"
+        }
+      }
     }
   },
   "ubuntu": {
@@ -92,6 +109,7 @@
     "githubLogin": "example-user",
     "vaultUser": "example-user",
     "toolchain": "mise.lock",
+    "toolProfiles": ["go"],
     "agentProfile": "proxy",
     "unattendedSudo": true,
     "persistentT3": true,

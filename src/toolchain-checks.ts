@@ -1,11 +1,16 @@
 import { join } from 'node:path';
+import {
+  selectionArguments,
+  type ToolSelection,
+} from '../bootstrap/worker-tools';
 import { record } from './config';
 import type { Check, Runner } from './types';
 
 export async function toolchainChecks(
   root: string,
   run: Runner,
-  worker?: boolean
+  /** A worker's own tool selection; absent on the manager. */
+  worker?: ToolSelection
 ): Promise<Check[]> {
   const result = await run(doctorArguments(root, worker), {
     cwd: root,
@@ -97,12 +102,12 @@ function toolCheck(value: unknown): Check | null {
   };
 }
 
-function doctorArguments(root: string, worker?: boolean): string[] {
+function doctorArguments(root: string, worker?: ToolSelection): string[] {
   return [
     'bun',
     join(root, 'bootstrap/doctor.ts'),
     '--json',
     '--docker',
-    ...(worker ? ['--worker'] : []),
+    ...(worker ? ['--worker', ...selectionArguments(worker)] : []),
   ];
 }

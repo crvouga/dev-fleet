@@ -1,4 +1,9 @@
-import { workerTools } from './worker-tools';
+import {
+  installedSelection,
+  NO_SELECTION,
+  workerToolset,
+  type ToolSelection,
+} from './worker-tools';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 /** Used by both OS bootstraps, dev-fleet tools sync and dev-fleet update. No workspace dependencies. */
@@ -26,7 +31,8 @@ function run(args: string[]): void {
 
 export async function syncTools(
   observe: (phase: SetupPhase) => void = () => {},
-  worker = false
+  worker = false,
+  selection: ToolSelection = NO_SELECTION
 ): Promise<void> {
   observe('managed-config');
   const dir = globalConfigDir();
@@ -34,9 +40,9 @@ export async function syncTools(
   observe('mise');
   const config = Bun.TOML.parse(
     readFileSync(join(workspaceRoot, 'mise.toml'), 'utf8')
-  ) as { tools: Record<string, unknown>; vars: { worker_tools: unknown } };
+  ) as { tools: Record<string, unknown>; vars: Record<string, unknown> };
   const selected = worker
-    ? Object.keys(workerTools(config.tools, config.vars.worker_tools))
+    ? Object.keys(workerToolset(config.tools, config.vars, selection))
     : [];
   run(['mise', 'install', '--locked', ...selected]);
   observe('aws');
@@ -54,11 +60,20 @@ if (import.meta.main) {
   const flag = process.argv.indexOf('--status-file');
   const report = setupStatus(flag < 0 ? undefined : process.argv[flag + 1]);
   let phase: SetupPhase = 'managed-config';
+  const worker = process.argv.includes('--worker');
+  const node = process.argv.indexOf('--node');
   try {
-    await syncTools((current) => {
-      phase = current;
-      report(phase, 'running');
-    }, process.argv.includes('--worker'));
+    await syncTools(
+      (current) => {
+        phase = current;
+        report(phase, 'running');
+      },
+      worker,
+      // The tool profiles of the fleet configuration fleet-sync installed.
+      worker && node >= 0
+        ? installedSelection(process.argv[node + 1])
+        : NO_SELECTION
+    );
     if (!process.argv.includes('--tools-only')) {
       phase = 'dependencies';
       report(phase, 'running');

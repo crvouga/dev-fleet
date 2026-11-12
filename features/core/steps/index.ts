@@ -11,5 +11,7 @@ import './ssh';
 import './sync';
 import './running';
 import './reports';
+import './tools';
+import './capabilities';
 
 export { CoreWorld, core } from './world';

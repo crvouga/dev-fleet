@@ -4,6 +4,7 @@ import { MonitoringWorld, monitoring } from './steps/world';
 import { discardAgentBox } from './steps/agent-box';
 import './steps/agents';
 import './steps/hub';
+import './steps/backups';
 
 // The agent's playbook on a disposable systemd machine downloads the pinned
 // agent: run on request.

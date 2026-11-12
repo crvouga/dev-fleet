@@ -68,7 +68,7 @@ def validate(root):
         raise ValueError("Provider cache directory missing")
     for path in (state / "runtime/auths").iterdir():
         if path.name == "kv.db" and path.is_file() and path.stat().st_size > 0:
-            continue  # Opaque upstream bbolt state, captured while the process is stopped.
+            continue  # Opaque upstream bbolt state, copied while the proxy runs (see capture).
         # .json: provider credential; .cds: upstream per-account cooldown
         # records (JSON object, no credential), kept so limits survive moves.
         if path.suffix not in (".json", ".cds") or not path.is_file():

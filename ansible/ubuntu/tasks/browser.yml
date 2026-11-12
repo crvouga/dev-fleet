@@ -1,0 +1,56 @@
+---
+# Headless Chromium for browser tests (Playwright, Storybook, end-to-end
+# suites): the system libraries it loads, at the snapshot's exact versions,
+# and one pinned Chrome Headless Shell build. Applied to workers that select
+# the web tool profile; the launch below backs worker:browser.
+- name: Install the exact libraries headless Chromium loads
+  ansible.builtin.apt:
+    name: '{{ item.key }}={{ item.value }}'
+    state: present
+    lock_timeout: '{{ aptLockTimeoutSeconds }}'
+    allow_downgrade: false
+    allow_unauthenticated: false
+    fail_on_autoremove: true
+    policy_rc_d: 101
+  environment:
+    APT_CONFIG: /etc/personal-fleet/apt.conf
+  loop: '{{ browser.packages | dict2items }}'
+- name: Name the headless shell build of this architecture
+  ansible.builtin.set_fact:
+    browser_build: "{{ browser.headlessShell['arm64' if ansible_facts.architecture == 'aarch64' else 'amd64'] }}"
+    browser_root: '/opt/personal-fleet/browser/{{ browser.headlessShell.version }}'
+- name: Create the package cache and the browser directory
+  ansible.builtin.file:
+    path: '{{ item }}'
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - /var/cache/personal-fleet
+    - '{{ browser_root }}'
+- name: Download the pinned headless shell
+  ansible.builtin.get_url:
+    url: 'https://cdn.playwright.dev/builds/cft/{{ browser.headlessShell.version }}/{{ browser_build.archive }}.zip'
+    dest: '/var/cache/personal-fleet/chrome-headless-shell-{{ browser.headlessShell.version }}-{{ browser_build.archive | basename }}.zip'
+    checksum: 'sha256:{{ browser_build.sha256 }}'
+    mode: '0644'
+    timeout: 300
+- name: Unpack the verified headless shell
+  ansible.builtin.unarchive:
+    src: '/var/cache/personal-fleet/chrome-headless-shell-{{ browser.headlessShell.version }}-{{ browser_build.archive | basename }}.zip'
+    dest: '{{ browser_root }}'
+    remote_src: true
+    creates: '{{ browser_root }}/{{ browser_build.archive | basename }}/chrome-headless-shell'
+- name: Launch headless as the developer, load a blank page and exit (BROWSER_LAUNCH_FAILED)
+  ansible.builtin.command:
+    argv:
+      - '{{ browser_root }}/{{ browser_build.archive | basename }}/chrome-headless-shell'
+      - --headless
+      - --no-sandbox
+      - --disable-gpu
+      - --dump-dom
+      - about:blank
+  become_user: '{{ development_user }}'
+  timeout: '{{ browser.launchTimeoutSeconds }}'
+  changed_when: false

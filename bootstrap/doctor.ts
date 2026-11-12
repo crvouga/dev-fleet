@@ -1,4 +1,9 @@
-import { workerTools } from './worker-tools';
+import {
+  NO_SELECTION,
+  parseSelectionArguments,
+  workerToolset,
+  type ToolSelection,
+} from './worker-tools';
 /** Read-only toolchain checks; no logins, installations or changes to Docker. */
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -15,7 +20,7 @@ import {
 type Tool = string | { version: string; lazy?: boolean; os?: string[] };
 type Config = {
   tools: Record<string, Tool>;
-  vars?: { worker_tools?: unknown };
+  vars?: Record<string, unknown>;
 };
 export type Check = {
   id: string;
@@ -41,6 +46,11 @@ const VERSION_ARGS: Record<string, string[]> = {
   gitleaks: ['version'],
   kubectl: ['version', '--client=true', '--output=json'],
   helm: ['version', '--short'],
+};
+/** The version a tool prints, where it differs from its mise pin. */
+const PRINTED: Record<string, (pin: string) => string> = {
+  // temurin-25.0.5+8.0.LTS prints as 25.0.5.
+  java: (pin) => pin.replace(/^[a-z]+-/, '').replace(/\+.*$/, ''),
 };
 const run: Runner = (command) => {
   const result = spawnSync(command[0]!, command.slice(1), {
@@ -80,7 +90,8 @@ export function toolChecks(
     if (typeof tool !== 'string' && tool.lazy) continue;
     // A tool pinned only for other platforms has no artifact to verify here.
     if (unavailable(id, tool, platform)) continue;
-    const version = typeof tool === 'string' ? tool : tool.version;
+    const pin = typeof tool === 'string' ? tool : tool.version;
+    const version = PRINTED[id]?.(pin) ?? pin;
     const command = COMMANDS[id] ?? id;
     const result = execute([command, ...(VERSION_ARGS[id] ?? ['--version'])]);
     const exact = new RegExp(
@@ -195,7 +206,21 @@ export function globalConfigCheck(
   };
 }
 
-export function checkMachine(requireDocker = false, worker = false): Check[] {
+/** A worker installs every tool it selects, lazy or not, so each is checked. */
+function installed(tools: Record<string, Tool>): Record<string, Tool> {
+  return Object.fromEntries(
+    Object.entries(tools).map(([id, tool]) => [
+      id,
+      typeof tool === 'string' ? tool : { ...tool, lazy: false },
+    ])
+  );
+}
+
+export function checkMachine(
+  requireDocker = false,
+  worker = false,
+  selection: ToolSelection = NO_SELECTION
+): Check[] {
   const config = Bun.TOML.parse(
     readFileSync(join(workspaceRoot, 'mise.toml'), 'utf8')
   ) as Config;
@@ -203,7 +228,7 @@ export function checkMachine(requireDocker = false, worker = false): Check[] {
   return [
     ...toolChecks(
       worker
-        ? workerTools(config.tools, config.vars?.worker_tools)
+        ? installed(workerToolset(config.tools, config.vars ?? {}, selection))
         : config.tools
     ),
     ...dockerChecks(requireDocker),
@@ -222,7 +247,8 @@ export function checkMachine(requireDocker = false, worker = false): Check[] {
 if (import.meta.main) {
   const checks = checkMachine(
     process.argv.includes('--docker'),
-    process.argv.includes('--worker')
+    process.argv.includes('--worker'),
+    parseSelectionArguments(process.argv)
   );
   const ok = checks.every((check) => check.status !== 'fail');
   if (process.argv.includes('--json'))

@@ -4,9 +4,9 @@
 
 # Developer fleet
 
-`@pkgs/fleet` diagnoses development computers: SSH, VS Code Remote-SSH,
+`devfleet` diagnoses development computers: SSH, VS Code Remote-SSH,
 per-machine authentication, T3 Connect and shared toolchain/dependency drift.
-It is a local CLI/library, not a daemon or cloud manager. It reuses the
+It is a local CLI, not a library, a daemon or a cloud manager. It reuses the
 existing mise/workstation owners rather than introducing another installer.
 
 The fleet is one singleton **manager** (the human's macOS machine, which runs
@@ -46,8 +46,9 @@ devfleet fleet-repair --node dev-linux --repair workspace --json   # plan only
 devfleet fleet-repair --node dev-linux --repair workspace --apply --yes --json
 ```
 
-This private package exposes a TypeScript API from `@pkgs/fleet`; the public
-executable is `personal` (`bun run personal` from the checkout). Schema, roster
+dev-fleet is a command with no library API: run it as `npx devfleet` from the
+project that holds your `fleet.json` (`./devfleet` from a checkout of dev-fleet
+itself). Schema, roster
 listing, onboarding and repair previews do not contact nodes or auth services.
 Status never opens a login flow.
 
@@ -61,7 +62,7 @@ remains the sole cloud resource owner; fleet creates no networks, hosts or secre
 
 ```json
 {
-  "$schema": "./packages/fleet/schema.json",
+  "$schema": "./node_modules/@crvouga/dev-fleet/schema/roster.schema.json",
   "version": 1,
   "nodes": [
     {
@@ -97,21 +98,21 @@ remote nodes' required lists. Run `fleet-nodes --schema` for editor/agent valida
 
 ## Evidence and diagnosis
 
-| Check                                                                              | Evidence / next action                                                                                                                                |
-| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace`, `git:clean`                                                           | HEAD, input availability and dirty-tree status; no paths/diffs/file contents logged.                                                                  |
-| `revision`, `sync:*`                                                               | Compare exact HEAD and SHA-256 of package.json, bun.lock, mise.toml, mise.lock against manager. Missing inputs never pass.                            |
-| `dependencies`                                                                     | Last successful fleet frozen-sync receipt matches input hashes. Missing receipt is unverified, not in-sync.                                           |
-| `auth:toolchain`                                                                   | Existing bootstrap/doctor.ts runs in the node checkout with its Bun, bounded to 90s. Use personal workstation tools check --json for individual pins. |
-| `ssh:agent`                                                                        | Manager agent exposes an identity; missing agent warns because IdentityFile keys may still work.                                                      |
-| `ssh:session`                                                                      | Fresh batch SSH session actually runs the Node/Bun probe. No reused multiplexed connection or agent forwarding.                                       |
-| `ssh:host-key`, `ssh:dns`, `ssh:auth`, `ssh:network`, `ssh:runtime`, `ssh:timeout` | Classified failure and targeted remedy, without raw logs.                                                                                             |
-| `auth:github`                                                                      | gh auth status --active succeeds on this machine; not proof of Git SSH or every repository permission.                                                |
-| `auth:vault`                                                                       | Server-side vault token lookup succeeds in this context; not proof of access to every secret path.                                                    |
-| `auth:vscode`                                                                      | code CLI finds the local Remote-SSH extension. Other profiles/Cursor/GUI PATH/agents can differ.                                                      |
-| `t3:settings`                                                                      | Connect explicitly enabled and not revoked in t3 status --json; settings are not connectivity.                                                        |
-| `t3:api`                                                                           | Read-only t3 environment list --json succeeds against the local API; no pairing/token minting.                                                        |
-| `t3:end-to-end`, `vscode:forwarding`                                               | SKIP: actual relay/peer authorization and VS Code tunnel/server installation require operator testing.                                                |
+| Check                                                                              | Evidence / next action                                                                                                                                                |
+| ---------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`, `git:clean`                                                           | HEAD, input availability and dirty-tree status; no paths/diffs/file contents logged.                                                                                  |
+| `revision`, `sync:*`                                                               | Compare exact HEAD and SHA-256 of package.json, bun.lock, mise.toml, mise.lock against manager. Missing inputs never pass.                                            |
+| `dependencies`                                                                     | Last successful fleet frozen-sync receipt matches input hashes. Missing receipt is unverified, not in-sync.                                                           |
+| `auth:toolchain`                                                                   | Existing bootstrap/doctor.ts runs in the node checkout with its Bun, bounded to 90s. Run `bun bootstrap/doctor.ts --json` in the node's checkout for individual pins. |
+| `ssh:agent`                                                                        | Manager agent exposes an identity; missing agent warns because IdentityFile keys may still work.                                                                      |
+| `ssh:session`                                                                      | Fresh batch SSH session actually runs the Node/Bun probe. No reused multiplexed connection or agent forwarding.                                                       |
+| `ssh:host-key`, `ssh:dns`, `ssh:auth`, `ssh:network`, `ssh:runtime`, `ssh:timeout` | Classified failure and targeted remedy, without raw logs.                                                                                                             |
+| `auth:github`                                                                      | gh auth status --active succeeds on this machine; not proof of Git SSH or every repository permission.                                                                |
+| `auth:vault`                                                                       | Server-side vault token lookup succeeds in this context; not proof of access to every secret path.                                                                    |
+| `auth:vscode`                                                                      | code CLI finds the local Remote-SSH extension. Other profiles/Cursor/GUI PATH/agents can differ.                                                                      |
+| `t3:settings`                                                                      | Connect explicitly enabled and not revoked in t3 status --json; settings are not connectivity.                                                                        |
+| `t3:api`                                                                           | Read-only t3 environment list --json succeeds against the local API; no pairing/token minting.                                                                        |
+| `t3:end-to-end`, `vscode:forwarding`                                               | SKIP: actual relay/peer authorization and VS Code tunnel/server installation require operator testing.                                                                |
 
 An SSH shell is not proof that VS Code or T3 Connect works. Diagnostics check
 **directed manager → node** connectivity, not all pairs. Run from each intended
@@ -147,7 +148,7 @@ need normal repository validation. A green install is not a healthy fleet.
 5. Authenticate separately: GitHub, Git SSH, Vault, coding providers and T3 pairing
    are distinct sessions. Use gh auth login/setup-git, approved vault login and
    operator-driven t3 up --connect as needed. Never put secrets in reports.
-   Workstation/provider configuration remains an explicit `personal workstation sync` operation.
+   Workstation and provider configuration are applied by `devfleet fleet-sync`.
 6. In VS Code's local profile install Remote-SSH, select the same SSH binary,
    alias/config, enable its login terminal temporarily and inspect Output →
    Remote - SSH. Restart after PATH/agent changes. Check disk space, remote
@@ -178,7 +179,7 @@ serially; diagnostics run at most four remote probes concurrently.
   setup can leave partial installs; no rollback is claimed. Trusted checkout
   package lifecycle scripts can execute during installation.
 - No other application repos, credentials, provider settings or cloud resources
-  are synchronized. `personal workstation update`/`personal workstation sync` remain explicit broader convergence.
+  are synchronized. `devfleet fleet-sync` remains the broader convergence.
 - Run doctor again afterward; successful sync does not prove connectivity/auth.
 
 Subprocesses have deadlines and a combined 1 MiB output cap. SSH probes default
@@ -212,9 +213,9 @@ single read-only **cloud platform** report.
 ## Development
 
 ```sh
-bun run --cwd packages/fleet tc
-bun run --cwd packages/fleet lint
-bun run --cwd packages/fleet test
+bun run tc
+bun run lint
+bun test
 ```
 
 Tests inject results/use temporary fixtures; they do not contact nodes, login or
@@ -238,7 +239,7 @@ Explicit `services` requirements retain Railway, Vercel, Cloudflare, AWS and npm
 checks. No raw account/auth output is retained. Version checks keep
 per-tool results, including the expected pinned version when available, and require
 Docker Engine/Compose/Buildx readiness. `workstation` delegates to read-only
-`personal workstation doctor --json --non-interactive`; provider configuration presence is not live
+the checkout's `bootstrap/doctor.ts --json`; provider configuration presence is not live
 authorization. Warnings/skips fail the strict whole-tailnet health coverage gate.
 
 ## Repair planning and shared access
@@ -257,7 +258,7 @@ installation never substitutes for authentication or resource authorization.
 
 The workstation owner reads permitted shared provider keys from each machine's
 existing Vault session. For process-scoped shared secret access, use the existing
-`personal infra-vault run --config dev -- COMMAND` workflow on that machine with its intended
+`vault` session on that machine with its intended
 project/config. Infrastructure, access policy and secret seeding remain owned by
 OpenTofu. No OAuth/session/keychain/SSH credential transfer is implemented.
 
@@ -270,7 +271,7 @@ reviewed configuration; without `--dry-run` it applies. `devfleet fleet-sync
 --revision FULL_SHA` rolls the same reviewed revision out to the enrolled fleet
 after approval. The [setup runbook](../agents/setup.md)
 covers canaries, offline/partial failures, per-node receipts and rollback. Both
-delegate rendering to personal workstation and installation to existing mise/bootstrap.
+delegate installation to mise and `bootstrap/setup.ts`.
 They never reset the developer checkout or transfer credentials. Status delegates
 managed-profile drift evidence to the workstation owner; historical rollout receipts
 alone are not a live readiness assertion.

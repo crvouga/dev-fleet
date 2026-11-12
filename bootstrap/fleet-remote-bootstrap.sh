@@ -41,7 +41,7 @@ remedy() {
     BOOTSTRAP_LOCK_TOOL_REQUIRED) echo 'Install python3 so the operation lock can be taken, then rerun fleet-sync.';;
     SOURCE_CACHE_CHANGED|SOURCE_STATUS_FAILED|SOURCE_CHECKOUT_CONFLICT) echo 'The fleet-owned checkout of this revision holds changes fleet-sync did not make. Inspect and remove that revisions directory, then rerun fleet-sync.';;
     CONFIGURATION_INSTALL_FAILED) echo 'The fleet configuration could not be written under ~/.config/dev-fleet. Check that directory, then rerun fleet-sync.';;
-    TOOLCHAIN_*) echo 'The pinned toolchain did not converge. Rerun fleet-sync; it resumes where it stopped. If it repeats, run devfleet doctor on the worker.';;
+    TOOLCHAIN_*) echo 'The pinned toolchain did not converge. Rerun fleet-sync; it resumes where it stopped. If it repeats, run devfleet fleet-status --node for this worker.';;
     *) echo 'Inspect the remote operation lock and rerun the approved revision. No success receipt advanced.';;
   esac
 }
@@ -211,6 +211,11 @@ ready_file="$root/toolchain-ready"
 # are still checked (and reinstalled on drift) by node convergence.
 toolchain_key=$(git rev-parse HEAD:mise.toml HEAD:mise.lock HEAD:.mise HEAD:bun.lock HEAD:package.json HEAD:bootstrap 2>/dev/null | tr '\n' ' ')
 [ -n "$toolchain_key" ] || toolchain_key=$revision
+# The tool profiles of the fleet configuration choose what is installed, so a
+# changed configuration runs the setup again.
+if [ -f "$HOME/.config/dev-fleet/fleet.json" ]; then
+  toolchain_key="$toolchain_key$(cksum <"$HOME/.config/dev-fleet/fleet.json" | cut -d' ' -f1)"
+fi
 if [ "$(cat "$ready_file" 2>/dev/null)" = "$toolchain_key" ] && [ -n "$(find "$ready_file" -mmin -1440 2>/dev/null)" ]; then
   toolchain_warm=1
 else
@@ -219,7 +224,7 @@ else
 fi
 if command -v timeout >/dev/null 2>&1; then bounded='timeout 1800'; else bounded=''; fi
 # shellcheck disable=SC2086
-if [ -z "$toolchain_warm" ] && ! $bounded bash bootstrap/bootstrap.sh --worker --non-interactive --status-file "$status_file" >/dev/null 2>&1; then
+if [ -z "$toolchain_warm" ] && ! $bounded bash bootstrap/bootstrap.sh --worker --node "$node" --non-interactive --status-file "$status_file" >/dev/null 2>&1; then
   tool_phase=$(sed -n 's/.*"phase":"\([a-z0-9-]*\)".*/\1/p' "$status_file" 2>/dev/null) || tool_phase=''
   case "$tool_phase" in
     managed-config) die TOOLCHAIN_CONFIG_CONFLICT;;
