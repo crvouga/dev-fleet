@@ -327,7 +327,10 @@ A worker whose T3 has not loaded the staged provider policy, or runs an older
 release than the one installed, is restarted only while it runs no agent turn;
 otherwise sync reports the pending restart and the recovery timer applies it
 at the first idle check, failing the check after
-`t3RestartMaxDeferralHours` (`ansible/ubuntu/policy.json`). A pending proxy
+`t3RestartMaxDeferralHours` (`ansible/ubuntu/policy.json`).
+`fleet-sync --restart-busy` passes `t3_restart_busy` to the plays, which then
+restart a busy T3 at once and end its turns; the `--dry-run` plan says, per
+T3 restart, whether running turns end. A pending proxy
 update is installed even when it recreates the gateway. The manager finishes before the workers
 start, so they are verified against the updated proxy. `--dry-run` previews.
 

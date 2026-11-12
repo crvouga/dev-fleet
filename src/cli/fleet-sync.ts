@@ -87,6 +87,10 @@ export interface FleetSyncOptions {
   expectedPlanFingerprint?: string;
   /** Take the manager lease from another manager before it expired. */
   takeOver?: boolean;
+  /** Restart a worker's T3 for a new release or policy even while agent
+   * turns run, which ends them; by default the restart waits for idle.
+   */
+  restartBusy?: boolean;
 }
 export function machineRoot(): string {
   const root = join(homedir(), '.local/share/personal/fleet/manager');
@@ -282,6 +286,7 @@ async function preview(
         .map((node) => node.node)
         .filter((node): node is string => typeof node === 'string'),
       sources: planSources(settings.workspace, context.root),
+      restartBusy: options.restartBusy === true,
     },
     context.run
   );
@@ -441,6 +446,10 @@ function validate(options: FleetSyncOptions): void {
     );
   validateOnly(options);
   validateRollback(options);
+  if (options.restartBusy && (options.only || options.schedule))
+    throw new FleetUsageError(
+      '--restart-busy applies to one full sync: it takes neither --only nor --schedule.'
+    );
   if (options.dryRun && (options.apply || options.yes))
     throw new FleetUsageError(
       '--dry-run cannot be combined with apply confirmation.'

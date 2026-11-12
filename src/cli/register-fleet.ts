@@ -213,6 +213,10 @@ function registerSync({ program, defaults, complete }: Registration) {
       'Opt-in: log a worker without a token of its own in with the shared Vault user, on its own terminal'
     )
     .option(
+      '--restart-busy',
+      'Restart a worker T3 for a new release or policy even while agent turns run, which ends them; by default the restart waits until T3 is idle'
+    )
+    .option(
       '--canary <id>',
       'The worker that proves a new revision first when it is reachable; defaults to canary in fleet.json, then the first worker'
     )
