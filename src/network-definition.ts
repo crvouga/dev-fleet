@@ -8,7 +8,7 @@ export interface NetworkHost {
   sshPort: number;
   user: string;
   identityFile: string;
-  os: 'linux' | 'macOS' | 'windows';
+  os: 'linux';
   t3Port: number;
 }
 export function networkProjection(

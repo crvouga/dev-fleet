@@ -153,35 +153,35 @@ npx devfleet fleet-state --example > fleet.json
 Then replace every placeholder. Each field, from
 [`schema/fleet.schema.json`](../schema/fleet.schema.json):
 
-| Field                                                 | Value                                                                                                              |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `version`                                             | `3`                                                                                                                |
-| `source.repository`                                   | `https://github.com/crvouga/dev-fleet.git`, or your fork if you publish one. Machines only accept code from it.    |
-| `state`                                               | `{ "bucket", "endpoint"?, "region"?, "prefix"? }` or `{ "directory": "/absolute/path" }`. Never credentials.       |
-| `secrets`                                             | See [secrets](#secrets).                                                                                           |
-| `manager.id`                                          | A short lowercase id, `^[a-z][a-z0-9-]{0,62}$`, e.g. `manager-mac`.                                                |
-| `manager.os`                                          | `"macOS"`                                                                                                          |
-| `manager.network.tailscaleName`                       | The manager's MagicDNS name: `tailscale status --json` → `.Self.DNSName` without the trailing dot.                 |
-| `manager.network.user`                                | The manager's login name (`id -un`).                                                                               |
-| `manager.neverSleepOnPower`                           | `true` (workers depend on the manager's services).                                                                 |
-| `workers[].id`                                        | A short lowercase id. The **first** worker is the canary: a new revision must pass there before the others get it. |
-| `workers[].ssh`                                       | The worker's alias in the manager's `~/.ssh/config`.                                                               |
-| `workers[].os`                                        | `"linux"`                                                                                                          |
-| `workers[].network.tailscaleName`                     | The worker's MagicDNS name (from `tailscale status --json` → `.Peer[].DNSName` on the manager).                    |
-| `workers[].network.sshPort`                           | `22` unless the worker's sshd listens elsewhere.                                                                   |
-| `workers[].network.user`                              | The worker account (`ssh WORKER_ALIAS id -un`).                                                                    |
-| `workers[].network.t3Port`                            | `3773`                                                                                                             |
-| `services.proxy.endpoint`                             | The public HTTPS origin of the CLI proxy, e.g. `https://cli-proxy.example.com`.                                    |
-| `services.monitoring.hubPort`                         | `8443`                                                                                                             |
-| `services.monitoring.publicUrl`                       | The public HTTPS origin of the monitoring dashboard.                                                               |
-| `services.monitoring.managerAccount`                  | The email of the monitoring account the manager enrolls machines with.                                             |
-| `services.monitoring.viewerAccount`                   | The email of the read-only account visitors are signed in as.                                                      |
-| `ubuntu`                                              | `{ "release": "26.04", "architectures": ["amd64", "arm64"] }` (fixed).                                             |
-| `worker.requiredCapabilities`                         | Normally all of `github`, `vault`, `t3`, `toolchain`, `workstation`, `worker`.                                     |
-| `worker.githubLogin`                                  | The GitHub login every worker must be signed in as.                                                                |
-| `worker.vaultUser`                                    | The Vault user each worker's token is issued for.                                                                  |
-| `worker.toolchain`, `agentProfile`                    | `"mise.lock"`, `"proxy"` (fixed).                                                                                  |
-| `worker.unattendedSudo`, `persistentT3`, `neverSleep` | `true` (fixed policy).                                                                                             |
+| Field                                                 | Value                                                                                                                |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `version`                                             | `3`                                                                                                                  |
+| `source.repository`                                   | `https://github.com/crvouga/dev-fleet.git`, or your fork if you publish one. Machines only accept code from it.      |
+| `state`                                               | `{ "bucket", "endpoint"?, "region"?, "prefix"? }` or `{ "directory": "/absolute/path" }`. Never credentials.         |
+| `secrets`                                             | See [secrets](#secrets).                                                                                             |
+| `manager.id`                                          | A short lowercase id, `^[a-z][a-z0-9-]{0,62}$`, e.g. `manager-mac`.                                                  |
+| `manager.os`                                          | `"macOS"`                                                                                                            |
+| `manager.network.tailscaleName`                       | The manager's MagicDNS name: `tailscale status --json` → `.Self.DNSName` without the trailing dot.                   |
+| `manager.network.user`                                | The manager's login name (`id -un`).                                                                                 |
+| `manager.neverSleepOnPower`                           | `true` (workers depend on the manager's services).                                                                   |
+| `workers[].id`                                        | A short lowercase id. The **first** worker is the canary: a new revision must pass there before the others get it.   |
+| `workers[].ssh`                                       | The worker's alias in the manager's `~/.ssh/config`.                                                                 |
+| `workers[].os`                                        | `"linux"`                                                                                                            |
+| `workers[].network.tailscaleName`                     | The worker's MagicDNS name (from `tailscale status --json` → `.Peer[].DNSName` on the manager).                      |
+| `workers[].network.sshPort`                           | `22` unless the worker's sshd listens elsewhere.                                                                     |
+| `workers[].network.user`                              | The worker account (`ssh WORKER_ALIAS id -un`).                                                                      |
+| `workers[].network.t3Port`                            | `3773`                                                                                                               |
+| `services.proxy.endpoint`                             | The public HTTPS origin of the CLI proxy, e.g. `https://cli-proxy.example.com`.                                      |
+| `services.monitoring.hubPort`                         | `8443`                                                                                                               |
+| `services.monitoring.publicUrl`                       | The public HTTPS origin of the monitoring dashboard.                                                                 |
+| `services.monitoring.managerAccount`                  | The email of the monitoring account the manager enrolls machines with.                                               |
+| `services.monitoring.viewerAccount`                   | The email of the read-only account visitors are signed in as.                                                        |
+| `ubuntu`                                              | `{ "release": "26.04", "architectures": ["amd64", "arm64"] }`: a release of the [support matrix](support-matrix.md). |
+| `worker.requiredCapabilities`                         | Normally all of `github`, `vault`, `t3`, `toolchain`, `workstation`, `worker`.                                       |
+| `worker.githubLogin`                                  | The GitHub login every worker must be signed in as.                                                                  |
+| `worker.vaultUser`                                    | The Vault user each worker's token is issued for.                                                                    |
+| `worker.toolchain`, `agentProfile`                    | `"mise.lock"`, `"proxy"` (fixed).                                                                                    |
+| `worker.unattendedSudo`, `persistentT3`, `neverSleep` | `true` (fixed policy).                                                                                               |
 
 Use the same values in every place they repeat. Validate before going on:
 
@@ -352,7 +352,9 @@ Read `summary` and `remedy.action` of the failing check. The common ones:
 | `TAILSCALE_NODE_OFFLINE`                  | The worker is off or off the tailnet. It is listed and skipped; others continue.                                              |
 | `TAILSCALE_DEVICE_REPLACED`               | The tailnet device behind a worker changed. Nothing is written to it until the human confirms the replacement.                |
 | `SUDO_AUTHORIZATION_REQUIRED`             | The worker account cannot use sudo without a password. Run the first sync interactively.                                      |
-| `UBUNTU_BASELINE_MISMATCH`                | The worker is not Ubuntu 26.04.                                                                                               |
+| `UBUNTU_BASELINE_MISMATCH`                | The worker is not an Ubuntu release the [support matrix](support-matrix.md) lists.                                            |
+| `WORKER_ENVIRONMENT_UNSUPPORTED`          | The worker is WSL2 or a container. Use a physical or virtual machine of its own.                                              |
+| `PACKAGE_NEWER_THAN_PIN` (warning)        | Ubuntu's security updates moved a pinned package past its pin. It is kept; the pin is a minimum.                              |
 | `ROOT_DEVELOPMENT_USER_REJECTED`          | The worker's SSH user is root. Use a normal account with sudo.                                                                |
 | `BOOTSTRAP_DISK_CAPACITY_REQUIRED`        | Less than 2 GiB free (or too few inodes) where the fleet keeps its files on the worker.                                       |
 | `FLEET_REMOTE_LOCKED`                     | Another operation is running on that worker. Wait and run again.                                                              |

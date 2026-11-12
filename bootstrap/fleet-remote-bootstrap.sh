@@ -2,14 +2,17 @@
 # Executed over strict SSH from the selected verified Git revision. stdin is
 # one line holding the base64 fleet configuration (empty when there is none),
 # then the base64 Git bundle (nothing in cached mode). All executable content
-# remains in this tracked source.
+# remains in this tracked source. The Ubuntu releases workers may run are
+# named once, in ansible/ubuntu/policy.json; the manager passes them in.
 set -eu
 umask 077
 revision=$1
 bundle_sha=$2
 node=$3
 source_mode=${4:-transfer}
+releases=${5:-}
 case "$source_mode" in cached|transfer) ;; *) exit 2;; esac
+case "$releases" in *[!0-9.\ ]*|'') exit 2;; esac
 case "$revision" in *[!a-f0-9]*|'') exit 2;; esac
 [ "${#revision}" = 40 ] || exit 2
 case "$bundle_sha" in *[!a-f0-9]*|'') exit 2;; esac
@@ -26,7 +29,8 @@ remedy() {
   case "$1" in
     FLEET_REMOTE_LOCKED) echo 'Another fleet operation holds this machine. Wait for it to finish; rerun fleet-sync afterwards. Never remove the lock while its holder runs.';;
     ROOT_DEVELOPMENT_USER_REJECTED) echo 'Connect as the non-root developer account the fleet configuration names.';;
-    UBUNTU_BASELINE_MISMATCH|UBUNTU_ARCHITECTURE_UNSUPPORTED|MACOS_BASELINE_MISMATCH|MACOS_ARCHITECTURE_UNSUPPORTED|PLATFORM_UNSUPPORTED) echo 'Workers run Ubuntu 26.04 on x86_64 or aarch64. Reinstall the machine; fleet-sync never upgrades an operating system.';;
+    UBUNTU_BASELINE_MISMATCH|UBUNTU_ARCHITECTURE_UNSUPPORTED|PLATFORM_UNSUPPORTED) echo 'Workers run an Ubuntu release docs/support-matrix.md lists, on x86_64 or aarch64. Reinstall the machine; fleet-sync never upgrades an operating system.';;
+    WORKER_ENVIRONMENT_UNSUPPORTED) echo 'WSL2 is not a worker. Run the worker on a physical or virtual machine of its own (docs/support-matrix.md).';;
     FLEET_STATE_PATH_UNSAFE) echo 'A fleet state directory under ~/.local/share/personal is a symbolic link. Replace it with a real directory.';;
     BOOTSTRAP_CAPACITY_UNVERIFIED|BOOTSTRAP_DISK_CAPACITY_REQUIRED) echo 'Free at least 2 GiB and 50000 inodes on the home file system, then rerun fleet-sync.';;
     SOURCE_DIGEST_MISMATCH) echo 'The bundle changed in transit. Rerun fleet-sync; if it repeats, check the SSH route.';;
@@ -37,8 +41,6 @@ remedy() {
     APT_DISK_FULL) echo 'Package installation ran out of disk space. Free space under /var and /usr, then rerun fleet-sync.';;
     DPKG_INTERRUPTED) echo 'An earlier package installation that fleet-sync did not start was interrupted. Run sudo dpkg --configure -a once no package process is running, then rerun fleet-sync.';;
     APT_UPDATE_FAILED|APT_INSTALL_FAILED) echo 'Run sudo apt-get update and install the bootstrap packages by hand to see the error, then rerun fleet-sync.';;
-    XCODE_COMMAND_LINE_TOOLS_REQUIRED) echo 'Install the Xcode Command Line Tools (xcode-select --install), then rerun fleet-sync.';;
-    BOOTSTRAP_LOCK_TOOL_REQUIRED) echo 'Install python3 so the operation lock can be taken, then rerun fleet-sync.';;
     SOURCE_CACHE_CHANGED|SOURCE_STATUS_FAILED|SOURCE_CHECKOUT_CONFLICT) echo 'The fleet-owned checkout of this revision holds changes fleet-sync did not make. Inspect and remove that revisions directory, then rerun fleet-sync.';;
     CONFIGURATION_INSTALL_FAILED) echo 'The fleet configuration could not be written under ~/.config/dev-fleet. Check that directory, then rerun fleet-sync.';;
     TOOLCHAIN_*) echo 'The pinned toolchain did not converge. Rerun fleet-sync; it resumes where it stopped. If it repeats, run devfleet fleet-status --node for this worker.';;
@@ -64,22 +66,14 @@ trap '' HUP
 trap 'exit 1' INT TERM
 # No shell startup assumptions, and no implicit root development user.
 [ "$(id -u)" != 0 ] || die ROOT_DEVELOPMENT_USER_REJECTED
-# Ubuntu 26.04 is the accepted worker platform; macOS 14+ follows the same
-# phases best effort with launchd instead of systemd.
-platform=$(uname -s)
-case "$platform" in
-  Linux)
-    # shellcheck source=/dev/null
-    . /etc/os-release
-    [ "$ID" = ubuntu ] && [ "$VERSION_ID" = 26.04 ] || die UBUNTU_BASELINE_MISMATCH
-    case "$(uname -m)" in x86_64|aarch64) ;; *) die UBUNTU_ARCHITECTURE_UNSUPPORTED;; esac ;;
-  Darwin)
-    major=$(sw_vers -productVersion | cut -d. -f1)
-    case "$major" in ''|*[!0-9]*) die MACOS_BASELINE_MISMATCH;; esac
-    [ "$major" -ge 14 ] || die MACOS_BASELINE_MISMATCH
-    case "$(uname -m)" in arm64|x86_64) ;; *) die MACOS_ARCHITECTURE_UNSUPPORTED;; esac ;;
-  *) die PLATFORM_UNSUPPORTED;;
-esac
+# Workers are the Ubuntu releases the policy accepts (docs/support-matrix.md).
+[ "$(uname -s)" = Linux ] || die PLATFORM_UNSUPPORTED
+# shellcheck source=/dev/null
+. /etc/os-release
+[ "$ID" = ubuntu ] || die UBUNTU_BASELINE_MISMATCH
+case " $releases " in *" $VERSION_ID "*) ;; *) die UBUNTU_BASELINE_MISMATCH;; esac
+case "$(uname -m)" in x86_64|aarch64) ;; *) die UBUNTU_ARCHITECTURE_UNSUPPORTED;; esac
+! grep -qiE 'microsoft|wsl' /proc/sys/kernel/osrelease 2>/dev/null || die WORKER_ENVIRONMENT_UNSUPPORTED
 root="$HOME/.local/share/personal/fleet"
 # Refuse symlinked state roots rather than allowing writes through them.
 for path in "$HOME/.local" "$HOME/.local/share" "$HOME/.local/share/personal" "$root"; do
@@ -89,14 +83,8 @@ mkdir -p "$root"
 phase=lock
 [ ! -L "$root/remote-operation.lock" ] || exit 1
 exec 9>"$root/remote-operation.lock"
-# macOS has no flock(1); lock the same descriptor through fcntl. The lock
-# follows this shell's open descriptor and is released when it exits.
-if command -v flock >/dev/null 2>&1; then
-  flock -n 9 || die FLEET_REMOTE_LOCKED
-else
-  command -v python3 >/dev/null 2>&1 || die BOOTSTRAP_LOCK_TOOL_REQUIRED
-  python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 9>&9 || die FLEET_REMOTE_LOCKED
-fi
+# The lock follows this shell's open descriptor and is released when it exits.
+flock -n 9 || die FLEET_REMOTE_LOCKED
 # The operation record: a manager that lost its session reads it to follow
 # this operation to its end instead of starting another (see
 # src/remote-operation.ts). The result of the last operation is beside it.
@@ -132,14 +120,9 @@ if [ "$source_mode" = transfer ]; then
 bundle=$(mktemp "$root/source.XXXXXX")
 # Leave no executable payload copies; this temporary file is only Git data.
 base64 -d >"$bundle"
-if command -v sha256sum >/dev/null 2>&1; then
-  printf '%s  %s\n' "$bundle_sha" "$bundle" | sha256sum -c - >/dev/null 2>&1 || die SOURCE_DIGEST_MISMATCH
-else
-  [ "$(shasum -a 256 "$bundle" | cut -d' ' -f1)" = "$bundle_sha" ] || die SOURCE_DIGEST_MISMATCH
-fi
+printf '%s  %s\n' "$bundle_sha" "$bundle" | sha256sum -c - >/dev/null 2>&1 || die SOURCE_DIGEST_MISMATCH
 fi
 phase=prerequisites
-if [ "$platform" = Linux ]; then
 missing=''
 for package in git curl ca-certificates unzip xz-utils build-essential python3 ansible-core; do
   dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed || missing="$missing $package"
@@ -170,12 +153,6 @@ if [ -n "$missing" ]; then
   sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >>"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
   rm -f -- "$pending" "$apt_log"
   apt_log=''
-fi
-else
-  # Apple Command Line Tools provide git and python3; Ansible runs through the
-  # pinned uv tool runner installed by the shared mise toolchain below.
-  xcode-select -p >/dev/null 2>&1 || die XCODE_COMMAND_LINE_TOOLS_REQUIRED
-  command -v git >/dev/null 2>&1 || die XCODE_COMMAND_LINE_TOOLS_REQUIRED
 fi
 phase=source-verification
 deployment="$root/revisions/$revision"
@@ -235,7 +212,7 @@ else
   toolchain_warm=''
   rm -f -- "$status_file" "$ready_file"
 fi
-if command -v timeout >/dev/null 2>&1; then bounded='timeout 1800'; else bounded=''; fi
+bounded='timeout 1800'
 # shellcheck disable=SC2086
 if [ -z "$toolchain_warm" ] && ! $bounded bash bootstrap/bootstrap.sh --worker --node "$node" --non-interactive --status-file "$status_file" >/dev/null 2>&1; then
   tool_phase=$(sed -n 's/.*"phase":"\([a-z0-9-]*\)".*/\1/p' "$status_file" 2>/dev/null) || tool_phase=''

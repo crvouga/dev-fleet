@@ -1,18 +1,23 @@
 import { expect } from 'bun:test';
-import type { MachineDefinition } from '../../../src/definition';
+import { spawnSync } from 'node:child_process';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
+import example from '../../../examples/fleet.json';
+import { parseDefinition } from '../../../src/definition';
 import {
-  convergeable,
+  evaluateEnvironment,
   evaluatePlatform,
-  type MachinePlatform,
+  platformProbe,
 } from '../../../src/machine/platform';
+import type { DataTable } from '../../support/gherkin';
 import {
   detectPlatformName,
   getPlatform,
   type PlatformName,
 } from '../../../src/platform';
-import { machines } from './world';
+import { machines, temporary } from './world';
 
-const { When, Then } = machines;
+const { Given, When, Then } = machines;
 
 // ── Adapters ─────────────────────────────────────────────────────────────
 
@@ -62,22 +67,27 @@ Then(
 // ── Which machines are converged ─────────────────────────────────────────
 
 When(
-  'a machine declared as {string} answers the probe with {string}, {string} and {string}',
-  (world, declared: string, family: string, release: string, cpu: string) => {
-    world.baseline = evaluatePlatform(
-      declared as MachinePlatform,
-      `${family}\n${release}\n${cpu}\n`
-    );
+  'a worker answers the probe with {string}, {string}, {string} and {string}',
+  (
+    world,
+    family: string,
+    release: string,
+    cpu: string,
+    environment: string
+  ) => {
+    const probe = `${family}\n${release}\n${cpu}\n${environment}\n`;
+    world.baseline = evaluatePlatform(probe);
+    world.environment = evaluateEnvironment(probe);
   }
 );
 
 Then(
-  /^the "([^"]+)" check says the machine is (supported|not supported)$/,
+  /^the "([^"]+)" check says the worker is (supported|not supported)$/,
   (world, id: string, verdict: string) => {
-    expect(world.baseline).toMatchObject({
-      id,
-      supported: verdict === 'supported',
-    });
+    const evaluated = [world.baseline, world.environment].find(
+      (entry) => entry?.id === id
+    );
+    expect(evaluated).toMatchObject({ id, supported: verdict === 'supported' });
   }
 );
 
@@ -85,10 +95,54 @@ Then('the baseline is summarised as {string}', (world, summary: string) => {
   expect(world.baseline?.summary).toBe(summary);
 });
 
+Then('the environment is summarised as {string}', (world, summary: string) => {
+  expect(world.environment?.summary).toBe(summary);
+});
+
+Given(
+  'a root whose kernel release reads {string} and that holds the files:',
+  async (world, kernel: string, table: DataTable) => {
+    const root = await temporary(world, 'probe-root-');
+    await mkdir(join(root, 'proc/sys/kernel'), { recursive: true });
+    await writeFile(join(root, 'proc/sys/kernel/osrelease'), `${kernel}\n`);
+    for (const path of table.list().filter(Boolean)) {
+      await mkdir(dirname(join(root, path)), { recursive: true });
+      await writeFile(join(root, path), '');
+    }
+    // The host's own systemd-detect-virt must not answer for the stand-in.
+    await mkdir(join(root, 'bin'));
+    await writeFile(
+      join(root, 'bin/systemd-detect-virt'),
+      '#!/bin/sh\nexit 1\n',
+      {
+        mode: 0o755,
+      }
+    );
+    world.probeRoot = root;
+  }
+);
+
+When('the probe runs there', (world) => {
+  const root = world.probeRoot!;
+  const result = spawnSync('/bin/sh', ['-c', platformProbe(root)], {
+    env: { ...process.env, PATH: `${root}/bin:${process.env['PATH'] ?? ''}` },
+    encoding: 'utf8',
+  });
+  world.probeOutput = result.stdout;
+});
+
+Then('it prints the environment {string}', (world, environment: string) => {
+  expect(world.probeOutput?.split('\n')[3]).toBe(environment);
+});
+
 Then(
-  /^a machine declared as "([^"]+)" is (converged|not converged)$/,
-  (_world, declared: string, verdict: string) => {
-    const machine = { id: 'a', ssh: 'a', os: declared } as MachineDefinition;
-    expect(convergeable(machine)).toBe(verdict === 'converged');
+  'the fleet configuration refuses a worker declared as {string}',
+  (_world, os: string) => {
+    expect(() =>
+      parseDefinition({
+        ...example,
+        workers: [{ id: 'worker-a', ssh: 'worker-a', os }],
+      })
+    ).toThrow('Invalid Fleet definition');
   }
 );

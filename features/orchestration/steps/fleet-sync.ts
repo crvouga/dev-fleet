@@ -36,11 +36,19 @@ Given('the approved revision is {string}', (world, revision: string) => {
 });
 
 Given(
-  'every worker answers a fresh SSH session as {string} {string} on {string}',
-  (world, distribution: string, release: string, architecture: string) => {
+  'every worker answers a fresh SSH session as {string} {string} on {string}, running on a {string}',
+  (
+    world,
+    distribution: string,
+    release: string,
+    architecture: string,
+    environment: string
+  ) => {
     world.commands.answer(
       isSession,
-      succeeded(`${distribution}\n${release}\n${architecture}\n`)
+      succeeded(
+        `${distribution}\n${release}\n${architecture}\n${environment}\n`
+      )
     );
   }
 );

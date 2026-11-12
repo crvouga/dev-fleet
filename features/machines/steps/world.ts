@@ -51,6 +51,10 @@ export class MachinesWorld extends CommandWorld {
   audit: UbuntuAudit | undefined;
   adapter: Platform | undefined;
   baseline: PlatformBaseline | undefined;
+  environment: PlatformBaseline | undefined;
+  probeRoot: string | undefined;
+  probeOutput: string | undefined;
+  pins: Record<string, string> | undefined;
 
   // The manager: its earlier enrollment, its lock and a local checkout.
   enrollment: Enrollment | null | undefined;

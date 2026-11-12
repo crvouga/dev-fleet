@@ -3,14 +3,11 @@
 # SSH terminal so sudo reads the operator's password itself; never capture it.
 set -eu
 umask 077
-case "$(uname -s)" in
-  Linux)
-    . /etc/os-release
-    [ "$ID" = ubuntu ] && [ "$VERSION_ID" = 26.04 ] || exit 1 ;;
-  Darwin)
-    [ "$(sw_vers -productVersion | cut -d. -f1)" -ge 14 ] || exit 1 ;;
-  *) exit 1 ;;
-esac
+# Workers are Ubuntu. Which releases is checked by the bootstrap that
+# follows, against ansible/ubuntu/policy.json; this only grants sudo.
+[ "$(uname -s)" = Linux ] || exit 1
+. /etc/os-release
+[ "$ID" = ubuntu ] || exit 1
 user=$(id -un)
 case "$user" in root|''|*[!a-z0-9_-]*) exit 1;; esac
 command -v sudo >/dev/null 2>&1 || exit 1
@@ -23,11 +20,7 @@ mkdir -p "$root"
 chmod 700 "$root"
 [ ! -L "$root/remote-operation.lock" ] || exit 1
 exec 9>"$root/remote-operation.lock"
-if command -v flock >/dev/null 2>&1; then
-  flock -n 9 || exit 1
-else
-  python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 9>&9 || exit 1
-fi
+flock -n 9 || exit 1
 sudo -v
 file=$(mktemp)
 trap 'rm -f "$file"' EXIT
@@ -45,7 +38,5 @@ if sudo -n test -e "$target"; then
   }
   sudo -n cp -p -- "$target" "$target.before-fleet-enrollment"
 fi
-group=root
-[ "$(uname -s)" != Darwin ] || group=wheel
-sudo -n install -o root -g "$group" -m 0440 -- "$file" "$target"
+sudo -n install -o root -g root -m 0440 -- "$file" "$target"
 sudo -n true

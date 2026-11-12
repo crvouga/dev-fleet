@@ -21,7 +21,7 @@ Feature: fleet-sync converges every worker on one approved revision
       | second       | second     | second.example.ts.net     | 100.64.0.1 | yes    | no           |
       | unapproved   | unapproved | unapproved.example.ts.net | 100.64.0.1 | yes    | no           |
     And every SSH alias resolves to its own name in the tailnet "example.ts.net"
-    And every worker answers a fresh SSH session as "ubuntu" "26.04" on "x86_64"
+    And every worker answers a fresh SSH session as "ubuntu" "26.04" on "x86_64", running on a "machine"
     And the approved revision is "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
   Scenario: One run deploys one revision, and never to a computer the fleet does not name
@@ -51,6 +51,21 @@ Feature: fleet-sync converges every worker on one approved revision
       | second |
     And the report shows "second" as "offline"
     And the fleet is not ready
+
+  Scenario Outline: A worker that answers from <environment> is reported and never deployed
+    Given every worker answers a fresh SSH session as "ubuntu" "26.04" on "x86_64", running on a "<environment>"
+    And deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision
+    Then the revision was deployed to no worker
+    And every worker has a check that says "WORKER_ENVIRONMENT_UNSUPPORTED: <named>"
+    And the fleet is not ready
+
+    Examples:
+      | environment | named     |
+      | wsl         | WSL2      |
+      | container   | container |
 
   Scenario: A failed canary stops promotion, and the workers after it are still inspected
     What a failed deployment threw may hold anything, so it is never reported.

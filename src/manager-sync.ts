@@ -16,10 +16,9 @@ import { sshArgs, sshFailure } from './ssh';
 import type { FleetDefinition, MachineDefinition } from './definition';
 import { publicHubUrl } from './monitoring/beszel';
 import {
-  convergeable,
+  evaluateEnvironment,
   evaluatePlatform,
   PLATFORM_PROBE,
-  type MachinePlatform,
 } from './machine/platform';
 
 export interface ManagerNode extends NodeReport {
@@ -51,14 +50,14 @@ export type DeployNode = (
 /** Minimal read-only POSIX inspection requires no workspace, Node, Bun or Git. */
 export async function inspectBootstrap(
   node: FleetNode,
-  run: Runner,
-  os: MachinePlatform = 'linux'
+  run: Runner
 ): Promise<Check[]> {
   const result = await run([...sshArgs(node), PLATFORM_PROBE], {
     timeoutMs: 20_000,
   });
   if (!result.ok) return [sshFailure(result)];
-  const baseline = evaluatePlatform(os, result.stdout);
+  const baseline = evaluatePlatform(result.stdout);
+  const environment = evaluateEnvironment(result.stdout);
   return [
     {
       id: 'ssh:fresh-session',
@@ -73,6 +72,15 @@ export async function inspectBootstrap(
       remedy: {
         action:
           'Review the release/architecture migration in source. No operating-system upgrade or downgrade is performed.',
+      },
+    },
+    {
+      id: environment.id,
+      status: environment.supported ? 'pass' : 'fail',
+      summary: environment.summary,
+      remedy: {
+        action:
+          'Run the worker on a physical or virtual machine of its own; docs/support-matrix.md lists what is supported.',
       },
     },
   ];
@@ -124,7 +132,7 @@ export async function synchronizeManager(
   // worker is then verified against.
   if (managerRun) await managerRun;
   const workers = await Promise.all(
-    input.definition.workers.filter(convergeable).map((machine) => {
+    input.definition.workers.map((machine) => {
       input.progress?.(
         machine.id,
         'Inspecting enrolled identity and fresh SSH access'
@@ -329,7 +337,7 @@ async function inspectManagerNode(
       },
     });
   else {
-    checks.push(...(await inspectBootstrap(node, run, machine.os)));
+    checks.push(...(await inspectBootstrap(node, run)));
     checks.push(...identityChecks(node, peer));
     if (peer) checks.push(keyExpiryCheck(peer));
   }

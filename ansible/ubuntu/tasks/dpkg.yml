@@ -1,0 +1,46 @@
+---
+# A package database left inconsistent by an interrupted run is repaired
+# before any package task runs, or stops the play with APT_STATE_BROKEN.
+- name: Wait for legitimate package transactions before inspecting dpkg
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - '-c'
+      - |
+        import fcntl
+        files = [open(path, 'a') for path in ['/var/lib/dpkg/lock-frontend', '/var/lib/dpkg/lock']]
+        for handle in files:
+            fcntl.lockf(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+  register: apt_idle
+  changed_when: false
+  retries: 24
+  delay: 5
+  until: apt_idle.rc == 0
+- name: Inspect package database consistency
+  ansible.builtin.command: dpkg --audit
+  changed_when: false
+  register: dpkg_audit
+# Power lost during a package run leaves dpkg half-configured. Finishing
+# that run is the standard safe repair: it is tried once, bounded, after
+# the lock wait above, and only a database still inconsistent afterwards
+# needs a person.
+- name: Repair an interrupted package run once
+  when: dpkg_audit.stdout | trim != ''
+  block:
+    - name: Finish configuring every unpacked package, bounded
+      ansible.builtin.command:
+        argv: [timeout, '600', dpkg, --configure, -a]
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+    - name: Inspect package database consistency after the repair
+      ansible.builtin.command: dpkg --audit
+      changed_when: false
+      register: dpkg_reaudit
+  rescue:
+    - name: Report a package run the repair could not finish
+      ansible.builtin.fail:
+        msg: APT_STATE_BROKEN; dpkg --configure -a did not finish. Inspect dpkg --audit and use reviewed package recovery. Never remove package lock files.
+- name: Require a consistent package database before modifying packages
+  ansible.builtin.assert:
+    that: (dpkg_reaudit.stdout | default(dpkg_audit.stdout)) | trim == ''
+    fail_msg: APT_STATE_BROKEN; dpkg --configure -a did not clear dpkg --audit. Inspect it and use reviewed package recovery. Never remove package lock files.

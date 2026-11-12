@@ -20,7 +20,6 @@ Feature: What a machine becomes is declared, once
       And only these packages are installed without an exact version:
         | playbook                           | package                    |
         | ansible/ubuntu/t3-desktop.yml      | {{ t3_desktop_libraries }} |
-        | ansible/ubuntu/tasks/resources.yml | systemd-oomd               |
 
     Scenario: A download a playbook makes is checked against a pinned digest
       When every task of every playbook is read
@@ -85,14 +84,39 @@ Feature: What a machine becomes is declared, once
       When the packages "bootstrap/fleet-remote-bootstrap.sh" installs are read
       Then each is a package the Ubuntu policy pins
 
-    Scenario Outline: <script> names the releases the policy names
-      Then "<script>" requires the Ubuntu release of the Ubuntu policy
-      And "<script>" requires the minimum macOS version of the macOS policy
+    Scenario: An Ubuntu release and its codename are named only by the Ubuntu policy
+      Adding a release is a change to ansible/ubuntu/policy.json and its
+      package pins. The scripts, playbooks, sources and schema take the
+      releases from it; the test images are pinned where they are built.
+      When the files under these directories are searched for a release or codename the Ubuntu policy accepts:
+        | src       |
+        | bootstrap |
+        | ansible   |
+        | schema    |
+      Then only these files name one:
+        | ansible/ubuntu/policy.json      |
+        | ansible/ubuntu/tests/Dockerfile |
+        | ansible/ubuntu/tests/README.md  |
+        | ansible/ubuntu/tests/vm.py      |
+
+    Scenario Outline: A stray <what> is caught
+      When this text is searched for a release or codename the Ubuntu policy accepts:
+        """
+        <text>
+        """
+      Then it names one
 
       Examples:
-        | script                              |
-        | bootstrap/fleet-remote-bootstrap.sh |
-        | ansible/ubuntu/authorize-sudo.sh    |
+        | what     | text                                       |
+        | release  | [ "$VERSION_ID" = 26.04 ] && echo accepted |
+        | codename | Suites: resolute resolute-updates          |
+
+    Scenario: A package version that contains a release number is not a release
+      When this text is searched for a release or codename the Ubuntu policy accepts:
+        """
+        "build-essential": "12.12ubuntu2.26.04.2"
+        """
+      Then it names none
 
     Scenario: No policy value is declared without something that applies or measures it
       When every key of the macOS and Ubuntu policies is looked up in the playbooks, the sources and these features

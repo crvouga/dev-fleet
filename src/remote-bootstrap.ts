@@ -23,6 +23,7 @@ import {
 import { record } from './config';
 import { installedDefinition, type FleetDefinition } from './definition';
 import { cleanCheck, validCheck } from './protocol';
+import { UBUNTU_RELEASES } from './platform/ubuntu-release';
 
 export interface BootstrapPayload {
   revision: string;
@@ -127,6 +128,7 @@ export async function bootstrapRemote(
     payload.digest,
     node.id,
     transfer.mode,
+    UBUNTU_RELEASES.map((entry) => entry.release).join(' '),
   ]
     .map(shellQuote)
     .join(' ');

@@ -253,13 +253,17 @@
       "required": ["release", "architectures"],
       "properties": {
         "release": {
-          "const": "26.04"
+          "type": "string",
+          "pattern": "^[0-9]{2}\\.[0-9]{2}$",
+          "description": "An Ubuntu release ansible/ubuntu/policy.json accepts (docs/support-matrix.md)."
         },
         "architectures": {
-          "const": ["amd64", "arm64"]
+          "type": "array",
+          "items": { "enum": ["amd64", "arm64"] },
+          "description": "Exactly the architectures the policy names for that release."
         }
       },
-      "description": "The supported worker release and architectures (fixed)."
+      "description": "The worker release and its architectures, as the Ubuntu policy of the pinned dev-fleet names them."
     },
     "worker": {
       "type": "object",

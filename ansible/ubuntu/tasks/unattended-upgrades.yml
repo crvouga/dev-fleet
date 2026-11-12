@@ -1,0 +1,24 @@
+---
+# Ubuntu installs security updates by itself, and they keep flowing: a pin is
+# a minimum, never a hold. What runs unattended is declared here so it is
+# known: security updates only, never a reboot, never a removal. The fleet's
+# own file sorts after the package's 50unattended-upgrades and replaces its
+# origins.
+- name: Declare which updates Ubuntu installs unattended
+  ansible.builtin.copy:
+    dest: /etc/apt/apt.conf.d/52personal-fleet-unattended-upgrades
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      // Managed by personal Fleet: unattended upgrades
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      #clear Unattended-Upgrade::Allowed-Origins;
+      #clear Unattended-Upgrade::Origins-Pattern;
+      Unattended-Upgrade::Allowed-Origins {
+        "${distro_id}:${distro_codename}-security";
+      };
+      Unattended-Upgrade::Automatic-Reboot "false";
+      Unattended-Upgrade::Remove-Unused-Dependencies "false";
+      Unattended-Upgrade::Remove-New-Unused-Dependencies "false";

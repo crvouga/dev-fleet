@@ -12,7 +12,8 @@ devfleet fleet-status --workers
 ```
 
 The manager needs Node/npm, Git, SSH, Tailscale, and its own authorized T3 link.
-Initially each Ubuntu 26.04 worker (or best-effort macOS 14+ node) needs a
+Initially each worker (an Ubuntu release the [support matrix](support-matrix.md)
+lists) needs a
 designated non-root account, trusted SSH access and administrator authorization. Standard Ubuntu cloud-image users
 already commonly have noninteractive sudo; otherwise establish the repository's
 `authorize-sudo.sh` policy once during administrator enrollment. Routine commands
@@ -38,6 +39,32 @@ HEAD. Private rosters contain connection paths and identities, not weaker policy
 | Central dashboard                  | Pinned Beszel hub on the manager, every worker enrolled with its own token; health verifies hub reachability, registration, connection and fresh samples                                                   |
 | No routine password prompts        | Verified BatchMode SSH, `sudo -n`, source-owned NOPASSWD policy; missing initial authorization is a failure                                                                                                |
 | Keep service authorization alive   | Native service credentials stay per-node; Vault self-renewal timer and GitHub recovery from authorized Vault credentials; expiring T3 links are reported before expiry                                     |
+
+## Package pins and security updates
+
+A pin in `ansible/ubuntu/policy.json` is a **minimum**, never a hold. Ubuntu
+keeps installing security updates by itself, and a worker is not turned red by
+one:
+
+- The Ubuntu baseline installs a pinned package from the snapshot only when it
+  is absent or older than its pin, and never downgrades
+  (`ansible/ubuntu/tasks/install.yml`; every pinned package, `systemd-oomd`
+  included, goes through it).
+- What Ubuntu installs unattended is declared in
+  `/etc/apt/apt.conf.d/52personal-fleet-unattended-upgrades`: security updates
+  only, no automatic reboot, no removals.
+- `worker:package:NAME` passes at the pin, **warns** with
+  `PACKAGE_NEWER_THAN_PIN` above it, and fails with `PACKAGE_BELOW_PIN` below
+  it or when the package is missing. A warning does not block convergence or
+  readiness; it says the pin can be raised when the snapshot moves.
+- Tailscale follows the same rule: a newer Tailscale is kept; an older one
+  stops with `TAILSCALE_UPGRADE_PENDING`, because upgrading an active VPN can
+  drop SSH.
+
+A package run cut off by a power loss is finished by the next sync: the
+baseline waits for the APT lock, runs `dpkg --configure -a` once (bounded to
+ten minutes) and audits again; only a database still inconsistent stops with
+`APT_STATE_BROKEN`.
 
 Health does not mutate configuration, renew tokens, log in, install software, or
 make billable inference requests. It audits the immutable desired worker deployment,

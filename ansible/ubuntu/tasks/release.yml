@@ -1,0 +1,25 @@
+---
+# The accepted releases are named once, in policy.json. This selects the
+# entry of the running release and refuses everything else.
+- name: Select the accepted release this machine runs
+  ansible.builtin.set_fact:
+    ubuntu_release: "{{ releases | selectattr('release', 'equalto', ansible_facts.distribution_version) | first | default({}) }}"
+- name: Require an accepted release, its codename and one of its architectures
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.distribution == 'Ubuntu'
+      - ubuntu_release.release is defined
+      - ansible_facts.distribution_release == ubuntu_release.codename
+      - "(ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64')) in ubuntu_release.architectures"
+    fail_msg: UBUNTU_BASELINE_MISMATCH; workers run a release docs/support-matrix.md lists. No distribution upgrade is permitted.
+- name: Pin the packages of this release, its own pins over the common ones
+  ansible.builtin.set_fact:
+    packages: '{{ packages | combine(ubuntu_release.packages | default({})) }}'
+- name: Read the kernel release to tell WSL2 apart from a machine of its own
+  ansible.builtin.slurp:
+    src: /proc/sys/kernel/osrelease
+  register: kernel_release
+- name: Refuse WSL2 by name
+  ansible.builtin.assert:
+    that: not (kernel_release.content | b64decode | lower is search('microsoft|wsl'))
+    fail_msg: WORKER_ENVIRONMENT_UNSUPPORTED; WSL2 is not a worker. Run the worker on a physical or virtual machine of its own (docs/support-matrix.md).

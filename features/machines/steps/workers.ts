@@ -2,6 +2,9 @@ import { expect } from 'bun:test';
 import { verifyResourceSafety } from '../../../src/platform/resource-verify';
 import { auditUbuntu } from '../../../src/platform/ubuntu-audit';
 import { verifyUbuntuBoot } from '../../../src/platform/ubuntu-verify';
+import { pinnedPackage } from '../../../src/worker-host-checks';
+import { packagePins } from '../../../src/platform/ubuntu-release';
+import ubuntu from '../../../ansible/ubuntu/policy.json';
 import type { DataTable } from '../../support/gherkin';
 import { machines } from './world';
 
@@ -41,3 +44,38 @@ Then('the audit does not contain {string}', (world, text: string) => {
   expect(world.audit).toBeDefined();
   expect(JSON.stringify(world.audit)).not.toContain(text);
 });
+
+When(
+  'the package {string} pinned at {string} is measured installed at {string}',
+  (world, name: string, pinned: string, installed: string) => {
+    world.checks = [pinnedPackage(name, pinned, installed || undefined)];
+  }
+);
+
+When(
+  'the pins of a release that pins {string} at {string} are read',
+  (world, name: string, version: string) => {
+    world.pins = packagePins({
+      release: '00.00',
+      codename: 'example',
+      architectures: ['amd64'],
+      packages: { [name]: version },
+    });
+  }
+);
+
+Then(
+  '{string} is pinned at {string}',
+  (world, name: string, version: string) => {
+    expect(world.pins?.[name]).toBe(version);
+  }
+);
+
+Then(
+  'every package but {string} is pinned at the common pin of the Ubuntu policy',
+  (world, except: string) => {
+    const common: Record<string, string> = ubuntu.packages;
+    for (const [name, version] of Object.entries(common))
+      if (name !== except) expect(world.pins?.[name]).toBe(version);
+  }
+);
