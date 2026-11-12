@@ -1,12 +1,16 @@
 #!/bin/sh
-# Keep the worker T3 desktop app (UI and server) up, responsive and on the
-# installed release. Run every minute by personal-worker-recovery.timer
-# (managed by fleet-sync, tasks/recovery.yml), from the stable copy the role
-# installs beside t3-idle.py.
-# - The former headless server is stopped and disabled: one T3 per worker.
-# - No graphical session: T3_NO_GRAPHICAL_SESSION; after three checks in a row
-#   the display manager is restarted so auto-login starts one, three times at
-#   most until a session is seen again.
+# Keep the worker's T3 up, responsive and on the installed release: the
+# desktop app (UI and server) on a desktop worker, the native server
+# (t3code-headless.service, t3-headless.yml) on a headless one. Run every
+# minute by personal-worker-recovery.timer (managed by fleet-sync,
+# tasks/recovery.yml), from the stable copy the role installs beside
+# t3-idle.py.
+# - The former upstream server unit (t3code.service) is stopped and
+#   disabled: one T3 per worker.
+# - Desktop only. No graphical session: T3_NO_GRAPHICAL_SESSION; after three
+#   checks in a row the display manager is restarted so auto-login starts
+#   one, three times at most until a session is seen again. A headless
+#   worker has no session to wait for.
 # - Stopped or failed: reset its start limit and start it.
 # - Running but its local API has not answered for three checks in a row:
 #   restart it, since a hung server serves no turns.
@@ -15,6 +19,11 @@
 set -u
 url=http://127.0.0.1:3773/.well-known/t3/environment
 unit=t3code-desktop.service
+headless=
+if systemctl --user is-enabled --quiet t3code-headless.service; then
+  unit=t3code-headless.service
+  headless=1
+fi
 runtime="${XDG_RUNTIME_DIR:?}"
 failures="$runtime/personal-t3-health-failures"
 no_session="$runtime/personal-t3-no-session"
@@ -40,7 +49,7 @@ if systemctl --user is-active --quiet t3code.service ||
   fi
 fi
 
-if ! systemctl --user is-active --quiet graphical-session.target; then
+if [ -z "$headless" ] && ! systemctl --user is-active --quiet graphical-session.target; then
   rm -f "$failures"
   seen=$(count "$no_session")
   echo "T3_NO_GRAPHICAL_SESSION ($seen/$limit)."
@@ -78,7 +87,12 @@ fi
 rm -f "$failures"
 
 running=$(printf '%s' "$environment" | sed -n 's/.*"serverVersion" *: *"\([^"]*\)".*/\1/p')
-release=$(sed -n 's/^T3-Code-\(.*\)-[a-z0-9]*\.deb$/\1/p' "$installed" 2>/dev/null)
+if [ -n "$headless" ]; then
+  # The release is the versioned directory the unit runs the server from.
+  release=$(systemctl --user show --property=ExecStart --value "$unit" | sed -n 's|.*/t3-\([^/ ]*\)-linux-[a-z0-9]*/t3 .*|\1|p' | head -n 1)
+else
+  release=$(sed -n 's/^T3-Code-\(.*\)-[a-z0-9]*\.deb$/\1/p' "$installed" 2>/dev/null)
+fi
 reason=
 [ -f "$pending" ] && reason="the staged policy"
 if [ -n "$release" ] && [ "$running" != "$release" ]; then

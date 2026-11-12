@@ -145,3 +145,50 @@ Feature: fleet-sync --dry-run says what a sync would change, and changes nothing
       Then every command the preview ran only reads, and each SSH session ran the read-only platform probe
       And the report has:
         | applied | false |
+
+  Rule: The plan says what turning a worker's feature off removes from it
+
+    Background:
+      Given the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" pins, in its mise.toml:
+        """
+        [tools]
+        node = "26.13.0"
+        """
+
+    Scenario: Turning containers off on a worker lists what the sync removes
+      Given the fleet configuration last applied gives the worker "worker-one" the features {"containers": true}
+      And the fleet configuration to apply gives the worker "worker-one" the features {"containers": false}
+      When the plan from "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is made for the machines "worker-one, worker-two"
+      Then the plan removes from "worker-one":
+        | package docker.io                                 |
+        | package docker-compose-v2                         |
+        | package docker-buildx                             |
+        | service docker.service (with its package)         |
+        | dev's membership of the docker group              |
+        | tool docker-cli                                   |
+        | the Docker step of the disk GC                    |
+      And the plan prints:
+        """
+        Plan: the fleet stays at aaaaaaaaaaaa.
+          Removes from worker-one: package docker.io, package docker-compose-v2, package docker-buildx, service docker.service (with its package), dev's membership of the docker group, tool docker-cli, the Docker step of the disk GC
+        """
+
+    Scenario: Moving a worker to the editing preset also retires the desktop app, keeping ~/.t3
+      Given the fleet configuration last applied gives the worker "worker-two" the features {}
+      And the fleet configuration to apply gives the worker "worker-two" the features {"preset": "editing"}
+      When the plan from "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is made for the machines "worker-two"
+      Then the plan removes from "worker-two":
+        | package docker.io                                                         |
+        | package docker-compose-v2                                                 |
+        | package docker-buildx                                                     |
+        | service docker.service (with its package)                                 |
+        | dev's membership of the docker group                                      |
+        | tool docker-cli                                                           |
+        | the Docker step of the disk GC                                            |
+        | user unit t3code-desktop.service (the T3 desktop app stops; ~/.t3 is kept) |
+
+    Scenario: Turning a feature on removes nothing
+      Given the fleet configuration last applied gives the worker "worker-one" the features {"containers": false}
+      And the fleet configuration to apply gives the worker "worker-one" the features {"containers": true}
+      When the plan from "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is made for the machines "worker-one"
+      Then the plan removes nothing

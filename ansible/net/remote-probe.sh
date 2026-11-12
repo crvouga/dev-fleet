@@ -12,7 +12,10 @@ else
   df -Pi "$HOME" | awk 'NR==2 && $2>0{print "inodefree=" int($4*100/$2)}'
   # Clock synchronisation, as systemd sees it: 1 or 0.
   timedatectl show -p NTPSynchronized -p NTP 2>/dev/null | awk -F= '{v=($2=="yes")?1:0} $1=="NTP"{print "ntp=" v} $1=="NTPSynchronized"{print "ntpsync=" v}'
-  awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} /SwapTotal/{st=$2} /SwapFree/{sf=$2} END{print "memfree=" int(a*100/t); if (st>0) print "swap=" int((st-sf)*100/st); else print "swap=0"}' /proc/meminfo
+  # Agent sessions running now: the scopes T3 starts its agents in.
+  echo "agentsessions=$(systemctl --user list-units --type=scope --state=active --no-legend 't3code-*.scope' 2>/dev/null | grep -c .)"
+  awk '/MemTotal/{t=$2} /MemAvailable/{a=$2} /SwapTotal/{st=$2} /SwapFree/{sf=$2} END{print "memfree=" int(a*100/t); print "memtotalmb=" int(t/1024); if (st>0) print "swap=" int((st-sf)*100/st); else print "swap=0"}' /proc/meminfo
 fi
 echo "diskmb=$(df -Pk "$HOME" | awk 'NR==2{print int($4/1024)}')"
+echo "disktotalmb=$(df -Pk "$HOME" | awk 'NR==2{print int($2/1024)}')"
 echo "epoch=$(date +%s)"

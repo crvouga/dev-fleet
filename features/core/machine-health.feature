@@ -86,9 +86,10 @@ Feature: The health of a machine itself
       And the remedy of the check "worker:clock" mentions "systemd-timesyncd"
 
   Rule: The manager measures each worker's clock against its own
-    fleet-sync reads the worker's clock in the same SSH probe that reads its
-    release. The worker read it somewhere between the moment the manager sent
-    the probe and the moment the answer came back, so only the smallest
+    fleet-sync reads the worker's clock on the last line of the same SSH
+    probe that reads its release and its size. The worker read it somewhere
+    between the moment the manager sent the probe and the moment the answer
+    came back, so only the smallest
     offset that window allows is judged: a slow link never reads as a skewed
     clock.
 
@@ -99,6 +100,10 @@ Feature: The health of a machine itself
         26.04
         x86_64
         machine
+        kvm
+        4
+        16384
+        102400
         <worker>
         """
       When the manager inspects the worker, its own clock reading <sent> when it sends the probe and <received> when the answer comes back

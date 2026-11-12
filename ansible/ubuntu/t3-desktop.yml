@@ -207,6 +207,23 @@
         name: t3code-desktop.service
         daemon_reload: true
         enabled: true
+    # A worker that was a headless worker (t3-headless.yml) keeps its data in
+    # ~/.t3; only the server's user service goes.
+    - name: Stop the T3 server of a worker that was a headless worker
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.systemd_service:
+        scope: user
+        name: t3code-headless.service
+        state: stopped
+        enabled: false
+      failed_when: false
+    - name: Remove the T3 server's user service
+      ansible.builtin.file:
+        path: '{{ development_home }}/.config/systemd/user/t3code-headless.service'
+        state: absent
     # One T3 process per worker: the desktop app. The former headless server
     # (`t3 service install`) is retired; absent on machines that never had it.
     - name: Retire the former headless T3 server

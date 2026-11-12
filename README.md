@@ -236,6 +236,12 @@ propagates them without a full sync.
    }
    ```
 
+   A worker may add `"features": { "preset": "editing" }` for a rented
+   machine that only edits code: no Docker, and T3 as a headless server with
+   no desktop. `containers` and `session` set each one; fleet-wide defaults go
+   under `worker.features`. The [worker contract](docs/worker-contract.md)
+   says what each feature installs and the minimum size of a worker.
+
 3. Run `fleet-sync`. A machine that has only an SSH server and an account
    with sudo is enough: every pull request proves that against a bare
    Ubuntu machine, over SSH

@@ -15,10 +15,11 @@ is missing from it.
 | ----------------------------------------- | -------------------------------------------------------------------------- |
 | `ansible/ubuntu/baseline.yml`             | A worker's packages, Docker, services, power, user, SSH, disk              |
 | `ansible/ubuntu/tailscale.yml`            | Tailscale on a worker                                                      |
-| `ansible/ubuntu/t3-desktop.yml`           | The T3 desktop app on a worker                                             |
+| `ansible/ubuntu/t3-desktop.yml`           | The T3 desktop app on a desktop worker                                     |
+| `ansible/ubuntu/t3-headless.yml`          | The T3 server as a lingering user service on a headless worker             |
 | `ansible/ubuntu/t3-policy.yml`            | T3's administrator policy                                                  |
 | `ansible/ubuntu/t3-route.yml`             | T3's private tailnet route                                                 |
-| `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app                                       |
+| `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app or server                             |
 | `ansible/ubuntu/worker-account.yml`       | The declared account on an image that lets only root in, from the manager  |
 | `ansible/ubuntu/reboot.yml`               | One worker's first-converge or maintenance reboot, from the manager        |
 | `ansible/monitoring/agent.yml`            | The Beszel agent on a worker                                               |
@@ -44,7 +45,7 @@ report drift, and only that drift (`features/monitoring/agent-lifecycle.feature`
 | Install Git, curl, CA certificates, Python and Ansible                                  | `bootstrap/fleet-remote-bootstrap.sh`                                                       | It must run before Ansible exists on the machine; it is the minimal bootstrap                                               |
 | Create the worker account, its host key, the privilege rule and Tailscale on first boot | `bootstrap/worker-seed.yaml` (written by `fleet-node-seed`)                                 | cloud-init runs it before the manager can reach the machine; fleet-sync converges everything else with Ansible afterwards   |
 | Install mise and the pinned toolchain                                                   | `bootstrap/bootstrap.sh`, `bootstrap/setup.ts`                                              | mise must exist before any tool does, and `mise install --locked` already converges from a lock                             |
-| Install a worker's subset of tools                                                      | `bootstrap/worker-tools.ts`                                                                 | It chooses which locked tools `mise install` gets; moving it means a toolchain role                                         |
+| Install a worker's subset of tools                                                      | `bootstrap/worker-tools.ts`, `bootstrap/worker-features.ts`                                 | It chooses which locked tools `mise install` gets; moving it means a toolchain role                                         |
 | Publish the global mise configuration                                                   | `bootstrap/global-config.ts`                                                                | Derived from `mise.toml` and the agent worktree roots on every run; a `toolchain` role with a template would replace it     |
 | `PATH` lines in shell profiles                                                          | `bootstrap/shell-path.ts`                                                                   | Edits files a person owns, guarded by markers; a `blockinfile` task would replace it                                        |
 | The `devfleet` launcher link                                                            | `bootstrap/install-launcher.sh`                                                             | Points at the fleet-owned checkout of the revision, known only during the run                                               |

@@ -19,10 +19,12 @@ import {
 import { convergeT3Route } from '../../../src/platform/t3-route';
 import {
   convergeT3Service,
+  runningVersionCheck,
   t3RestartMarker,
 } from '../../../src/platform/t3-service';
 import { succeeded } from '../../support/commands';
 import { commandLine } from '../../support/answers';
+import type { DataTable } from '../../support/gherkin';
 import { machines, temporary } from './world';
 
 const { Given, When, Then } = machines;
@@ -95,19 +97,71 @@ Given('installing the desktop app fails', (world) => {
 });
 
 When("the worker's T3 desktop app is converged", async (world) => {
-  world.checks = await convergeT3Service(
-    world.artifact,
-    world.run,
-    async () => {
+  world.checks = await convergeT3Service(world.artifact, world.run, {
+    prepare: async () => {
       world.staged = true;
       return [];
     },
-    async () => {
+    install: async () => {
       world.installed = true;
       return world.installs;
-    }
-  );
+    },
+  });
 });
+
+Given('installing the T3 server fails', (world) => {
+  world.installs = false;
+});
+
+When("the headless worker's T3 server is converged", async (world) => {
+  world.checks = await convergeT3Service(world.artifact, world.run, {
+    prepare: async () => {
+      world.staged = true;
+      return [];
+    },
+    install: async () => {
+      world.installed = true;
+      return world.installs;
+    },
+    session: 'headless',
+  });
+});
+
+When('the release of the T3 of a headless worker is checked', async (world) => {
+  world.checks = [
+    await runningVersionCheck(world.run, 1000, Date.now(), 'headless'),
+  ];
+});
+
+/** The user unit a playbook declares, by the path it writes it to. */
+function declaredUnit(playbook: string, unit: string): string {
+  const plays = parse(
+    readFileSync(resolve(import.meta.dir, '../../..', playbook), 'utf8')
+  ) as {
+    tasks: { 'ansible.builtin.copy'?: { dest?: string; content?: string } }[];
+  }[];
+  const task = plays[0]!.tasks.find((entry) =>
+    entry['ansible.builtin.copy']?.dest?.endsWith(`/${unit}`)
+  );
+  return task?.['ansible.builtin.copy']?.content ?? '';
+}
+
+Then(
+  '{string} declares the unit {string} with these lines:',
+  (_world, playbook: string, unit: string, table: DataTable) => {
+    const lines = declaredUnit(playbook, unit).split('\n');
+    for (const line of table.list()) expect(lines).toContain(line);
+  }
+);
+
+Then(
+  '{string} declares the unit {string} with no line containing {string}',
+  (_world, playbook: string, unit: string, text: string) => {
+    const content = declaredUnit(playbook, unit);
+    expect(content.length).toBeGreaterThan(0);
+    expect(content).not.toContain(text);
+  }
+);
 
 Then('the policy was not staged', (world) => {
   expect(world.staged).toBe(false);

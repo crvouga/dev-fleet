@@ -77,12 +77,68 @@
     "keySha256": "3e03dacf222698c60b8e2f990b809ca1b3e104de127767864284e6c228f1fb39"
   },
   "aptLockTimeoutSeconds": 120,
-  "minimumFreeDiskMiB": 4096,
   "minimumFreeInodes": 10000,
   "t3RestartMaxDeferralHours": 24,
   "alwaysOnServices": ["ssh", "tailscaled", "docker", "beszel-agent"],
+  "features": {
+    "containers": {
+      "packages": ["docker.io", "docker-compose-v2", "docker-buildx"],
+      "services": ["docker"],
+      "groups": ["docker"],
+      "tools": ["docker-cli"]
+    },
+    "desktop": {
+      "packages": ["dconf-cli"]
+    }
+  },
+  "sizing": {
+    "minimumWorker": {
+      "memoryMiB": 3584,
+      "diskMiB": 20480,
+      "cpus": 2
+    },
+    "agentSessionMiB": 1024,
+    "t3ReservedMiB": 1536,
+    "thresholds": {
+      "swapFile": {
+        "of": "memory",
+        "share": 0.5,
+        "minMiB": 1024,
+        "maxMiB": 8192
+      },
+      "minimumFreeDisk": {
+        "of": "disk",
+        "share": 0.05,
+        "minMiB": 2048,
+        "maxMiB": 4096
+      },
+      "diskGuardFloor": {
+        "of": "disk",
+        "share": 0.03,
+        "minMiB": 1024,
+        "maxMiB": 3072
+      },
+      "diskGcPressure": {
+        "of": "disk",
+        "share": 0.15,
+        "minMiB": 4096,
+        "maxMiB": 15360
+      },
+      "capacityWarn": {
+        "of": "disk",
+        "share": 0.1,
+        "minMiB": 3072,
+        "maxMiB": 10240
+      },
+      "capacityFail": {
+        "of": "disk",
+        "share": 0.02,
+        "minMiB": 1024,
+        "maxMiB": 2048
+      }
+    }
+  },
   "resourceSafety": {
-    "swapFileMiB": 8192,
     "userMemoryMax": "90%",
     "agentMemoryMax": "30%",
     "agentSwapMax": "2G",
@@ -91,11 +147,9 @@
     "tmpMaxSize": "25%",
     "tmpAge": "2d",
     "varTmpAge": "14d",
-    "diskGuardFloorMiB": 3072,
     "diskGuardWriteMiB": 32,
     "diskGuardIntervalSeconds": 5,
     "diskGcIdleDays": 7,
-    "diskGcPressureMiB": 15360,
     "diskGcPressureIdleHours": 12,
     "diskGcDockerAgeHours": 168,
     "diskGcPressureDockerAgeHours": 24,

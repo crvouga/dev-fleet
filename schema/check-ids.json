@@ -645,6 +645,30 @@
     {
       "id": "workstation:installation",
       "meaning": "The devfleet launcher could be installed."
+    },
+    {
+      "id": "platform:machine-class",
+      "meaning": "The probe recorded the class of the worker (physical or virtual machine) before anything is installed; a virtual machine reports firmware power recovery and lid policy as not applicable."
+    },
+    {
+      "id": "platform:worker-size",
+      "meaning": "The worker has at least the stated minimum memory, root filesystem and CPUs (sizing.minimumWorker in the Ubuntu policy), measured before anything is installed."
+    },
+    {
+      "id": "tool:docker-cli",
+      "meaning": "Not applicable on a worker whose containers feature is off: the Docker CLI is not one of its tools."
+    },
+    {
+      "id": "ubuntu:lid-policy",
+      "meaning": "Not applicable on a virtual machine, which has no lid; on a physical machine the lid policy is part of ubuntu:boot-policy."
+    },
+    {
+      "id": "worker:agent-sessions",
+      "meaning": "How many agent sessions this worker runs, and how many its memory policy supports at the estimated size of a session; warns when more run."
+    },
+    {
+      "id": "worker:features",
+      "meaning": "The worker has the features fleet.json declares, and nothing dev-fleet installed for a feature that is off (containers) remains."
     }
   ]
 }

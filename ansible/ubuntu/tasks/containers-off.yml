@@ -1,0 +1,43 @@
+---
+# A worker whose `containers` feature is off (fleet.json features.containers)
+# keeps none of what tasks/docker.yml and the pinned packages gave it: the
+# developer leaves the docker group, the restart drop-in goes, and the Ubuntu
+# Docker packages dev-fleet pinned are removed (not purged: images and volumes
+# under /var/lib/docker stay until a person deletes them). A Docker that
+# another distribution owns (docker-ce) was never dev-fleet's and is left
+# alone. fleet-sync --dry-run lists what this removes; the worker:features
+# check reports what it removed.
+- name: Read the members of the groups containers gave the developer
+  ansible.builtin.getent:
+    database: group
+    key: '{{ item }}'
+    fail_key: false
+  loop: '{{ features.containers.groups }}'
+  register: container_groups
+- name: Take the developer out of the groups containers gave it
+  ansible.builtin.command:
+    argv: [gpasswd, --delete, '{{ development_user }}', '{{ item.item }}']
+  loop: '{{ container_groups.results }}'
+  loop_control:
+    label: '{{ item.item }}'
+  when: >-
+    (item.ansible_facts.getent_group[item.item] | default(none)) is not none
+    and development_user in (item.ansible_facts.getent_group[item.item][2] | default('')).split(',')
+  changed_when: true
+- name: Remove the restart drop-in of the container services
+  ansible.builtin.file:
+    path: '/etc/systemd/system/{{ item }}.service.d/60-personal-fleet.conf'
+    state: absent
+  loop: '{{ features.containers.services }}'
+  register: container_dropins
+- name: Reload unit definitions after removing the drop-ins
+  ansible.builtin.systemd_service:
+    daemon_reload: true
+  when: container_dropins.changed
+- name: Remove the Docker packages dev-fleet pinned
+  ansible.builtin.apt:
+    name: '{{ features.containers.packages }}'
+    state: absent
+    purge: false
+    autoremove: false
+    lock_timeout: '{{ aptLockTimeoutSeconds }}'

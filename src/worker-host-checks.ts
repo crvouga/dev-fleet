@@ -4,7 +4,21 @@ import { verifyUbuntuBoot } from './platform/ubuntu-verify';
 import { verifyResourceSafety } from './platform/resource-verify';
 import policy from '../ansible/ubuntu/policy.json';
 import { userInfo } from 'node:os';
-import { T3_HEALTH_SCRIPT, runningVersionCheck } from './platform/t3-service';
+import {
+  T3_HEALTH_SCRIPT,
+  runningVersionCheck,
+  t3Unit,
+} from './platform/t3-service';
+import {
+  DEFAULT_FEATURES,
+  featuresCheck,
+  notApplicable,
+  offReason,
+  partsOff,
+  presentParts,
+  type WorkerFeatures,
+} from './worker-features';
+import { detectMachineClass, type MachineClass } from './machine/machine-class';
 import { compareDebianVersions } from './platform/debian-version';
 import { packagePins, ubuntuRelease } from './platform/ubuntu-release';
 import type { Check, Runner } from './types';
@@ -69,12 +83,18 @@ export function serviceState(name: string, show: string): string {
   return `${code} ${name}.service (${state}, unit file ${file || 'missing'}, restart ${field('Restart') || 'unknown'})`;
 }
 
-/** Measured runtime evidence, independent of installer receipts. */
+/** Measured runtime evidence, independent of installer receipts. What a
+ * worker's declared features leave out, and what its class of machine does
+ * not have, is reported as not applicable, with the reason. */
 export async function workerHostChecks(
   user: string,
-  run: Runner
+  run: Runner,
+  features: WorkerFeatures = DEFAULT_FEATURES,
+  powerRecoveryNote?: string
 ): Promise<Check[]> {
   const audit = await auditUbuntu(run);
+  const off = partsOff(features);
+  const { machine, virtualization } = await detectMachineClass(run);
   const checks = [
     check(
       'ubuntu',
@@ -87,7 +107,10 @@ export async function workerHostChecks(
       'Designated worker user has noninteractive sudo.'
     ),
     ...Object.entries(packagePins(ubuntuRelease(audit.release))).map(
-      ([name, version]) => pinnedPackage(name, version, audit.packages[name])
+      ([name, version]) =>
+        off.packages.includes(name)
+          ? notApplicable(`worker:package:${name}`, offReason(features, name))
+          : pinnedPackage(name, version, audit.packages[name])
     ),
     pinnedPackage(
       'tailscale',
@@ -96,6 +119,12 @@ export async function workerHostChecks(
     ),
   ];
   for (const name of policy.alwaysOnServices) {
+    if (off.services.includes(name)) {
+      checks.push(
+        notApplicable(`worker:service:${name}`, offReason(features, name))
+      );
+      continue;
+    }
     const unit = await run([
       'systemctl',
       'show',
@@ -122,19 +151,30 @@ export async function workerHostChecks(
     );
   }
   checks.push(await rebootPendingCheck(audit.rebootPending, run));
-  checks.push(...(await recoveryChecks(run)));
-  checks.push(...(await verifyUbuntuBoot(user, run)));
+  checks.push(featuresCheck(features, await presentParts(run, user, features)));
+  checks.push(
+    ...(await recoveryChecks(run, features, {
+      machine,
+      virtualization,
+      ...(powerRecoveryNote ? { note: powerRecoveryNote } : {}),
+    }))
+  );
+  checks.push(...(await verifyUbuntuBoot(user, run, machine)));
   checks.push(...(await verifyResourceSafety(userInfo().homedir, run)));
   return checks;
 }
 
-async function recoveryChecks(run: Runner): Promise<Check[]> {
+async function recoveryChecks(
+  run: Runner,
+  features: WorkerFeatures,
+  host: { machine: MachineClass; virtualization: string; note?: string }
+): Promise<Check[]> {
   const checks: Check[] = [];
   const t3 = await run([
     'systemctl',
     '--user',
     'show',
-    't3code-desktop.service',
+    t3Unit(features.session),
     '--property=ActiveState,UnitFileState,Restart',
   ]);
   checks.push(
@@ -144,11 +184,15 @@ async function recoveryChecks(run: Runner): Promise<Check[]> {
         /^ActiveState=active$/m.test(t3.stdout) &&
         /^UnitFileState=enabled$/m.test(t3.stdout) &&
         /^Restart=(always|on-failure)$/m.test(t3.stdout),
-      'The T3 desktop app runs as an enabled session service with automatic crash recovery.'
+      features.session === 'headless'
+        ? 'The T3 server runs as an enabled lingering user service with automatic crash recovery.'
+        : 'The T3 desktop app runs as an enabled session service with automatic crash recovery.'
     )
   );
   checks.push(await t3HealthCheck(run));
-  checks.push(await runningVersionCheck(run, userInfo().uid));
+  checks.push(
+    await runningVersionCheck(run, userInfo().uid, Date.now(), features.session)
+  );
   const renewal = await run([
     'systemctl',
     '--user',
@@ -163,7 +207,14 @@ async function recoveryChecks(run: Runner): Promise<Check[]> {
     )
   );
   checks.push(await serviceRecoveryCheck(run));
-  checks.push(await powerRecoveryCheck(run));
+  checks.push(
+    host.machine === 'virtual'
+      ? notApplicable(
+          'worker:power-loss-recovery',
+          `a virtual machine (${host.virtualization}) has no firmware its guest can read, and its provider restarts it after a power loss${host.note ? ` (${host.note})` : ''}`
+        )
+      : await powerRecoveryCheck(run)
+  );
   return checks;
 }
 

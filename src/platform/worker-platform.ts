@@ -1,4 +1,5 @@
 import type { Check, Runner } from '../types';
+import type { WorkerFeatures } from '../worker-features';
 
 /** One release of a worker platform, as its policy names it. */
 export interface WorkerRelease {
@@ -59,6 +60,13 @@ export interface WorkerPlatform {
   /** The `uname -m` names one release runs on. */
   kernelArchitectures(release: WorkerRelease): string[];
   /** Checks: the measured host evidence of a worker of this platform,
-   * read-only, run on the worker itself. */
-  hostChecks(user: string, run: Runner): Promise<Check[]>;
+   * read-only, run on the worker itself. What its declared features leave
+   * out is not applicable; so is a physical machine's power recovery on a
+   * virtual one, which `powerRecoveryNote` may say who provides. */
+  hostChecks(
+    user: string,
+    run: Runner,
+    features?: WorkerFeatures,
+    powerRecoveryNote?: string
+  ): Promise<Check[]>;
 }

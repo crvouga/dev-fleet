@@ -53,6 +53,29 @@ Given(
   }
 );
 
+Given(
+  'every worker answers a fresh SSH session as a {string} virtual machine with {int} CPUs, {int} MiB of memory and a {int} MiB root filesystem',
+  (world, hypervisor: string, cpus: number, memory: number, disk: number) => {
+    world.commands.answer(
+      isSession,
+      succeeded(
+        `ubuntu\n26.04\nx86_64\nmachine\n${hypervisor}\n${cpus}\n${memory}\n${disk}\n`
+      )
+    );
+  }
+);
+
+Then(
+  'every worker has a check {string} that says {string}',
+  (world, id: string, summary: string) => {
+    expect(report(world).nodes.length).toBeGreaterThan(0);
+    for (const node of report(world).nodes)
+      expect(node.checks.find((check) => check.id === id)?.summary).toStartWith(
+        summary
+      );
+  }
+);
+
 Given('the manager has no registration for {string}', (world, id: string) => {
   world.nodes = world.nodes.filter((node) => node.id !== id);
 });

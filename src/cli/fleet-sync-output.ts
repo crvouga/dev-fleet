@@ -106,7 +106,7 @@ export function managerText(
   const lines: string[] = [header(c, report, failing, options)];
   lines.push('', ...grid(c, report.nodes, mark, options.color === true));
   lines.push('', totals(c, counts, options.color === true));
-  for (const status of ['fail', 'warn', 'skip'] as const) {
+  for (const status of ['fail', 'warn', 'skip', 'not-applicable'] as const) {
     const problems = groupProblems(
       all.filter((entry) => entry.check.status === status)
     );
@@ -142,10 +142,11 @@ export function stableUrls(text: string): string {
   return text.replace(TAILNET_URL, 'its private tailnet address');
 }
 
-const SECTION: Record<'fail' | 'warn' | 'skip', string> = {
+const SECTION: Record<'fail' | 'warn' | 'skip' | 'not-applicable', string> = {
   fail: 'Failing — fix these',
   warn: 'Warnings — outside the fleet; sync still succeeds',
   skip: 'Not observable on this hardware',
+  'not-applicable': 'Not applicable to this machine — with the reason',
 };
 
 function header(

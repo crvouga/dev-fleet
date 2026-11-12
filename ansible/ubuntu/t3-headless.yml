@@ -1,0 +1,128 @@
+---
+# The worker's only T3 process on a headless worker (fleet.json
+# features.session "headless"): the pinned native T3 server, which the release
+# ships as its own archive beside the desktop package (mise.toml t3_version
+# and t3_linux_*_sha256; bootstrap/native-t3.ts installs it in every worker's
+# toolchain). `t3 serve` runs the same server the desktop app embeds, with no
+# browser, display or GPU. It is a lingering user service: the designated user
+# lingers (tasks/user.yml), so its user manager starts it at boot with nobody
+# logged in. It listens on 127.0.0.1:3773 like the desktop app, so the private
+# route, the policy, the provider instances, the recovery timer and the checks
+# are the same for both session types. ~/.t3 is kept when a worker changes
+# type. Starting or migrating is left to fleet-sync.
+- name: Run the pinned T3 server as a lingering user service
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  vars_files:
+    - policy.json
+  tasks:
+    - name: Require the pinned server from the worker's toolchain
+      ansible.builtin.stat:
+        path: '{{ t3_server_path }}'
+      register: t3_server_binary
+    - name: Refuse to declare a service for a server that is not installed
+      ansible.builtin.assert:
+        that:
+          - t3_server_binary.stat.exists
+          - t3_server_binary.stat.executable
+        fail_msg: T3_SERVER_INSTALL_FAILED; the pinned T3 server is not installed. Run fleet-sync, which installs the toolchain first.
+    - name: Check whether the server is running before an update
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.command:
+        argv: [systemctl, --user, is-active, --quiet, t3code-headless.service]
+      register: t3_headless_was_active
+      changed_when: false
+      check_mode: false
+      failed_when: false
+    # One T3 process per worker: a worker that was a desktop worker keeps its
+    # data in ~/.t3; only the app's session service goes.
+    - name: Stop the desktop app of a worker that was a desktop worker
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.systemd_service:
+        scope: user
+        name: t3code-desktop.service
+        state: stopped
+        enabled: false
+      failed_when: false
+    - name: Remove the desktop app's session service
+      ansible.builtin.file:
+        path: '{{ development_home }}/.config/systemd/user/t3code-desktop.service'
+        state: absent
+    - name: Create the user unit directory
+      ansible.builtin.file:
+        path: '{{ development_home }}/.config/systemd/user'
+        state: directory
+        owner: '{{ development_user }}'
+        mode: '0700'
+    - name: Declare the T3 server as a lingering user service
+      ansible.builtin.copy:
+        dest: '{{ development_home }}/.config/systemd/user/t3code-headless.service'
+        owner: '{{ development_user }}'
+        mode: '0600'
+        content: |
+          # Managed by personal fleet-sync: ansible/ubuntu/t3-headless.yml
+          [Unit]
+          Description=T3 Code server (headless)
+          StartLimitIntervalSec=300
+          StartLimitBurst=5
+          [Service]
+          Type=simple
+          WorkingDirectory=%h
+          Environment=T3CODE_HOME=%h/.t3
+          # /tmp is RAM with a per-user quota that agent and build caches
+          # exhaust; agents use disk-backed /var/tmp (aged by tasks/resources.yml).
+          Environment=TMPDIR=/var/tmp
+          ExecStart="{{ t3_server_path }}" serve --mode web --host 127.0.0.1 --port 3773 --base-dir %h/.t3 --no-browser
+          KillMode=mixed
+          Restart=always
+          RestartSec=5
+          CPUWeight=1000
+          IOWeight=1000
+          MemoryLow={{ sizing.t3ReservedMiB }}M
+          OOMScoreAdjust=100
+          ManagedOOMPreference=avoid
+          [Install]
+          WantedBy=default.target
+      register: t3_headless_unit
+    # Repoint recovery now: a timer still running an older revision's script
+    # would act on the unit of the other session type.
+    - name: Repoint recovery to this revision
+      ansible.builtin.import_tasks: tasks/recovery.yml
+    - name: Enable the T3 server for every boot, with nobody logged in
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.systemd_service:
+        scope: user
+        name: t3code-headless.service
+        daemon_reload: true
+        enabled: true
+    - name: Start the T3 server without restarting a running one
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.systemd_service:
+        scope: user
+        name: t3code-headless.service
+        state: started
+    # A running server keeps the files of its release: restart it into the
+    # one just declared, only while it runs no agent turn (as the desktop
+    # app). Otherwise personal-worker-recovery restarts it at the first idle
+    # check, and t3:running-version reports T3_RESTART_PENDING until then.
+    - name: Restart T3 when it is idle
+      ansible.builtin.import_tasks: tasks/t3-restart.yml
+      vars:
+        t3_unit: t3code-headless.service
+      when:
+        - t3_headless_was_active.rc == 0
+        - t3_headless_unit is changed

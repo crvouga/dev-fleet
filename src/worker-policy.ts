@@ -3,6 +3,8 @@ import { FleetUsageError } from './errors';
 import type { Capability } from './types';
 import { TOOL_PROFILES, type ToolProfile } from '../bootstrap/worker-tools';
 import { parseExposure, type ExposureDeclaration } from './exposure';
+import { featuresFault } from '../bootstrap/worker-features';
+import type { FeaturesDefinition } from './definition';
 
 export interface WorkerPolicy {
   requiredCapabilities: Capability[];
@@ -20,6 +22,8 @@ export interface WorkerPolicy {
   tools?: string[];
   /** What every worker opens beyond loopback and the tailnet (src/exposure.ts). */
   exposure?: ExposureDeclaration;
+  /** Features every worker has unless its own `features` say otherwise. */
+  features?: FeaturesDefinition;
 }
 const REQUIRED = [
   'github',
@@ -51,6 +55,7 @@ const FIELDS: Record<string, (value: unknown) => boolean> = {
   toolProfiles: (value) => value === undefined || toolProfiles(value) !== null,
   tools: (value) => value === undefined || toolNames(value),
   exposure: (value) => value === undefined || parseExposure(value) !== null,
+  features: (value) => value === undefined || featuresFault(value) === null,
 };
 /** The first field of a worker policy that breaks its rule, or null. */
 export function policyFault(value: Record<string, unknown>): string | null {

@@ -1,0 +1,49 @@
+---
+# The size of this machine against the stated minimum, and the disk and memory
+# lines of the worker policy: each a share of the root filesystem or of memory
+# between a lower and an upper bound (policy.json `sizing`, the same numbers
+# src/worker-sizing.ts computes). Runs before anything is installed.
+- name: Measure the root filesystem
+  ansible.builtin.command:
+    argv:
+      - /usr/bin/python3
+      - '-c'
+      - |
+        import os
+        v = os.statvfs('/')
+        print((v.f_blocks * v.f_frsize) // (1024 * 1024))
+  changed_when: false
+  check_mode: false
+  register: worker_root_size
+  tags: [always]
+- name: Record the size of this machine
+  ansible.builtin.set_fact:
+    worker_size:
+      memoryMiB: '{{ ansible_facts.memtotal_mb | int }}'
+      diskMiB: '{{ worker_root_size.stdout | trim | int }}'
+      cpus: '{{ ansible_facts.processor_vcpus | int }}'
+  tags: [always]
+- name: Refuse a machine below the stated minimum worker size before installing anything
+  ansible.builtin.assert:
+    that:
+      - worker_size.memoryMiB | int >= sizing.minimumWorker.memoryMiB
+      - worker_size.diskMiB | int >= sizing.minimumWorker.diskMiB
+      - worker_size.cpus | int >= sizing.minimumWorker.cpus
+    fail_msg: WORKER_SIZE_BELOW_MINIMUM; a worker needs {{ sizing.minimumWorker.memoryMiB }} MiB of memory, a {{ sizing.minimumWorker.diskMiB }} MiB root filesystem and {{ sizing.minimumWorker.cpus }} CPUs (docs/worker-contract.md). Resize the machine; nothing was installed.
+  tags: [always]
+- name: Compute the disk and memory lines for this machine
+  ansible.builtin.set_fact:
+    worker_thresholds: "{{ worker_thresholds | default({}) | combine({item.key: [[((item.value.share * ((worker_size.memoryMiB if item.value.of == 'memory' else worker_size.diskMiB) | int)) | int), item.value.minMiB] | max, item.value.maxMiB] | min}) }}"
+  loop: '{{ sizing.thresholds | dict2items }}'
+  loop_control:
+    label: '{{ item.key }}'
+  tags: [always]
+# Each line may be given as an extra variable instead (the VM test injects a
+# capacity gate this way); an extra variable always wins over a fact.
+- name: Name the lines the tasks use
+  ansible.builtin.set_fact:
+    worker_swap_file_mib: '{{ worker_thresholds.swapFile }}'
+    worker_minimum_free_disk_mib: '{{ worker_thresholds.minimumFreeDisk }}'
+    worker_disk_guard_floor_mib: '{{ worker_thresholds.diskGuardFloor }}'
+    worker_disk_gc_pressure_mib: '{{ worker_thresholds.diskGcPressure }}'
+  tags: [always]

@@ -5,6 +5,11 @@ import {
   type WorkerPolicy,
 } from './worker-policy';
 import type { ToolProfile } from '../bootstrap/worker-tools';
+import {
+  featuresFault,
+  type Preset,
+  type Session,
+} from '../bootstrap/worker-features';
 import { readFileSync } from 'node:fs';
 import { FleetUsageError } from './errors';
 import { parseConfig, record } from './config';
@@ -35,12 +40,26 @@ export interface MachineDefinition {
   toolProfiles?: ToolProfile[];
   /** This worker's exposure, over the fleet-wide one (src/exposure.ts). */
   exposure?: ExposureDeclaration;
+  /** This worker's features, over the fleet-wide `worker.features`. */
+  features?: FeaturesDefinition;
+  /** Who restarts this machine after a power loss when it is a virtual
+   * machine, such as "provider restarts instances"; shown with
+   * worker:power-loss-recovery, which does not apply to one. */
+  powerRecoveryNote?: string;
   network?: {
     tailscaleName: string;
     user: string;
     sshPort: number;
     t3Port: number;
   };
+}
+/** Declared worker features (bootstrap/worker-features.ts): a preset, then
+ * single features over it. Absent, a worker has containers and a desktop
+ * session, as every worker had before features existed. */
+export interface FeaturesDefinition {
+  preset?: Preset;
+  containers?: boolean;
+  session?: Session;
 }
 /** The singleton manager: the human's machine. It runs fleet-sync and hosts
  * every singleton service; it is never converged over SSH. */
@@ -259,7 +278,16 @@ function worker(value: unknown, path: string): MachineDefinition {
   const fields = object(value, path);
   keys(
     fields,
-    ['id', 'ssh', 'os', 'network', 'toolProfiles', 'exposure'],
+    [
+      'id',
+      'ssh',
+      'os',
+      'network',
+      'toolProfiles',
+      'exposure',
+      'features',
+      'powerRecoveryNote',
+    ],
     path
   );
   const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
@@ -291,7 +319,29 @@ function worker(value: unknown, path: string): MachineDefinition {
             parseExposure(fields['exposure']) ??
             fail(`${path}.exposure`, EXPOSURE_EXPECTED, fields['exposure']),
         }),
+    ...(fields['features'] === undefined
+      ? {}
+      : { features: features(fields['features'], `${path}.features`) }),
+    ...(fields['powerRecoveryNote'] === undefined
+      ? {}
+      : {
+          powerRecoveryNote: text(
+            fields['powerRecoveryNote'],
+            /^[^\n\r]{1,120}$/,
+            `${path}.powerRecoveryNote`,
+            'one line of at most 120 characters'
+          ),
+        }),
   };
+}
+/** A `features` block: fleet-wide under `worker`, or one worker's own. */
+export function features(value: unknown, path: string): FeaturesDefinition {
+  const fields = object(value, path);
+  keys(fields, ['preset', 'containers', 'session'], path);
+  const fault = featuresFault(fields);
+  if (fault !== null)
+    fail(`${path}.${fault.field}`, fault.expected, fields[fault.field]);
+  return fields as FeaturesDefinition;
 }
 function manager(value: unknown): ManagerDefinition {
   const path = '$.manager';
@@ -676,10 +726,13 @@ const POLICY: Record<string, string> = {
   toolProfiles: 'a list of known tool profiles, each once',
   tools: 'a list of tool names from dev-fleet’s mise.toml, each once',
   exposure: EXPOSURE_EXPECTED,
+  features: 'preset, containers and session',
 };
 function policy(value: unknown): WorkerPolicy {
   const fields = object(value, '$.worker');
   keys(fields, Object.keys(POLICY), '$.worker');
+  if (fields['features'] !== undefined)
+    features(fields['features'], '$.worker.features');
   const field = policyFault(fields);
   if (field !== null)
     fail(`$.worker.${field}`, POLICY[field] ?? 'a valid value', fields[field]);

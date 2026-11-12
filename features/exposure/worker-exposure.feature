@@ -70,6 +70,18 @@ Feature: Nothing on a worker listens beyond loopback and the tailnet unless the 
       Then the check fails
       And the summary of the check mentions "tcp 192.0.2.10:45876 (beszel-agent.service)"
 
+    Scenario: The T3 server of a headless worker is a fleet service too
+      Given the exposure policy is:
+        """
+        {"otherListeners": "warn"}
+        """
+      And these sockets listen:
+        | protocol | address    | port | unit                    |
+        | tcp      | 192.0.2.10 | 4100 | t3code-headless.service |
+      When the exposure of the worker is checked
+      Then the check fails
+      And the summary of the check mentions "tcp 192.0.2.10:4100 (t3code-headless.service)"
+
     Scenario: The report names a unit and a port, never what the process was started with
       Given these sockets listen:
         | protocol | address | port | unit                   |

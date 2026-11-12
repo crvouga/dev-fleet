@@ -163,6 +163,7 @@ const STATUS: Record<string, Status> = {
   warn: 'warn',
   'is skipped': 'skip',
   'are skipped': 'skip',
+  'is not applicable': 'not-applicable',
 };
 
 function checks(world: CoreWorld): Check[] {
@@ -178,7 +179,7 @@ function checkNamed(world: CoreWorld, id: string): Check {
 }
 
 Then(
-  /^the check "([^"]+)" (passes|fails|warns|is skipped)$/,
+  /^the check "([^"]+)" (passes|fails|warns|is skipped|is not applicable)$/,
   (world, id: string, verdict: string) => {
     expect(checkNamed(world, id).status).toBe(STATUS[verdict]!);
   }

@@ -8,8 +8,13 @@ import type { Check, Runner, Status } from './types';
  * listening on it is never the fleet's intention. */
 export const MONITORING_AGENT_PORT = 45876;
 /** The fleet's own services: a listener of theirs beyond loopback and the
- * tailnet always fails, whatever the policy says of other listeners. */
-const FLEET_UNITS = ['t3code-desktop.service', 'beszel-agent.service'];
+ * tailnet always fails, whatever the policy says of other listeners. T3 is
+ * the desktop app on a desktop worker and the server on a headless one. */
+const FLEET_UNITS = [
+  't3code-desktop.service',
+  't3code-headless.service',
+  'beszel-agent.service',
+];
 /** The table tasks/firewall.yml loads. */
 export const FIREWALL_TABLE = ['inet', 'personal_fleet'];
 

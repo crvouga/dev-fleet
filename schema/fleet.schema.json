@@ -126,6 +126,30 @@
               }
             }
           },
+          "features": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "preset": {
+                "enum": ["editing"],
+                "description": "A named set of features, applied before the fields beside it. editing: no containers, a headless session and only the base tools (it adds no tool profile)."
+              },
+              "containers": {
+                "type": "boolean",
+                "description": "Docker on the worker: its packages, service, docker group membership, the docker-cli tool and the Docker step of the disk GC. Default true. Turning it off on an existing worker removes what dev-fleet installed for it; fleet-sync --dry-run lists what."
+              },
+              "session": {
+                "enum": ["desktop", "headless"],
+                "description": "How the worker runs T3. desktop (default): the pinned desktop app in an auto-login graphical session. headless: the pinned T3 server as a lingering user service, with no display manager. ~/.t3 is kept when this changes."
+              }
+            },
+            "description": "This worker's features, over the fleet-wide worker.features."
+          },
+          "powerRecoveryNote": {
+            "type": "string",
+            "pattern": "^[^\\n\\r]{1,120}$",
+            "description": "On a virtual machine, who restarts it after a power loss (for example: provider restarts instances). Shown with worker:power-loss-recovery, which is not applicable to a virtual machine."
+          },
           "toolProfiles": {
             "type": "array",
             "uniqueItems": true,
@@ -377,6 +401,25 @@
         },
         "neverSleep": {
           "const": true
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "preset": {
+              "enum": ["editing"],
+              "description": "A named set of features, applied before the fields beside it. editing: no containers, a headless session and only the base tools (it adds no tool profile)."
+            },
+            "containers": {
+              "type": "boolean",
+              "description": "Docker on the worker: its packages, service, docker group membership, the docker-cli tool and the Docker step of the disk GC. Default true. Turning it off on an existing worker removes what dev-fleet installed for it; fleet-sync --dry-run lists what."
+            },
+            "session": {
+              "enum": ["desktop", "headless"],
+              "description": "How the worker runs T3. desktop (default): the pinned desktop app in an auto-login graphical session. headless: the pinned T3 server as a lingering user service, with no display manager. ~/.t3 is kept when this changes."
+            }
+          },
+          "description": "Features every worker has unless its own features say otherwise. Absent: containers and a desktop session, as before features existed."
         },
         "toolProfiles": {
           "type": "array",

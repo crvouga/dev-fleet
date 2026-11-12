@@ -1,8 +1,11 @@
 Feature: Which machines the manager converges
-  Every worker answers one probe with four lines: its family, its release,
-  its CPU and the environment it runs in. A worker runs an Ubuntu release the
-  Ubuntu policy accepts, on a CPU that release lists, on a machine of its own.
-  docs/support-matrix.md lists every platform and what happens to it.
+  Every worker answers one probe: its family, its release, its CPU, the
+  environment it runs in, the hypervisor it runs on, its CPU count, its memory
+  and the size of its root filesystem. A worker runs an Ubuntu release the
+  Ubuntu policy accepts, on a CPU that release lists, on a machine of its own
+  at least the size of the minimum worker. The probe records whether that
+  machine is physical or virtual. docs/support-matrix.md lists every platform
+  and what happens to it.
 
   Scenario Outline: A worker that reports <family> <release> on <cpu> is <verdict>
     When a worker answers the probe with "<family>", "<release>", "<cpu>" and "machine"
@@ -53,6 +56,44 @@ Feature: Which machines the manager converges
       | container   | 6.8.0-45-generic                    | .dockerenv         |
       | container   | 6.8.0-45-generic                    | run/.containerenv  |
       | machine     | 6.8.0-45-generic                    |                    |
+
+  Scenario Outline: The probe records <what> as a <class> machine
+    A virtual machine has no lid and no firmware its guest can read, and its
+    provider restarts it after a power loss: the checks of those do not apply
+    to it. systemd-detect-virt names the hypervisor, or "none" on bare metal.
+    Given a root whose kernel release reads "6.8.0-45-generic" and that holds the files:
+      |  |
+    And systemd-detect-virt there reports "<hypervisor>"
+    And its memory reads "MemTotal:        8131476 kB" and its CPUs number 4
+    When the probe runs there
+    Then it prints the environment "machine"
+    And it prints the hypervisor "<hypervisor>"
+    And it prints 4 CPUs and 7940 MiB of memory
+    And the machine class is recorded as "<summary>"
+
+    Examples:
+      | what        | hypervisor | class    | summary                                                                                     |
+      | a KVM guest | kvm        | virtual  | Virtual machine (kvm): checks of firmware power recovery and of a lid do not apply.        |
+      | bare metal  | none       | physical | Physical machine (systemd-detect-virt reported none).                                       |
+
+  Scenario Outline: A worker with <size> is <verdict>
+    The minimum worker is declared once, under sizing.minimumWorker in the
+    Ubuntu policy: 2 CPUs, 3584 MiB of memory (a 4 GiB instance after the
+    kernel takes its share) and a 20480 MiB root filesystem. A smaller
+    machine is refused before anything is installed on it.
+    When a worker reports <cpus> CPUs, <memory> MiB of memory and a <disk> MiB root filesystem
+    Then the "platform:worker-size" check says the worker is <verdict>, with "<summary>"
+
+    Examples:
+      | size                                | cpus | memory | disk   | verdict       | summary                                         |
+      | the minimum                         | 2    | 3584   | 20480  | supported     | 2 CPUs, 3584 MiB of memory                      |
+      | a small rented instance             | 2    | 7940   | 40960  | supported     | 2 CPUs, 7940 MiB of memory                      |
+      | too little memory                   | 2    | 1983   | 40960  | not supported | WORKER_SIZE_BELOW_MINIMUM: memory 1983 MiB < 3584 MiB |
+      | too small a disk                    | 4    | 7940   | 10240  | not supported | WORKER_SIZE_BELOW_MINIMUM: disk 10240 MiB < 20480 MiB |
+      | one CPU                             | 1    | 7940   | 40960  | not supported | WORKER_SIZE_BELOW_MINIMUM: CPUs 1 < 2           |
+
+  Scenario: A worker whose probe reports no size is not judged by it
+    Then a worker that reports no size gets no size check
 
   Scenario: Only Linux machines are workers
     macOS and Windows are not worker platforms: the fleet configuration

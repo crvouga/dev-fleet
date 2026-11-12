@@ -1,11 +1,15 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import policy from '../ansible/ubuntu/policy.json';
+import { workerFeatures } from './worker-features';
 
 /** A worker installs only this declared subset; every version still comes from mise.lock. */
 export function workerTools<T>(
   tools: Record<string, T>,
-  selected: unknown
+  selected: unknown,
+  /** False on a worker without containers: docker-cli is then not required. */
+  containers = true
 ): Record<string, T> {
   if (typeof selected === 'string') selected = selected.split(',');
   if (
@@ -15,9 +19,15 @@ export function workerTools<T>(
     !selected.every(
       (key) => typeof key === 'string' && Object.hasOwn(tools, key)
     ) ||
-    !['bun', 'node', 'gh', 'python', 'uv', 'docker-cli', 'vault'].every((key) =>
-      selected.includes(key)
-    )
+    ![
+      'bun',
+      'node',
+      'gh',
+      'python',
+      'uv',
+      ...(containers ? ['docker-cli'] : []),
+      'vault',
+    ].every((key) => selected.includes(key))
   )
     throw new Error(
       'Invalid worker tool profile: all required tools need authoritative mise pins.'
@@ -40,6 +50,9 @@ export type ToolProfile = (typeof TOOL_PROFILES)[number];
 export interface ToolSelection {
   profiles: string[];
   tools: string[];
+  /** False when the worker's `containers` feature is off: the base tools
+   * then leave out the Docker CLI. Absent means on. */
+  containers?: boolean;
 }
 export const NO_SELECTION: ToolSelection = { profiles: [], tools: [] };
 
@@ -68,9 +81,11 @@ export function workerSelection(
     .filter(record)
     .filter((entry) => node !== undefined && entry['id'] === node)
     .flatMap((entry) => list(entry['toolProfiles']));
+  const containers = workerFeatures(definition, node).containers;
   return {
     profiles: [...new Set([...list(policy['toolProfiles']), ...own])],
     tools: [...new Set(list(policy['tools']))],
+    ...(containers ? {} : { containers }),
   };
 }
 
@@ -101,7 +116,11 @@ export function workerToolset<T>(
 ): Record<string, T> {
   const names = (value: unknown) =>
     typeof value === 'string' ? value.split(',').filter(Boolean) : [];
-  const base = names(vars['worker_tools']);
+  const containers = selection.containers !== false;
+  // Without containers the Docker CLI is not a base tool (CONTAINER_TOOLS).
+  const base = names(vars['worker_tools']).filter(
+    (tool) => containers || !CONTAINER_TOOLS.includes(tool)
+  );
   const added = selection.profiles.flatMap((profile) => {
     const declared = vars[`worker_profile_${profile}`];
     if (typeof declared !== 'string' || !declared)
@@ -115,10 +134,16 @@ export function workerToolset<T>(
       throw new Error(
         `The worker tool "${tool}" has no pin in dev-fleet's mise.toml. Ask for it in an issue.`
       );
-  return workerTools(tools, [
-    ...new Set([...base, ...added, ...selection.tools]),
-  ]);
+  return workerTools(
+    tools,
+    [...new Set([...base, ...added, ...selection.tools])],
+    containers
+  );
 }
+
+/** The base tools that belong to the `containers` feature
+ * (`features.containers.tools` in ansible/ubuntu/policy.json). */
+export const CONTAINER_TOOLS: string[] = policy.features.containers.tools;
 
 /** `--profiles web,go --tools fd` for the doctor and the setup. */
 export function selectionArguments(selection: ToolSelection): string[] {
@@ -127,6 +152,7 @@ export function selectionArguments(selection: ToolSelection): string[] {
       ? ['--profiles', selection.profiles.join(',')]
       : []),
     ...(selection.tools.length ? ['--tools', selection.tools.join(',')] : []),
+    ...(selection.containers === false ? ['--no-containers'] : []),
   ];
 }
 
@@ -138,5 +164,9 @@ export function parseSelectionArguments(argv: string[]): ToolSelection {
       ? []
       : (argv[index + 1] ?? '').split(',').filter((item) => item.length > 0);
   };
-  return { profiles: value('--profiles'), tools: value('--tools') };
+  return {
+    profiles: value('--profiles'),
+    tools: value('--tools'),
+    ...(argv.includes('--no-containers') ? { containers: false } : {}),
+  };
 }

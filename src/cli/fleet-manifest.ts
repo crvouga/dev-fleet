@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { FleetUsageError } from '../errors';
+import { fleet } from '../fleet-config';
+import { declaredFor, workerFeatures } from '../worker-features';
 import { runCommand } from '../runner';
 import type { Runner } from '../types';
 import {
@@ -62,7 +64,11 @@ export async function fleetManifest(
   const fresh = options.reference
     ? await reference(options.reference)
     : undefined;
-  const policy = await ubuntuPolicy(services.root);
+  // A worker is measured against what its own features install.
+  const policy = declaredFor(
+    await ubuntuPolicy(services.root),
+    workerFeatures(fleet, node.id)
+  );
   const measured = await measureManifest(node, services.run, policy);
   if ('check' in measured)
     return {

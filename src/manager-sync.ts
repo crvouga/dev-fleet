@@ -18,7 +18,9 @@ import type { FleetDefinition, MachineDefinition } from './definition';
 import { publicHubUrl } from './monitoring/beszel';
 import {
   evaluateEnvironment,
+  evaluateMachineClass,
   evaluatePlatform,
+  evaluateSize,
   PLATFORM_PROBE,
   probedClock,
 } from './machine/platform';
@@ -78,6 +80,8 @@ export async function inspectBootstrap(
     remote === undefined || sentAt === undefined || receivedAt === undefined
       ? []
       : [clockOffsetCheck(remote, sentAt, receivedAt)];
+  const machine = evaluateMachineClass(result.stdout);
+  const size = evaluateSize(result.stdout);
   return [
     {
       id: 'ssh:fresh-session',
@@ -103,6 +107,24 @@ export async function inspectBootstrap(
           'Run the worker on a physical or virtual machine of its own; docs/support-matrix.md lists what is supported.',
       },
     },
+    { id: machine.id, status: 'pass', summary: machine.summary },
+    ...(size
+      ? [
+          {
+            id: size.id,
+            status: size.supported ? ('pass' as const) : ('fail' as const),
+            summary: size.summary,
+            ...(size.supported
+              ? {}
+              : {
+                  remedy: {
+                    action:
+                      'Resize the machine to at least the minimum worker size docs/worker-contract.md states, then run fleet-sync. Nothing was installed.',
+                  },
+                }),
+          },
+        ]
+      : []),
     ...offset,
   ];
 }

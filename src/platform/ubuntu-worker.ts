@@ -1,4 +1,5 @@
 import type { Runner } from '../types';
+import type { WorkerFeatures } from '../worker-features';
 import {
   browserPackagePins,
   kernelArchitectures,
@@ -31,8 +32,18 @@ export const UBUNTU_WORKER: WorkerPlatform = {
     kernelArchitectures(ubuntuRelease(release.release) ?? release),
   // Loaded when used: the platform probe reads this module on the manager,
   // and the host checks pull in what only a worker runs.
-  hostChecks: async (user: string, run: Runner) =>
-    (await import('../worker-host-checks')).workerHostChecks(user, run),
+  hostChecks: async (
+    user: string,
+    run: Runner,
+    features?: WorkerFeatures,
+    powerRecoveryNote?: string
+  ) =>
+    (await import('../worker-host-checks')).workerHostChecks(
+      user,
+      run,
+      features,
+      powerRecoveryNote
+    ),
 };
 
 /** Every platform a worker may run. A machine of any other family is

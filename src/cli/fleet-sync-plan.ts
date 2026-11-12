@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import type { Standing } from '../state/sync';
 import type { Runner } from '../types';
+import { featureRemovals, workerFeatures } from '../worker-features';
 
 /** A tool whose pin changes between the applied and the selected revision. */
 export interface ToolChange {
@@ -31,6 +32,9 @@ export interface SyncPlan {
   tools: ToolChange[];
   restarts: Restart[];
   nodes: { node: string; from: string | null; to: string; changes: boolean }[];
+  /** What a sync removes from a worker because the fleet configuration
+   * turned one of its features off since it was last applied. */
+  removals: { node: string; removes: string[] }[];
 }
 
 /** The coding agents' CLIs: a new version is used by the next session, and a
@@ -145,6 +149,9 @@ export async function syncPlan(
     sources: string[];
     /** `--restart-busy`: a T3 restart does not wait for idle. */
     restartBusy?: boolean;
+    /** The fleet configuration last applied (from the fleet state), when
+     * there is one, and the one this sync applies. */
+    definitions?: { applied: unknown; selected: unknown };
   },
   run: Runner
 ): Promise<SyncPlan> {
@@ -181,7 +188,43 @@ export async function syncPlan(
       to: input.to,
       changes: differs,
     })),
+    removals: input.definitions ? removals(input.nodes, input.definitions) : [],
   };
+}
+
+/** Per worker, what turning its features off removes. Nothing is known to
+ * be removed from a worker the applied configuration does not name. */
+function removals(
+  nodes: string[],
+  definitions: { applied: unknown; selected: unknown }
+): SyncPlan['removals'] {
+  const workers = (definition: unknown): Record<string, unknown>[] => {
+    const list =
+      typeof definition === 'object' && definition !== null
+        ? (definition as Record<string, unknown>)['workers']
+        : undefined;
+    return Array.isArray(list)
+      ? list.filter(
+          (entry): entry is Record<string, unknown> =>
+            typeof entry === 'object' && entry !== null
+        )
+      : [];
+  };
+  return nodes.flatMap((node) => {
+    const before = workers(definitions.applied).find(
+      (entry) => entry['id'] === node
+    );
+    if (!before) return [];
+    const network = workers(definitions.selected).find(
+      (entry) => entry['id'] === node
+    )?.['network'] as { user?: unknown } | undefined;
+    const removes = featureRemovals(
+      workerFeatures(definitions.applied, node),
+      workerFeatures(definitions.selected, node),
+      typeof network?.user === 'string' ? network.user : 'the worker user'
+    );
+    return removes.length ? [{ node, removes }] : [];
+  });
 }
 
 export const planSources = (workspace: string, root: string): string[] => [
@@ -207,5 +250,7 @@ export function planText(plan: SyncPlan): string {
     );
   for (const restart of plan.restarts)
     lines.push(`  Restarts ${restart.service}: ${restart.reason}`);
+  for (const removal of plan.removals ?? [])
+    lines.push(`  Removes from ${removal.node}: ${removal.removes.join(', ')}`);
   return lines.join('\n');
 }

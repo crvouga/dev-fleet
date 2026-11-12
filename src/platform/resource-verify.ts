@@ -1,4 +1,4 @@
-import policy from '../../ansible/ubuntu/policy.json';
+import { threshold } from '../worker-sizing';
 import type { Check, Runner } from '../types';
 
 const AGENT_DROP_IN =
@@ -9,7 +9,6 @@ const GUARDS = [
   'personal-fleet-disk-gc.timer',
 ];
 const MIB = 1024 * 1024;
-const FLOOR_MIB = policy.resourceSafety.diskGuardFloorMiB;
 
 /** A failure code and remedy, or undefined when the probe passes. */
 type Probe = (run: Runner) => Promise<[string, string] | undefined>;
@@ -61,17 +60,29 @@ const swapActive: Probe = async (run) => {
       ];
 };
 
+/** The disk guard's floor scales with the filesystem
+ * (`sizing.thresholds.diskGuardFloor`); one of unknown size gets the upper
+ * bound. */
 const diskAboveFloor =
   (path: string): Probe =>
   async (run) => {
-    const df = await run(['df', '--output=avail', '-B1', path]);
-    const free = Number(df.stdout.trim().split('\n').at(-1));
-    if (!df.ok || !Number.isSafeInteger(free))
+    const df = await run(['df', '--output=avail,size', '-B1', path]);
+    const [free, size] = (df.stdout.trim().split('\n').at(-1) ?? '')
+      .trim()
+      .split(/\s+/)
+      .map(Number);
+    if (!df.ok || free === undefined || !Number.isSafeInteger(free))
       return ['DISK_FREE_UNREADABLE', `Free space on ${path} is unreadable.`];
-    if (free >= FLOOR_MIB * MIB) return undefined;
+    const floor = threshold(
+      'diskGuardFloor',
+      size !== undefined && Number.isSafeInteger(size)
+        ? Math.floor(size / MIB)
+        : Number.MAX_SAFE_INTEGER
+    );
+    if (free >= floor * MIB) return undefined;
     return [
       'DISK_FREE_BELOW_FLOOR',
-      `${path} has ${Math.floor(free / MIB)} MiB free, under the ${FLOOR_MIB} MiB floor. The disk GC already removed idle build output and caches; remove stale worktrees or data, or run "sudo systemctl start personal-fleet-disk-gc.service" and read its journal.`,
+      `${path} has ${Math.floor(free / MIB)} MiB free, under the ${floor} MiB floor. The disk GC already removed idle build output and caches; remove stale worktrees or data, or run "sudo systemctl start personal-fleet-disk-gc.service" and read its journal.`,
     ];
   };
 
