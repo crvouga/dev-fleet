@@ -243,12 +243,24 @@
       "meaning": "The manager comes back by itself after a power cut or reboot."
     },
     {
+      "id": "manager:clock",
+      "meaning": "The manager keeps its clock on network time."
+    },
+    {
       "id": "manager:docker",
       "meaning": "The manager runs the pinned Docker Desktop."
     },
     {
       "id": "manager:identity",
       "meaning": "This machine is the declared fleet manager."
+    },
+    {
+      "id": "manager:job-logs",
+      "meaning": "newsyslog keeps the logs of the manager's scheduled jobs under the size the macOS policy names."
+    },
+    {
+      "id": "manager:playbook",
+      "meaning": "The manager playbook passed its check-mode run and was applied, or is unchanged since and its postconditions hold."
     },
     {
       "id": "manager:power",
@@ -261,6 +273,10 @@
     {
       "id": "manager:schedule",
       "meaning": "The manager's schedule converged the fleet within two of its intervals."
+    },
+    {
+      "id": "manager:watch",
+      "meaning": "fleet-watch runs on the manager on a schedule, so the heartbeat reaches the bucket."
     },
     {
       "id": "notify:configured",
@@ -555,6 +571,10 @@
       "meaning": "A worker meets one capacity floor (load, memory, disk)."
     },
     {
+      "id": "worker:clock-offset",
+      "meaning": "The worker's clock is within the offset the Ubuntu policy allows of the manager's."
+    },
+    {
       "id": "worker:desired-source",
       "meaning": "The worker runs the declared revision."
     },
@@ -563,12 +583,12 @@
       "meaning": "The worker is signed in to GitHub from the stored credential as the declared login."
     },
     {
-      "id": "worker:package:*",
-      "meaning": "The pinned Ubuntu package is installed at or past its pin."
-    },
-    {
       "id": "worker:manifest",
       "meaning": "A worker is made of what the declared pins and a fresh build of the same revision are made of."
+    },
+    {
+      "id": "worker:package:*",
+      "meaning": "The pinned Ubuntu package is installed at or past its pin."
     },
     {
       "id": "worker:power-loss-recovery",

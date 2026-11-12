@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 251 codes; 31 need a person.
+There are 256 codes; 33 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -394,6 +394,19 @@ There are 251 codes; 31 need a person.
 - `MANAGER_UPDATES_UNOBSERVED`: manager updates unobserved.
 - `REMOTE_CONFIGURATION_INCOMPLETE`: remote configuration incomplete.
 - `REMOTE_PHASE_FAILED`: remote phase failed.
+
+## The manager's own policy and scheduled jobs
+
+- **Meaning:** `ansible/macos/manager.yml` did not pass its check-mode run or its apply, or something it declares (network time, the fleet-watch job, the rotation of the scheduled jobs' logs) is not in place.
+- **Confirm:** The `manager:playbook`, `manager:clock`, `manager:watch` and `manager:job-logs` checks of `devfleet fleet-sync --dry-run`; on the manager, the check-mode run the remedy quotes.
+- **Fix:** Run `devfleet fleet-sync`, which applies the playbook in check mode first, then for real. What needs root (power settings, reading network time, newsyslog) comes from the one grant: `ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml`, run again after an upgrade that changed it.
+- **Escalate:** The grant needs an administrator's password, once.
+
+- `MANAGER_CLOCK_UNOBSERVED`: manager clock unobserved: the grant that lets fleet-sync read network time is missing. **Needs a person.**
+- `MANAGER_JOB_LOG_ROTATION_MISSING`: manager job log rotation missing: the newsyslog drop-in the grant installs is missing or outdated. **Needs a person.**
+- `MANAGER_PLAYBOOK_CHECK_FAILED`: manager playbook check failed: nothing was applied.
+- `MANAGER_PLAYBOOK_FAILED`: manager playbook failed.
+- `MANAGER_WATCH_INTERVAL_INVALID`: manager watch interval invalid: `manager.schedule.watchMinutes` is outside 5 to 1440.
 
 ## Notifications (fleet-watch)
 

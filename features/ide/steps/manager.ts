@@ -104,7 +104,10 @@ Given(
 
 When('the T3 updater of the manager is checked', async (world) => {
   world.checks = [
-    await updatesCheck(of(world).policy!, 'ansible-playbook -K manager.yml'),
+    await updatesCheck(
+      of(world).policy!,
+      'ansible-playbook -K manager-privilege.yml'
+    ),
   ];
 });
 

@@ -78,7 +78,7 @@ export function t3Ide(inputs: T3Inputs = {}): Ide {
         await managerVersion(home(), context.workspace),
         await updatesCheck(
           inputs.policyPath ?? MACOS_POLICY,
-          `cd ${context.workspace} && ${ansibleCommand().join(' ')} -K ansible/macos/manager.yml`
+          `cd ${context.workspace} && ${ansibleCommand().join(' ')} -e user=$(id -un) -K ansible/macos/manager-privilege.yml`
         ),
       ];
     },

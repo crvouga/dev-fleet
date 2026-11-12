@@ -62,7 +62,7 @@ export async function managerVersion(
     running,
     await pinnedT3Version(workspace),
     'the manager',
-    'Install that release of T3 Code on the manager. With the fleet policy staged (ansible-playbook -K ansible/macos/manager.yml) it no longer updates itself.'
+    'Install that release of T3 Code on the manager. With the fleet policy staged (ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml) it no longer updates itself.'
   );
 }
 

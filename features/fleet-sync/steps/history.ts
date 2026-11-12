@@ -1,15 +1,19 @@
 import { expect } from 'bun:test';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  statSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fleetReport } from '../../../src/cli/fleet-report';
 import { FleetUsageError } from '../../../src/errors';
-import { capScheduleLogs } from '../../../src/cli/schedule-logs';
+import { parse } from 'yaml';
+import macos from '../../../ansible/macos/policy.json';
+import { parseDefinition } from '../../../src/definition';
+import { reloadFleet } from '../../../src/fleet-config';
+import {
+  jobLogs,
+  managerJobLogs,
+  newsyslogDropIn,
+} from '../../../src/manager-health';
+import type { Check } from '../../../src/types';
+import { failed, succeeded } from '../../support/commands';
 import { scheduleCheck } from '../../../src/schedule-check';
 import {
   appendRun,
@@ -20,6 +24,7 @@ import {
 } from '../../../src/state/history';
 import type { DataTable } from '../../support/gherkin';
 import {
+  ROOT,
   fleetSync,
   setEnv,
   temporary,
@@ -30,8 +35,13 @@ const { Given, When, Then } = fleetSync;
 
 /** What only these steps keep between them. */
 interface Kept {
+  /** The manager's home, for the logs of its scheduled jobs. */
   logs: string | undefined;
-  check: ReturnType<typeof scheduleCheck> | undefined;
+  check: Check | null | undefined;
+  /** The newsyslog drop-in installed on the manager, when there is one. */
+  dropIn?: string;
+  /** The drop-in the grant installs, rendered for one user. */
+  newsyslog?: { content: string; validate: string };
 }
 const states = new WeakMap<FleetSyncWorld, Kept>();
 
@@ -222,12 +232,29 @@ When('the schedule is checked at {string}', (world, now: string) => {
 });
 
 Then(
-  /^the check "manager:schedule" (passes|fails)$/,
-  (world, outcome: string) => {
-    expect(state(world).check?.id).toBe('manager:schedule');
+  /^the check "([^"]+)" (passes|fails)$/,
+  (world, id: string, outcome: string) => {
+    expect(state(world).check?.id).toBe(id);
     expect(state(world).check?.status).toBe(
       outcome === 'passes' ? 'pass' : 'fail'
     );
+  }
+);
+
+Then(
+  'the check {string} warns with {string}',
+  (world, id: string, summary: string) => {
+    expect(state(world).check?.id).toBe(id);
+    expect(state(world).check?.status).toBe('warn');
+    expect(state(world).check?.summary).toBe(summary);
+  }
+);
+
+Then(
+  'the remedy of the check {string} names {string}',
+  (world, id: string, text: string) => {
+    expect(state(world).check?.id).toBe(id);
+    expect(state(world).check?.remedy?.action).toContain(text);
   }
 );
 
@@ -235,38 +262,148 @@ Then('there is no schedule check', (world) => {
   expect(state(world).check).toBeNull();
 });
 
+// ── How often the schedule runs ──────────────────────────────────────────
+
+/** The example fleet, with the manager's schedule set as the scenario says. */
+function exampleWith(schedule: unknown): Record<string, unknown> {
+  const example = JSON.parse(
+    readFileSync(join(ROOT, 'examples/fleet.json'), 'utf8')
+  ) as { manager: Record<string, unknown> } & Record<string, unknown>;
+  const { state: _bucket, ...rest } = example;
+  return { ...rest, manager: { ...example.manager, schedule } };
+}
+
 Given(
-  /^the schedule's log "([^"]*)" holds (\d+) KiB of lines$/,
+  "the fleet configuration sets the manager's schedule to:",
+  (world, text: string) => {
+    const path = join(temporary(world, 'fleet-schedule-'), 'fleet.json');
+    writeFileSync(path, JSON.stringify(exampleWith(JSON.parse(text))));
+    setEnv(world, 'DEVFLEET_CONFIG', path);
+    reloadFleet();
+    world.defer(reloadFleet);
+  }
+);
+
+When(
+  /^a fleet configuration that sets the manager's schedule to (.+) is read$/,
+  (world, schedule: string) => {
+    try {
+      parseDefinition(exampleWith(JSON.parse(schedule)));
+    } catch (error) {
+      world.failure = error as Error;
+    }
+  }
+);
+
+Then('reading it fails at {string}', (world, path: string) => {
+  expect(world.failure).toBeInstanceOf(Error);
+  expect((world.failure as Error).message).toContain(path);
+});
+
+// ── The logs of the scheduled jobs ───────────────────────────────────────
+
+const USER = 'dev';
+
+/** The manager's home, the drop-in installed there, and what reads it. */
+function logState(world: FleetSyncWorld): Kept {
+  state(world).logs ??= temporary(world, 'fleet-home-');
+  return state(world);
+}
+
+Given(
+  "the newsyslog drop-in for the manager's job logs is installed",
+  (world) => {
+    const home = logState(world).logs!;
+    logState(world).dropIn = [
+      '# Managed by dev-fleet: manager job logs',
+      ...jobLogs(home).map((log) => `${log} ${USER}:staff 600 3 1024 * NZ`),
+      '',
+    ].join('\n');
+  }
+);
+
+Given(
+  /^the job log "([^"]*)" holds (\d+) KiB of lines$/,
   (world, name: string, kib: string) => {
-    const directory = (state(world).logs ??= temporary(world, 'fleet-logs-'));
+    const directory = join(logState(world).logs!, macos.jobLogs.directory);
     mkdirSync(directory, { recursive: true });
     const line = `${'x'.repeat(63)}\n`;
     writeFileSync(join(directory, name), line.repeat(Number(kib) * 16));
   }
 );
 
-When(
-  'a scheduled run starts, with logs capped at {int} KiB',
-  (world, kib: number) => {
-    capScheduleLogs(state(world).logs!, kib * 1024);
-  }
-);
-
-Then(
-  /^the log "([^"]*)" holds at most (\d+) KiB, and ends with a whole line$/,
-  (world, name: string, kib: string) => {
-    const path = join(state(world).logs!, name);
-    expect(existsSync(path)).toBe(true);
-    expect(statSync(path).size).toBeLessThanOrEqual(Number(kib) * 1024);
-    expect(readFileSync(path, 'utf8')).toMatch(/^x+\n(x+\n)*$/);
-  }
-);
-
-Then(
-  /^the log "([^"]*)" still holds (\d+) KiB$/,
-  (world, name: string, kib: string) => {
-    expect(statSync(join(state(world).logs!, name)).size).toBe(
-      Number(kib) * 1024
+When("the manager's job logs are checked", async (world) => {
+  const kept = logState(world);
+  // Only the drop-in is read through a command; nothing else may run.
+  const read = (command: string[]) =>
+    Promise.resolve(
+      command[0] === 'cat' &&
+        command[1] === newsyslogDropIn(USER) &&
+        kept.dropIn !== undefined
+        ? succeeded(kept.dropIn)
+        : failed()
     );
+  kept.check = await managerJobLogs(read, kept.logs!, USER);
+});
+
+When(
+  'the newsyslog drop-in of {string} is read for the user {string}',
+  (world, playbook: string, user: string) => {
+    const plays = parse(readFileSync(join(ROOT, playbook), 'utf8')) as {
+      tasks?: Record<string, unknown>[];
+    }[];
+    const task = plays
+      .flatMap((play) => play.tasks ?? [])
+      .map(
+        (entry) =>
+          entry['ansible.builtin.copy'] as Record<string, string> | undefined
+      )
+      .find((copy) => copy?.['dest']?.startsWith('/etc/newsyslog.d/'));
+    expect(task).toBeDefined();
+    // The playbook's variables, as an administrator's run gives them.
+    const values: Record<string, string> = {
+      user,
+      job_log_directory: `/Users/${user}/${macos.jobLogs.directory}`,
+      'manager_group.stdout': 'staff',
+      'fleetSync.label': macos.fleetSync.label,
+      'fleetWatch.label': macos.fleetWatch.label,
+      'jobLogs.keep': String(macos.jobLogs.keep),
+      'jobLogs.maxKiB': String(macos.jobLogs.maxKiB),
+    };
+    const render = (text: string) =>
+      text.replace(/\{\{\s*([\w.]+)\s*\}\}/g, (_, name: string) => {
+        expect(values[name]).toBeDefined();
+        return values[name]!;
+      });
+    logState(world).newsyslog = {
+      content: render(task!['content']!),
+      validate: task!['validate'] ?? '',
+    };
   }
 );
+
+Then(
+  /^it rotates exactly these logs under "([^"]+)", at (\d+) KiB, keeping (\d+):$/,
+  (world, directory: string, kib: string, keep: string, table: DataTable) => {
+    const entries = logState(world)
+      .newsyslog!.content.split('\n')
+      .filter((line) => line.trim() && !line.startsWith('#'))
+      .map((line) => line.split(/\s+/));
+    expect(entries.map((fields) => fields[0])).toEqual(
+      table.list().map((name) => `${directory}/${name}`)
+    );
+    for (const fields of entries) {
+      expect(fields[1]).toBe(`${USER}:staff`);
+      expect(fields[3]).toBe(String(keep));
+      expect(fields[4]).toBe(String(kib));
+      // No process to signal: launchd opens the log again for every run.
+      expect(fields[6]).toContain('N');
+    }
+  }
+);
+
+Then('it is checked with newsyslog before it is installed', (world) => {
+  expect(logState(world).newsyslog!.validate).toBe(
+    '/usr/sbin/newsyslog -n -f %s'
+  );
+});

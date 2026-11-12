@@ -259,12 +259,45 @@ A notification carries node and check IDs only. `devfleet fleet-watch --test`
 sends one test notification to every target.
 
 Every run stores what it saw, and when, as `watch.json` beside the fleet state
-in the bucket. That time is the manager's heartbeat. A watcher on the manager
-notices nothing when the manager itself is off, so call the reusable
-`fleet-heartbeat.yml` workflow from the repository that holds your
-`fleet.json` (its header shows the one `uses:` line): it fails, and GitHub
-notifies you, when the heartbeat is older than `max-age-minutes`. `bun run health` remains the separate
-single read-only **cloud platform** report.
+in the bucket. That time is the manager's heartbeat. Nobody has to run it:
+`fleet-sync` installs it on the manager as the launchd job
+`dev.devfleet.fleet-watch` (`ansible/macos/manager.yml`), which runs every
+`manager.schedule.watchMinutes` minutes of `fleet.json` (15 by default) from
+the checkout `fleet-sync` last applied, and `manager:watch` fails when it is
+not loaded. It reads the bucket credentials `fleet-state --init` saved.
+
+A watcher on the manager notices nothing when the manager itself is off, so
+call the reusable `fleet-heartbeat.yml` workflow from the repository that
+holds your `fleet.json` (its header shows the one `uses:` line): it fails, and
+GitHub notifies you, when the heartbeat is older than `max-age-minutes`
+(60 by default). With the watch job every 15 minutes and the workflow every
+30, a manager that is turned off fails the workflow within about 90 minutes
+(the age limit plus one interval of the workflow's schedule; GitHub may delay
+a scheduled run). Keep `max-age-minutes` well above `watchMinutes`.
+
+The CLI proxy is checked off the manager the same way:
+`.github/workflows/cliproxy-health.yml` is a reusable workflow, called with one
+`uses:` line. It needs no stored secret: it reads the Vault address and the
+proxy endpoint from your `fleet.json`, logs in to Vault with GitHub's OIDC
+token (the read-only role `vault-role` names, `github-actions` by default) and
+runs the checks of the dev-fleet release your `package.json` pins. Copy
+[`cliproxy/docs/health-workflow.example.yml`](../cliproxy/docs/health-workflow.example.yml)
+into `.github/workflows/` and name the release tag in its `uses:` line; it
+runs the free readiness check every 15 minutes, a light inference check hourly
+and the full suite nightly, and keeps one tracking issue in your repository.
+
+### The logs of the manager's scheduled jobs
+
+`fleet-sync --schedule` and the watch job write to
+`~/.local/share/personal/fleet/manager/logs/<label>.{out,err}.log`. newsyslog
+rotates each once it passes `jobLogs.maxKiB` of `ansible/macos/policy.json`
+(1024 KiB) and keeps `jobLogs.keep` compressed archives, from the drop-in
+`/etc/newsyslog.d/dev-fleet-USER.conf` that the manager's one administrator
+grant (`ansible/macos/manager-privilege.yml`) installs. `manager:job-logs`
+warns when the drop-in is missing, or a log has grown past twice that size.
+
+`bun run health` remains the separate single read-only **cloud platform**
+report.
 
 ## Development
 

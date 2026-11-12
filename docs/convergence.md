@@ -11,23 +11,23 @@ is missing from it.
 
 ## Ansible
 
-| Playbook                                  | Converges                                                                       |
-| ----------------------------------------- | ------------------------------------------------------------------------------- |
-| `ansible/ubuntu/baseline.yml`             | A worker's packages, Docker, services, power, user, SSH, disk                   |
-| `ansible/ubuntu/tailscale.yml`            | Tailscale on a worker                                                           |
-| `ansible/ubuntu/t3-desktop.yml`           | The T3 desktop app on a worker                                                  |
-| `ansible/ubuntu/t3-policy.yml`            | T3's administrator policy                                                       |
-| `ansible/ubuntu/t3-route.yml`             | T3's private tailnet route                                                      |
-| `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app                                            |
-| `ansible/monitoring/agent.yml`            | The Beszel agent on a worker                                                    |
-| `ansible/monitoring/agent-darwin.yml`     | The Beszel agent on the manager                                                 |
-| `ansible/monitoring/hub-darwin.yml`       | The Beszel hub and its tunnel on the manager                                    |
-| `ansible/monitoring/hub-route-darwin.yml` | The hub's private tailnet route                                                 |
-| `ansible/macos/manager.yml`               | The manager's power settings                                                    |
-| `ansible/macos/t3-policy.yml`             | T3's administrator policy on the manager                                        |
-| `ansible/macos/manager-privilege.yml`     | The one `pmset -c` grant that lets fleet-sync hold the manager's power settings |
-| `ansible/macos/worker-host-key.yml`       | A worker's pinned SSH host key in the manager's known_hosts                     |
-| `ansible/github/git.yml`                  | The Git identity and GitHub credentials of every node                           |
+| Playbook                                  | Converges                                                                  |
+| ----------------------------------------- | -------------------------------------------------------------------------- |
+| `ansible/ubuntu/baseline.yml`             | A worker's packages, Docker, services, power, user, SSH, disk              |
+| `ansible/ubuntu/tailscale.yml`            | Tailscale on a worker                                                      |
+| `ansible/ubuntu/t3-desktop.yml`           | The T3 desktop app on a worker                                             |
+| `ansible/ubuntu/t3-policy.yml`            | T3's administrator policy                                                  |
+| `ansible/ubuntu/t3-route.yml`             | T3's private tailnet route                                                 |
+| `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app                                       |
+| `ansible/monitoring/agent.yml`            | The Beszel agent on a worker                                               |
+| `ansible/monitoring/agent-darwin.yml`     | The Beszel agent on the manager                                            |
+| `ansible/monitoring/hub-darwin.yml`       | The Beszel hub and its tunnel on the manager                               |
+| `ansible/monitoring/hub-route-darwin.yml` | The hub's private tailnet route                                            |
+| `ansible/macos/manager.yml`               | The manager's power settings, network time and fleet-watch job, unattended |
+| `ansible/macos/t3-policy.yml`             | T3's administrator policy on the manager                                   |
+| `ansible/macos/manager-privilege.yml`     | The one administrator grant: sudoers, job log rotation and the T3 policy   |
+| `ansible/macos/worker-host-key.yml`       | A worker's pinned SSH host key in the manager's known_hosts                |
+| `ansible/github/git.yml`                  | The Git identity and GitHub credentials of every node                      |
 
 Every playbook passes `ansible-lint` in the production profile, every command
 in it says when it changes something and runs, or is skipped, in a dry run

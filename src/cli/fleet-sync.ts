@@ -27,7 +27,6 @@ import {
   type SyncRun,
   type Trigger,
 } from '../state/history';
-import { capScheduleLogs } from './schedule-logs';
 import {
   DIVERGED_REMEDY,
   mutateState,
@@ -116,7 +115,6 @@ export async function fleetSync(
     });
   if (options.dryRun || options.schedule) return sync();
   const trigger = runTrigger();
-  if (trigger === 'schedule') capScheduleLogs(join(machineRoot(), 'logs'));
   const startedAt = new Date();
   const outcome = await sync();
   await recordRun(

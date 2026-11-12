@@ -1,19 +1,13 @@
 import { expect } from 'bun:test';
-import {
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import policy from '../../../ansible/macos/policy.json';
 import type { Account } from '../../../src/agents/accounts';
+import { fleet } from '../../../src/fleet-config';
 import {
   managerAgentProfiles,
   managerDocker,
-  holdManagerPower,
+  convergeManagerPolicy,
   managerPower,
   pinnedDockerDesktop,
 } from '../../../src/cli/fleet-sync-manager';
@@ -220,51 +214,127 @@ When('the power settings of the manager are measured', async (world) => {
   world.checks = [await managerPower(world.commands.run)];
 });
 
-const granted = new WeakSet<FleetSyncWorld>();
+// ── The manager playbook, its receipt and its check-mode run ────────────
 
-Given("the manager's power grant is in place", (world) => {
-  granted.add(world);
+/** How the stand-in playbook behaves, and what the manager holds. */
+interface Playbook {
+  check: 'passes' | 'fails';
+  apply: 'passes' | 'fails';
+  /** Whether launchd holds the fleet-watch job. */
+  watching: boolean;
+  /** Where the receipts and variables of the scenario are kept. */
+  receipts?: string;
+  scratch?: string;
+  /** The variables the playbook was last given. */
+  variables?: Record<string, unknown>;
+}
+const playbooks = new WeakMap<FleetSyncWorld, Playbook>();
+
+function playbook(world: FleetSyncWorld): Playbook {
+  let found = playbooks.get(world);
+  if (!found) {
+    found = { check: 'passes', apply: 'passes', watching: true };
+    playbooks.set(world, found);
+  }
+  return found;
+}
+
+const managerPlaybookRuns = (world: FleetSyncWorld) =>
+  world.commands.ran((command) =>
+    command.some((arg) => arg.endsWith('ansible/macos/manager.yml'))
+  );
+
+Given(
+  /^the manager playbook (passes|fails) its check(?: and (passes|fails) when applied)?$/,
+  (world, check: 'passes' | 'fails', apply?: 'passes' | 'fails') => {
+    playbook(world).check = check;
+    if (apply) playbook(world).apply = apply;
+  }
+);
+
+Given("launchd does not hold the manager's watch job", (world) => {
+  playbook(world).watching = false;
 });
 
-const appliedPlaybooks = (world: FleetSyncWorld) =>
-  world.commands.ran((command) =>
-    command.some((arg) => arg.endsWith('manager.yml'))
-  );
-
-When("an applying sync holds the manager's power policy", async (world) => {
-  pmset(world, manager(world).power);
+/** One applying sync of the manager's policy, `hours` after the first. */
+async function convergePolicy(world: FleetSyncWorld, hours: number) {
+  const kept = playbook(world);
+  kept.receipts ??= temporary(world, 'manager-receipts-');
+  kept.scratch ??= temporary(world, 'manager-variables-');
+  pmset(world, { ...policy.pmset });
   world.commands.answer(
-    (command) => command[0] === 'sudo' && command[2] === '-l',
-    granted.has(world) ? succeeded() : failed()
+    (command) => command[0] === '/bin/launchctl' && command[1] === 'print',
+    () => (kept.watching ? succeeded('state = waiting') : failed())
   );
   world.commands.answer(
-    (command) => command.some((arg) => arg.endsWith('manager.yml')),
-    () => {
-      manager(world).power = { ...policy.pmset };
-      pmset(world, manager(world).power);
+    (command) =>
+      command.some((arg) => arg.endsWith('ansible/macos/manager.yml')),
+    (command) => {
+      const file = command.at(-1)!.replace(/^@/, '');
+      kept.variables = JSON.parse(readFileSync(file, 'utf8')) as Record<
+        string,
+        unknown
+      >;
+      const stage = command.includes('--check') ? kept.check : kept.apply;
+      if (stage === 'fails') return failed();
+      if (!command.includes('--check')) kept.watching = true;
       return succeeded();
     }
   );
-  const scratch = mkdtempSync(join(tmpdir(), 'devfleet-power-'));
-  world.defer(() => rmSync(scratch, { recursive: true, force: true }));
   world.checks = [
-    await holdManagerPower(world.commands.run, '.', MACOS_MANAGER, {
-      root: ROOT,
-      scratch,
-    }),
+    await convergeManagerPolicy(
+      world.commands.run,
+      { manager: { ...fleet.manager } },
+      MACOS_MANAGER,
+      {
+        root: ROOT,
+        receipts: kept.receipts,
+        scratch: kept.scratch,
+        uid: 501,
+        now: Date.parse('2026-11-01T08:00:00Z') + hours * 3_600_000,
+      }
+    ),
   ];
+}
+
+Given("an applying sync converged the manager's policy", async (world) => {
+  await convergePolicy(world, 0);
 });
 
-Then('manager.yml was applied without a password prompt', (world) => {
-  const [applied] = appliedPlaybooks(world);
-  expect(applied).toBeDefined();
-  expect(applied).not.toContain('-K');
-  expect(applied).not.toContain('--ask-become-pass');
+When("an applying sync converges the manager's policy", async (world) => {
+  await convergePolicy(world, 0);
 });
 
-Then('no playbook was applied', (world) => {
-  expect(appliedPlaybooks(world)).toEqual([]);
+When(
+  "an applying sync converges the manager's policy {int} hours later",
+  async (world, hours: number) => {
+    await convergePolicy(world, hours);
+  }
+);
+
+Then('manager.yml was run, in this order:', (world, table: DataTable) => {
+  expect(
+    managerPlaybookRuns(world).map((command) =>
+      command.includes('--check') ? 'check mode' : ('applied' as string)
+    )
+  ).toEqual(table.list());
 });
+
+Then('manager.yml was never run with a password prompt', (world) => {
+  const runs = managerPlaybookRuns(world);
+  expect(runs.length).toBeGreaterThan(0);
+  for (const command of runs) {
+    expect(command).not.toContain('-K');
+    expect(command).not.toContain('--ask-become-pass');
+  }
+});
+
+Then(
+  'manager.yml was given the watch interval of {int} minutes',
+  (world, minutes: number) => {
+    expect(playbook(world).variables).toEqual({ fleet_watch_minutes: minutes });
+  }
+);
 
 When(
   "each setting the manager's power policy declares, except {string}, is in turn reported as {string} on a manager whose checkout is {string}",

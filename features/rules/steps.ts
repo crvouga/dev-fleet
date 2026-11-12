@@ -611,7 +611,7 @@ Then(
     // An action of this repository runs at the commit under test.
     for (const action of world.found.filter((uses) => !uses.startsWith('./')))
       expect(action).toMatch(
-        /^[\w.-]+\/[\w.-]+@[a-f0-9]{40} # v\d+\.\d+\.\d+$/
+        /^[\w.-]+\/[\w.-]+(?:\/[\w.-]+)*@[a-f0-9]{40} # v\d+\.\d+\.\d+$/
       );
   }
 );
@@ -1589,10 +1589,33 @@ When('the playbook {string} is read', (world, path: string) => {
   world.script = read(path);
 });
 
-Then('it does not become another user', (world) => {
-  const [play] = parse(world.script) as Record<string, unknown>[];
-  expect(play!['become']).toBeUndefined();
+Then('no play of it becomes another user', (world) => {
+  const plays = parse(world.script) as Record<string, unknown>[];
+  expect(plays.length).toBeGreaterThan(1);
+  for (const play of plays) {
+    expect(play['become'] ?? false).toBe(false);
+    expect(play['ansible.builtin.import_playbook']).toBeUndefined();
+  }
 });
+
+Then(
+  'everything it runs through sudo is one of:',
+  (world, table: DataTable) => {
+    const plays = parse(world.script) as { tasks?: Task[] }[];
+    const allowed = table.list();
+    const viaSudo = plays
+      .flatMap((play) => play.tasks ?? [])
+      .map(
+        (task) =>
+          (task['ansible.builtin.command'] as { argv?: string[] } | undefined)
+            ?.argv
+      )
+      .filter((argv): argv is string[] => argv?.[0] === '/usr/bin/sudo')
+      .map((argv) => argv.slice(2, 4).join(' '));
+    expect(viaSudo.length).toBeGreaterThan(0);
+    for (const command of viaSudo) expect(allowed).toContain(command);
+  }
+);
 
 Then(
   'it changes the power settings only through {string}',

@@ -173,6 +173,15 @@ Then(
 );
 
 Then(
+  'the scheduled job {string} runs every {int} minutes',
+  (world, label: string, minutes: number) => {
+    const [job] = state(world).installed;
+    expect(job?.label).toBe(label);
+    expect(job?.intervalSeconds).toBe(minutes * 60);
+  }
+);
+
+Then(
   'the scheduled job runs with {string} set to {string}',
   (world, name: string, value: string) => {
     expect(state(world).installed[0]?.env[name]).toBe(value);

@@ -53,6 +53,48 @@ export function clockCheck(
   };
 }
 
+/** The offset of a worker's clock from the manager's, measured by the
+ * manager around one SSH round trip: the worker read its clock between
+ * `sentAt` and `receivedAt` (milliseconds on the manager's clock), so the
+ * offset is only known to lie in that window. The check judges the smallest
+ * offset the window allows, so a slow link never reads as a skewed clock.
+ */
+export function clockOffsetCheck(
+  remoteSeconds: number,
+  sentAt: number,
+  receivedAt: number
+): Check {
+  const remote = remoteSeconds * 1000;
+  const least =
+    remote > receivedAt
+      ? (remote - receivedAt) / 1000
+      : remote < sentAt
+        ? (sentAt - remote) / 1000
+        : 0;
+  const direction = remote > receivedAt ? 'ahead of' : 'behind';
+  const measured = `${least.toFixed(1)} s ${direction} the manager`;
+  const remedy = clockRemedy(undefined);
+  if (least > failOffsetSeconds)
+    return {
+      id: 'worker:clock-offset',
+      status: 'fail',
+      summary: `CLOCK_SKEWED ${measured}`,
+      remedy,
+    };
+  if (least > warnOffsetSeconds)
+    return {
+      id: 'worker:clock-offset',
+      status: 'warn',
+      summary: `CLOCK_DRIFTING ${measured}`,
+      remedy,
+    };
+  return {
+    id: 'worker:clock-offset',
+    status: 'pass',
+    summary: `The clock is within ${warnOffsetSeconds} s of the manager's.`,
+  };
+}
+
 function clockRemedy(timeService: number | undefined): { action: string } {
   return {
     action:

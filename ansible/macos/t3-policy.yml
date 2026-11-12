@@ -4,7 +4,8 @@
 # changes only when the fleet's pin does. Provider instances are reconciled
 # by fleet-sync on every run and stay unlocked here: locking them needs an
 # administrator for each change of the account roster. fleet-sync measures
-# the result as t3:updates. Needs an administrator: ansible-playbook -K manager.yml
+# the result as t3:updates. Needs an administrator, once, through
+# manager-privilege.yml: ansible-playbook -K manager-privilege.yml -e user=$(id -un)
 - name: Stage the fleet's T3 policy on the manager
   hosts: localhost
   connection: local

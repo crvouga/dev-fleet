@@ -13,12 +13,15 @@ import { IDES } from '../ide';
 import { enabled, managerChecks } from '../ide/orchestrate';
 import { idesOf } from '../ide/definition';
 import { convergeGitIdentity, gitChecks } from '../git-identity';
-import { ansibleCommand, runAnsible } from '../platform/ansible';
+import { ansibleCommand } from '../platform/ansible';
+import { runAnsibleWithReceipt } from '../platform/ansible-receipt';
+import macos from '../../ansible/macos/policy.json';
+import { scheduleIntervals } from '../schedule-check';
 import { convergeGithub } from '../github/converge';
 import { PACKAGE_ROOT } from '../package-info';
 import { managerHealth } from '../manager-health';
 import { readFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { homedir, userInfo } from 'node:os';
 import {
   MACOS_MANAGER,
   managerHost,
@@ -49,9 +52,11 @@ export async function convergeManager(
     if (input.apply) installConfig();
     checks.push(
       input.apply
-        ? await holdManagerPower(run, input.workspace, host)
+        ? await convergeManagerPolicy(run, definition, host)
         : await managerPower(run, input.workspace, host)
     );
+    if (input.apply)
+      checks.push(await managerPower(run, input.workspace, host));
     checks.push(await managerBootRecovery(run, input.workspace, host));
     checks.push(await managerDocker(run));
     // Each enabled IDE: its settings, pinned version and policy.
@@ -296,41 +301,93 @@ export async function managerBootRecovery(
   };
 }
 
-/** Whether the one grant manager-privilege.yml installs is in place: this
- * user may run `pmset -c` without a password. Lists, never runs.
- */
-async function powerGranted(run: Runner): Promise<boolean> {
-  return (
-    await run(['sudo', '-n', '-l', '/usr/bin/pmset', '-c', 'sleep', '0'], {
-      timeoutMs: 10_000,
-    })
-  ).ok;
-}
+/** The receipt of the manager's own playbook, beside the workers' ones. */
+export const MANAGER_RECEIPT = 'macos-manager';
 
-/** On every applying sync: a drifted power policy is applied with
- * manager.yml when the grant is in place, then measured again. Without the
- * grant the check says how to give it, once.
+/** On every applying sync the manager applies `ansible/macos/manager.yml`
+ * like a worker applies its baseline: in check mode first, then for real,
+ * with a receipt that skips an unchanged playbook while its postconditions
+ * hold, and a full re-apply at least once a day. It never asks for a
+ * password: what needs root goes through the grant manager-privilege.yml
+ * installs once, and the playbook skips it without the grant.
  */
-export async function holdManagerPower(
+export async function convergeManagerPolicy(
   run: Runner,
-  workspace = '.',
+  definition: Pick<FleetDefinition, 'manager'>,
   host: ManagerHost = MACOS_MANAGER,
-  { root = PACKAGE_ROOT, scratch }: { root?: string; scratch?: string } = {}
+  {
+    root = PACKAGE_ROOT,
+    scratch,
+    receipts,
+    uid = userInfo().uid,
+    now,
+  }: {
+    root?: string;
+    scratch?: string;
+    receipts?: string;
+    uid?: number;
+    now?: number;
+  } = {}
 ): Promise<Check> {
-  const before = await managerPower(run, workspace, host);
-  if (
-    before.status === 'pass' ||
-    host.platform !== 'macOS' ||
-    !(await powerGranted(run))
-  )
-    return before;
-  await runAnsible(
+  if (host.platform !== 'macOS')
+    return {
+      id: 'manager:playbook',
+      status: 'not-applicable',
+      summary: 'The manager playbook is for a macOS manager.',
+    };
+  const result = await runAnsibleWithReceipt(
     run,
     join(root, 'ansible/macos/manager.yml'),
-    { input: '{}', timeoutMs: 120_000 },
-    scratch
+    {
+      cwd: join(root, 'ansible/macos'),
+      timeoutMs: 300_000,
+      input: JSON.stringify({
+        fleet_watch_minutes: scheduleIntervals(definition.manager).watchMinutes,
+      }),
+    },
+    {
+      name: MANAGER_RECEIPT,
+      sources: [join(root, 'ansible/macos')],
+      checkFirst: true,
+      verify: async () =>
+        (await host.powerDrift(run)).drifted.length === 0 &&
+        (await watchLoaded(run, uid)),
+      ...(receipts ? { directory: receipts } : {}),
+      ...(scratch ? { scratch } : {}),
+      ...(now === undefined ? {} : { now }),
+    }
   );
-  return managerPower(run, workspace, host);
+  if (result.ok)
+    return {
+      id: 'manager:playbook',
+      status: 'pass',
+      summary: result.cached
+        ? 'The manager playbook is unchanged since it was last applied, and its postconditions hold.'
+        : 'The manager playbook was checked, then applied.',
+    };
+  return {
+    id: 'manager:playbook',
+    status: 'fail',
+    summary:
+      result.stage === 'check'
+        ? 'MANAGER_PLAYBOOK_CHECK_FAILED'
+        : 'MANAGER_PLAYBOOK_FAILED',
+    remedy: {
+      action: `Run the playbook in check mode on the manager and read the failing task: ${ansibleCommand().join(' ')} --check --diff ${join(root, 'ansible/macos/manager.yml')}. Nothing in it needs a password; what needs root comes from the one grant (manager-privilege.yml).`,
+    },
+  };
+}
+
+/** Whether launchd holds the fleet-watch job manager.yml installs. Reads only. */
+export async function watchLoaded(run: Runner, uid: number): Promise<boolean> {
+  return (
+    await run(
+      ['/bin/launchctl', 'print', `gui/${uid}/${macos.fleetWatch.label}`],
+      {
+        timeoutMs: 10_000,
+      }
+    )
+  ).ok;
 }
 
 /** The Docker Desktop release `mise.toml` pins, as the engine names itself. */

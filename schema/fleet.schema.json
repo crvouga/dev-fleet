@@ -53,6 +53,25 @@
         "neverSleepOnPower": {
           "const": true,
           "description": "Workers depend on the manager's singleton services, so it never sleeps on AC power."
+        },
+        "schedule": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "How often the manager's scheduled jobs run. Each defaults to the interval in ansible/macos/policy.json.",
+          "properties": {
+            "syncMinutes": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 1440,
+              "description": "fleet-sync --schedule converges the fleet this often (default 30)."
+            },
+            "watchMinutes": {
+              "type": "integer",
+              "minimum": 5,
+              "maximum": 1440,
+              "description": "fleet-watch checks the fleet and stores its heartbeat this often (default 15). Keep it well under the max-age-minutes of the heartbeat workflow."
+            }
+          }
         }
       }
     },

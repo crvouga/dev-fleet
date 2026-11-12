@@ -1,17 +1,30 @@
 ---
-# The one privilege grant a manager needs, given once by its administrator:
+# What a manager needs from root, given once by its administrator:
 #   ansible-playbook -K manager-privilege.yml -e user=$(id -un)
-# It lets that user run exactly `pmset -c` (the AC power settings
-# manager.yml declares) without a password, so every fleet-sync holds the
-# manager's power policy with no prompt. Run again with -e grant=absent to
-# remove it; nothing else on the manager needs root.
-- name: Grant the fleet manager its power settings without a prompt
+# - a sudoers rule that lets that user run exactly `pmset -c` (the AC power
+#   settings manager.yml declares) and read whether network time is on
+#   (`systemsetup -getusingnetworktime`, manager:clock), without a password,
+#   so every fleet-sync holds and measures them with no prompt;
+# - a newsyslog drop-in that keeps the logs of the manager's scheduled jobs
+#   (fleet-sync --schedule and fleet-watch) under the size jobLogs in
+#   policy.json names. newsyslog runs as root, so it is installed here and
+#   measured by manager:job-logs;
+# - the fleet's T3 administrator policy (t3-policy.yml), measured by
+#   t3:updates.
+# Run it again after an upgrade when manager:clock or manager:job-logs says
+# so, or with -e grant=absent to remove both; nothing else on the manager
+# needs root.
+- name: Grant the fleet manager its power settings and job log rotation
   hosts: localhost
   connection: local
   become: true
   gather_facts: false
+  vars_files:
+    - policy.json
   vars:
     grant: present
+    manager_home: "{{ ('~' ~ user) | expanduser }}"
+    job_log_directory: '{{ manager_home }}/{{ jobLogs.directory }}'
   tasks:
     - name: Check the request
       ansible.builtin.assert:
@@ -19,19 +32,52 @@
           - "user is match('^[a-z_][a-z0-9_.-]{0,31}$')"
           - "user != 'root'"
           - "grant in ['present', 'absent']"
-    - name: Allow exactly the AC power settings
+          - "manager_home is match('^/')"
+    - name: Allow exactly the AC power settings and the network time reading
       ansible.builtin.copy:
         dest: '/etc/sudoers.d/dev-fleet-manager-{{ user }}'
         content: |
           # Managed by dev-fleet: manager power policy
           {{ user }} ALL=(root) NOPASSWD: /usr/bin/pmset -c *
+          {{ user }} ALL=(root) NOPASSWD: /usr/sbin/systemsetup -getusingnetworktime
         owner: root
         group: wheel
         mode: '0440'
         validate: /usr/sbin/visudo -cf %s
       when: grant == 'present'
-    - name: Remove the grant
+    - name: Read the manager user's group
+      ansible.builtin.command:
+        argv: [/usr/bin/id, -gn, '{{ user }}']
+      changed_when: false
+      check_mode: false
+      register: manager_group
+      when: grant == 'present'
+    # newsyslog rotates a log once it is larger than the size given (in KiB),
+    # keeps that many compressed archives, and signals nothing (N): launchd
+    # opens the log again for every run of the job.
+    - name: Rotate the logs of the manager's scheduled jobs
+      ansible.builtin.copy:
+        dest: '/etc/newsyslog.d/dev-fleet-{{ user }}.conf'
+        content: |
+          # Managed by dev-fleet: manager job logs
+          # logfilename  [owner:group]  mode  count  size(KiB)  when  flags
+          {{ job_log_directory }}/{{ fleetSync.label }}.out.log {{ user }}:{{ manager_group.stdout }} 600 {{ jobLogs.keep }} {{ jobLogs.maxKiB }} * NZ
+          {{ job_log_directory }}/{{ fleetSync.label }}.err.log {{ user }}:{{ manager_group.stdout }} 600 {{ jobLogs.keep }} {{ jobLogs.maxKiB }} * NZ
+          {{ job_log_directory }}/{{ fleetWatch.label }}.out.log {{ user }}:{{ manager_group.stdout }} 600 {{ jobLogs.keep }} {{ jobLogs.maxKiB }} * NZ
+          {{ job_log_directory }}/{{ fleetWatch.label }}.err.log {{ user }}:{{ manager_group.stdout }} 600 {{ jobLogs.keep }} {{ jobLogs.maxKiB }} * NZ
+        owner: root
+        group: wheel
+        mode: '0644'
+        validate: /usr/sbin/newsyslog -n -f %s
+      when: grant == 'present'
+    - name: Remove the grant and the log rotation
       ansible.builtin.file:
-        path: '/etc/sudoers.d/dev-fleet-manager-{{ user }}'
+        path: '{{ item }}'
         state: absent
+      loop:
+        - '/etc/sudoers.d/dev-fleet-manager-{{ user }}'
+        - '/etc/newsyslog.d/dev-fleet-{{ user }}.conf'
       when: grant == 'absent'
+
+- name: Stage the fleet's T3 policy
+  ansible.builtin.import_playbook: t3-policy.yml

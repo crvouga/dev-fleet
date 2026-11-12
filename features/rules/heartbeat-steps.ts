@@ -119,3 +119,89 @@ Then(/^the heartbeat check (passes|fails)$/, (world, verdict: string) => {
 Then('the heartbeat check says {string}', (world, text: string) => {
   expect(of(world).output).toContain(text);
 });
+
+// ── The CLI proxy health workflow ────────────────────────────────────────
+
+interface Reusable {
+  on: {
+    workflow_call?: {
+      inputs: Record<string, unknown>;
+      secrets?: Record<string, unknown>;
+    };
+  };
+  jobs: Record<
+    string,
+    { steps: { run?: string; uses?: string; with?: Record<string, string> }[] }
+  >;
+}
+
+const HEALTH = resolve(
+  import.meta.dir,
+  '../../.github/workflows/cliproxy-health.yml'
+);
+const healthText = (): string => readFileSync(HEALTH, 'utf8');
+const health = (): Reusable => parse(healthText()) as Reusable;
+const healthSteps = () =>
+  Object.values(health().jobs).flatMap((job) => job.steps);
+
+Then(
+  'the CLI proxy health workflow can be called with the inputs:',
+  (_world, table) => {
+    const call = health().on.workflow_call;
+    expect(call).toBeDefined();
+    expect(Object.keys(call!.inputs).sort()).toEqual(table.list().sort());
+  }
+);
+
+Then('the CLI proxy health workflow needs no secret', () => {
+  expect(health().on.workflow_call!.secrets ?? {}).toEqual({});
+  expect(healthText()).not.toContain('${{ secrets.');
+});
+
+Then(
+  "the CLI proxy health workflow reads the Vault address from {string} of the caller's fleet configuration",
+  (_world, path: string) => {
+    const reading = healthSteps().find((step) => step.run?.includes(path));
+    expect(reading?.run).toContain('$GITHUB_WORKSPACE/$CONFIG');
+    const login = healthSteps().find((step) =>
+      step.uses?.startsWith('hashicorp/vault-action@')
+    );
+    expect(login?.with?.['url']).toBe('${{ steps.fleet.outputs.vault }}');
+  }
+);
+
+Then(
+  "the CLI proxy health workflow runs the scripts of the {string} release the caller's package.json pins",
+  (_world, name: string) => {
+    const install = healthSteps().find((step) =>
+      step.run?.includes('npm install')
+    );
+    expect(install?.run).toContain("require('./package.json')");
+    expect(install?.run).toContain(`"${name}@$version"`);
+    expect(install?.run).toContain('--ignore-scripts');
+    const scripts = healthSteps().filter((step) =>
+      /\.py"/.test(step.run ?? '')
+    );
+    expect(scripts.length).toBeGreaterThan(0);
+    for (const step of scripts)
+      expect(step.run).toContain('$CLIPROXY_SCRIPTS/');
+  }
+);
+
+Then('the CLI proxy health workflow names no Vault address of its own', () => {
+  expect(healthText()).not.toMatch(/https:\/\/vault\./);
+});
+
+Then(
+  '{string} calls {string} in one {string} line',
+  (_world, caller: string, workflow: string, key: string) => {
+    const lines = readFileSync(
+      resolve(import.meta.dir, '../..', caller),
+      'utf8'
+    )
+      .split('\n')
+      .filter((line) => line.trim().startsWith(key));
+    expect(lines).toHaveLength(1);
+    expect(lines[0]).toContain(`/${workflow}@`);
+  }
+);

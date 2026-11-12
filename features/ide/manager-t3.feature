@@ -57,4 +57,4 @@ Feature: The manager runs the T3 release the workers run
       When the manager's T3 playbook is read
       Then it installs "../ubuntu/t3/policy.json" at "/Library/Application Support/T3Code/policy.json"
       And it records the ownership marker "ansible/ubuntu/t3/policy.json"
-      And "ansible/macos/manager.yml" imports it
+      And "ansible/macos/manager-privilege.yml" imports it

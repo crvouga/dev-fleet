@@ -73,7 +73,7 @@ export const CHECK_OWNERS: CheckOwner[] = [
   {
     pattern: 'manager:*',
     manual:
-      'The manager converges itself in fleet-sync; a setting that needs an administrator is applied with ansible-playbook -K ansible/macos/manager.yml.',
+      'The manager converges itself in fleet-sync; what needs an administrator is granted once with ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml.',
   },
   { pattern: 'manager:identity', manual: DECLARATION },
   {

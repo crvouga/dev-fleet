@@ -41,6 +41,8 @@ export interface ManagerDefinition {
   os: 'macOS';
   network: { tailscaleName: string; user: string };
   neverSleepOnPower: true;
+  /** How often its scheduled jobs run, when not the policy's default. */
+  schedule?: { syncMinutes?: number; watchMinutes?: number };
 }
 export interface FleetDefinition {
   version: 3;
@@ -266,7 +268,7 @@ function worker(value: unknown, path: string): MachineDefinition {
 function manager(value: unknown): ManagerDefinition {
   const path = '$.manager';
   const fields = object(value, path);
-  keys(fields, ['id', 'os', 'network', 'neverSleepOnPower'], path);
+  keys(fields, ['id', 'os', 'network', 'neverSleepOnPower', 'schedule'], path);
   const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
   // The manager must be the Mac: a Linux machine is a worker.
   constant(fields['os'], 'macOS', `${path}.os`);
@@ -290,7 +292,31 @@ function manager(value: unknown): ManagerDefinition {
     os: 'macOS',
     network: { tailscaleName, user },
     neverSleepOnPower: true,
+    ...(fields['schedule'] === undefined
+      ? {}
+      : { schedule: schedule(fields['schedule'], `${path}.schedule`) }),
   };
+}
+
+function schedule(
+  value: unknown,
+  path: string
+): NonNullable<ManagerDefinition['schedule']> {
+  const fields = object(value, path);
+  keys(fields, ['syncMinutes', 'watchMinutes'], path);
+  const result: NonNullable<ManagerDefinition['schedule']> = {};
+  for (const key of ['syncMinutes', 'watchMinutes'] as const) {
+    const minutes = fields[key];
+    if (minutes === undefined) continue;
+    if (
+      !Number.isInteger(minutes) ||
+      Number(minutes) < 5 ||
+      Number(minutes) > 1440
+    )
+      fail(`${path}.${key}`, 'whole minutes from 5 to 1440', minutes);
+    result[key] = minutes as number;
+  }
+  return result;
 }
 export function parseDefinition(value: unknown): FleetDefinition {
   const fields = object(value, '$');
