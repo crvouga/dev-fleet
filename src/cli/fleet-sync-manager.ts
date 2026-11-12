@@ -310,8 +310,7 @@ export async function holdManagerPower(
   run: Runner,
   workspace = '.',
   host: ManagerHost = MACOS_MANAGER,
-  root = PACKAGE_ROOT,
-  scratch?: string
+  { root = PACKAGE_ROOT, scratch }: { root?: string; scratch?: string } = {}
 ): Promise<Check> {
   const before = await managerPower(run, workspace, host);
   if (

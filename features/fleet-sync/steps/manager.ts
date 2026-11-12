@@ -239,13 +239,10 @@ When("an applying sync holds the manager's power policy", async (world) => {
   const scratch = mkdtempSync(join(tmpdir(), 'devfleet-power-'));
   world.defer(() => rmSync(scratch, { recursive: true, force: true }));
   world.checks = [
-    await holdManagerPower(
-      world.commands.run,
-      '.',
-      MACOS_MANAGER,
-      ROOT,
-      scratch
-    ),
+    await holdManagerPower(world.commands.run, '.', MACOS_MANAGER, {
+      root: ROOT,
+      scratch,
+    }),
   ];
 });
 

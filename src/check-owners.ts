@@ -130,6 +130,7 @@ export const CHECK_OWNERS: CheckOwner[] = [
   { pattern: 'github:rate-limit', manual: EVIDENCE },
   { pattern: 'github:workflow', manual: EVIDENCE },
   { pattern: 'fleet:*', manual: DECLARATION },
+  { pattern: 'definition:*', manual: DECLARATION },
   { pattern: 'enrollment:*', manual: DECLARATION },
   { pattern: 'notify:*', manual: DECLARATION },
   {

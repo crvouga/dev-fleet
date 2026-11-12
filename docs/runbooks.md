@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 244 codes; 31 need a person.
+There are 250 codes; 31 need a person.
 
 ## Bootstrap of a new or returning worker
 
