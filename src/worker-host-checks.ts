@@ -25,7 +25,7 @@ import type { Check, Runner } from './types';
 
 function check(id: string, ok: boolean, summary: string): Check {
   return {
-    id: `worker:${id}`,
+    id,
     status: ok ? 'pass' : 'fail',
     summary,
     ...(!ok
@@ -49,7 +49,7 @@ export function pinnedPackage(
     installed === undefined ? -1 : compareDebianVersions(installed, pinned);
   if (order <= 0)
     return check(
-      `package:${name}`,
+      `worker:package:${name}`,
       order === 0,
       order === 0
         ? 'Installed at the version the policy pins.'
@@ -97,12 +97,12 @@ export async function workerHostChecks(
   const { machine, virtualization } = await detectMachineClass(run);
   const checks = [
     check(
-      'ubuntu',
+      'worker:ubuntu',
       audit.supported,
       'Required Ubuntu release and architecture.'
     ),
     check(
-      'sudo',
+      'worker:sudo',
       audit.passwordlessSudo,
       'Designated worker user has noninteractive sudo.'
     ),
@@ -142,7 +142,7 @@ export async function workerHostChecks(
       /^Restart=always$/m.test(unit.stdout);
     checks.push(
       check(
-        `service:${name}`,
+        `worker:service:${name}`,
         ok,
         ok
           ? 'Required system service is active, enabled for boot and restarts unconditionally.'
@@ -179,7 +179,7 @@ async function recoveryChecks(
   ]);
   checks.push(
     check(
-      't3-recovery',
+      'worker:t3-recovery',
       t3.ok &&
         /^ActiveState=active$/m.test(t3.stdout) &&
         /^UnitFileState=enabled$/m.test(t3.stdout) &&
@@ -201,7 +201,7 @@ async function recoveryChecks(
   ]);
   checks.push(
     check(
-      'credential-renewal',
+      'worker:credential-renewal',
       renewal.ok,
       'Worker credential renewal timer is active.'
     )
@@ -245,7 +245,7 @@ export async function serviceRecoveryCheck(run: Runner): Promise<Check> {
         ? `WORKER_RECOVERY_LAST_RUN_FAILED (${/^[\w-]+$/.test(result) ? result : 'unknown'})`
         : 'Worker service recovery timer is active and its last run succeeded.';
   return check(
-    'service-recovery',
+    'worker:service-recovery',
     timer.ok && script.ok && unit.ok && result === 'success',
     summary
   );
@@ -275,7 +275,7 @@ async function t3HealthCheck(run: Runner): Promise<Check> {
     /* Raw responses are never reported. */
   }
   return check(
-    't3-health',
+    'worker:t3-health',
     probe.ok && identified,
     'T3 local API answers with its environment identity within 10 seconds.'
   );

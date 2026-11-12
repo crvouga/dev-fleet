@@ -73,6 +73,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | `auth:github`                 | `src/github/checks.ts`                     |
 | `auth:vault`                  | `src/cli/fleet-sync-vault.ts`              |
 | `auth:vault-isolation`        | `src/cli/fleet-sync-vault.ts`              |
+| `worker:credential-renewal`   | `src/worker-host-checks.ts`                |
 | `worker:git-identity`         | `src/git-identity.ts`                      |
 | `worker:git-push-auth`        | `src/definition.ts`, `src/git-identity.ts` |
 | `worker:git-signing`          | `src/definition.ts`, `src/git-identity.ts` |

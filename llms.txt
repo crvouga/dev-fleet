@@ -16,6 +16,7 @@ Rules for an agent working in a project that uses dev-fleet:
 - [README](https://github.com/crvouga/dev-fleet/blob/main/README.md): what dev-fleet assumes, quickstart, versions, adding a machine, known limits
 - [Example fleet.json](https://github.com/crvouga/dev-fleet/blob/main/examples/fleet.json): a complete configuration with placeholders (`npx devfleet fleet-state --example` prints it)
 - [fleet.json schema](https://github.com/crvouga/dev-fleet/blob/main/schema/fleet.schema.json): JSON Schema for the fleet configuration
+- [Check-ID registry](https://github.com/crvouga/dev-fleet/blob/main/schema/check-ids.json): every check ID a report can carry, with what it means, whether it can block readiness (severity) and what repairs it (a fleet-repair recipe, or why only a person can); generated from the code
 
 ## Operate it
 
