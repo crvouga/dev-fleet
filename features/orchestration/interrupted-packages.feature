@@ -79,3 +79,16 @@ Feature: The bootstrap finishes an interrupted package run before it installs it
     Then the bootstrap goes on past its prerequisites
     And dpkg was asked to configure every unpacked package 0 times
     And sudo was never used
+
+  Scenario Outline: APT that gave up on a held lock is named APT_LOCK_CONTENDED, however it words it
+    Which words APT uses depends on its release and on whether it could read
+    which process holds the lock.
+    When APT gave up on the install with "<message>"
+    Then the bootstrap stops its prerequisites with "APT_LOCK_CONTENDED"
+
+    Examples:
+      | message                                                                                                                 |
+      | E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by process 4242 (python3)                                 |
+      | E: Unable to acquire the dpkg frontend lock (/var/lib/dpkg/lock-frontend), is another process using it?                 |
+      | E: Unable to lock the administration directory (/var/lib/dpkg/), is another process using it?                           |
+      | dpkg: error: dpkg frontend lock was locked by another process with pid 4242                                             |

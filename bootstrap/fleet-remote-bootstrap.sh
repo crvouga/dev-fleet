@@ -60,7 +60,9 @@ remedy() {
 # apt-failure: begin
 # Names an APT failure by the fixed messages of the pinned Ubuntu release.
 apt_failure() {
-  if grep -q 'Could not get lock' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
+  # APT names a held lock in several ways: with the process that holds it,
+  # without one (it could not read the holder), or in dpkg's own words.
+  if grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|Unable to lock the administration directory|locked by another process' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
   elif grep -q 'No space left on device' "$apt_log" 2>/dev/null; then die APT_DISK_FULL
   elif grep -qE 'Temporary failure resolving|Could not resolve' "$apt_log" 2>/dev/null; then die APT_DNS_UNAVAILABLE
   elif grep -qE 'Failed to fetch|Unable to connect|Connection failed|Unable to locate package' "$apt_log" 2>/dev/null; then die APT_REPOSITORY_UNAVAILABLE

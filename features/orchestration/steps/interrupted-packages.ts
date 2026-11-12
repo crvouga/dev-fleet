@@ -163,6 +163,26 @@ When('the prerequisites step runs', (world) => {
   run.stdout = result.stdout.trim();
 });
 
+When('APT gave up on the install with {string}', (world, message: string) => {
+  const run = packages(world);
+  const log = join(run.state, 'apt-output');
+  writeFileSync(log, `${message}\n`);
+  const result = spawnSync(
+    '/bin/sh',
+    [
+      '-c',
+      [
+        'die() { echo "$1"; exit 1; }',
+        segment('apt-failure'),
+        `apt_log='${log}'`,
+        'apt_failure APT_INSTALL_FAILED',
+      ].join('\n'),
+    ],
+    { encoding: 'utf8', env: { PATH: '/usr/bin:/bin' } }
+  );
+  run.stdout = result.stdout.trim();
+});
+
 Then('the bootstrap goes on past its prerequisites', (world) => {
   expect(packages(world).stdout).toBe('WENT_ON');
 });
