@@ -25,7 +25,8 @@
         "unzip": "6.0-28ubuntu4.1",
         "xz-utils": "5.6.1+really5.4.5-1ubuntu0.4",
         "ansible-core": "2.16.3-0ubuntu2",
-        "systemd-oomd": "255.4-1ubuntu8.18"
+        "systemd-oomd": "255.4-1ubuntu8.18",
+        "nftables": "1.0.9-1ubuntu0.1"
       },
       "browserPackages": {
         "fonts-liberation": "1:2.1.5-3",
