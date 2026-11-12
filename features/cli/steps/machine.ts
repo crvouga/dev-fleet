@@ -1,4 +1,5 @@
 import { expect } from 'bun:test';
+import { leftoverControl } from './leftovers';
 import { writeFile } from 'node:fs/promises';
 import { Command } from 'commander';
 import { executeFleet, type FleetServices } from '../../../src/cli/fleet';
@@ -93,6 +94,7 @@ async function dispatch(
       if (described.probe === undefined) throw new Error('must not bundle');
       return described.probe;
     },
+    ...(leftoverControl(world) ? { tailnet: leftoverControl(world)! } : {}),
   };
   if (name === 'fleet-status')
     return executeFleet(

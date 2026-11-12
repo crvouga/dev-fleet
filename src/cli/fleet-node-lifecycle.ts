@@ -17,7 +17,12 @@ import {
 import { changeWorkers, readPins } from '../state/workers';
 import { hubUrl } from '../topology';
 import { FleetUsageError } from '../errors';
-import { fleet } from '../fleet-config';
+import { fleet, secret } from '../fleet-config';
+import {
+  deviceLeftToPerson,
+  tailnetCleanup,
+  type TailnetCleanup,
+} from '../tailnet-cleanup';
 import type { Enrollment } from '../machine/state';
 import { PACKAGE_ROOT } from '../package-info';
 import { runAnsible } from '../platform/ansible';
@@ -64,20 +69,14 @@ export interface NodeLifecycleServices {
    */
   monitoring?: () => Promise<HubRequest>;
   /** Removes a worker's old device from the tailnet, so a new machine gets
-   * the declared name. Not wired yet: the tailnet control API (its
-   * `deleteDevice`, with the `tailnet-admin` secret) plugs in here. Absent,
-   * no device is removed and the step is reported as skipped.
+   * the declared name: the control plane fleet.json declares, asked with the
+   * `tailnet-admin` secret. Absent, no device is removed and the step is
+   * reported as skipped, with what a person does instead.
    */
   tailnet?: TailnetCleanup;
 }
 
-/** The seam for the tailnet control API (src/tailnet-control.ts). */
-export interface TailnetCleanup {
-  /** Removes the device `deviceId` that `worker` ran as; a check
-   * `tailscale:device` that says whether it is gone.
-   */
-  removeDevice(worker: MachineDefinition, deviceId: string): Promise<Check>;
-}
+export type { TailnetCleanup };
 
 export function lifecycleServices(roster: string): NodeLifecycleServices {
   return {
@@ -96,6 +95,10 @@ export function lifecycleServices(roster: string): NodeLifecycleServices {
       ).ok,
     now: () => new Date(),
     monitoring: async () => (await hubAccess(hubUrl(fleet))).request,
+    // Only a fleet that declares a tailnet control plane removes devices.
+    ...(fleet.tailnet
+      ? { tailnet: tailnetCleanup(fleet.tailnet, secret) }
+      : {}),
   };
 }
 
@@ -385,14 +388,7 @@ async function removeDevice(
   services: NodeLifecycleServices
 ): Promise<Check> {
   if (services.tailnet) return services.tailnet.removeDevice(worker, device);
-  return {
-    id: 'tailscale:device',
-    status: 'skip',
-    summary: `The tailnet device ${device} was not removed: no tailnet control is configured.`,
-    remedy: {
-      action: `Remove the device ${device} in the tailnet's admin console, so that a new machine gets the name ${worker.network?.tailscaleName ?? worker.id}.`,
-    },
-  };
+  return deviceLeftToPerson(worker, device);
 }
 
 async function tombstone(

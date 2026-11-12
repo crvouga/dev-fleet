@@ -79,6 +79,8 @@ Feature: A worker is replaced or retired with one command
       And the roster records the T3 environment "0b0c0d0e-1111-4222-8333-444455556666" of "worker-one"
 
     Scenario: Retiring deletes the monitoring system and the T3 link, and says the device is left to a person
+      Without a tailnet control plane in fleet.json nothing can remove a
+      device, so the report says what a person does instead.
       When the operator runs fleet-node-retire for "worker-one" with --apply --yes
       Then the command exits with 0
       And the monitoring hub watches only:
@@ -86,16 +88,31 @@ Feature: A worker is replaced or retired with one command
         | worker-two | worker-two.tail0a1b2c.ts.net |
       And the manager's T3 forgot the environment "0b0c0d0e-1111-4222-8333-444455556666"
       And the report has the check "tailscale:device" skipped, saying "no tailnet control is configured"
+      And the remedy of the check "tailscale:device" says "Remove the device old-one in the tailnet's admin console"
 
-    Scenario: With the tailnet control wired, retiring also removes the old device
-      Given the tailnet control is wired
+    Scenario: With a tailnet control plane, retiring removes the old device
+      The control plane fleet.json declares removes it, asked with the
+      tailnet-admin credential, so the next machine under the same id gets
+      the declared name instead of a numbered one.
+      Given the fleet declares the tailnet control plane:
+        """
+        { "api": "tailscale", "tag": "tag:fleet-worker" }
+        """
+      And the secrets provider holds a tailnet-admin credential generated for this scenario
       When the operator runs fleet-node-retire for "worker-one" with --apply --yes
       Then the command exits with 0
-      And the tailnet control removed the device "old-one"
+      And the control plane was asked to delete only the device "old-one"
+      And the control plane was asked "DELETE" "https://api.tailscale.com/api/v2/device/old-one"
+      And the request carried the credential as a bearer token
+      And the report has the check "tailscale:device" passed, saying "The tailnet no longer holds the device old-one"
 
-    Scenario: Replacing points the monitoring system at the new machine and asks for the new T3 pairing
-      Given the tailnet shows "worker-one" online as the new device "new-one"
-      And the tailnet control is wired
+    Scenario: Replacing points the monitoring system at the new machine, asks for the new T3 pairing and removes the old device
+      Given the fleet declares the tailnet control plane:
+        """
+        { "api": "tailscale", "tag": "tag:fleet-worker" }
+        """
+      And the secrets provider holds a tailnet-admin credential generated for this scenario
+      And the tailnet shows "worker-one" online as the new device "new-one"
       When the operator runs fleet-node-replace for "worker-one" with --apply --yes
       Then the command exits with 0
       And the monitoring hub watches only:
@@ -105,7 +122,19 @@ Feature: A worker is replaced or retired with one command
       And the manager's T3 forgot the environment "0b0c0d0e-1111-4222-8333-444455556666"
       And the roster records no T3 environment of "worker-one"
       And the report has the check "t3:link" skipped, saying "Pair the new environment of worker-one"
-      And the tailnet control removed the device "old-one"
+      And the control plane was asked to delete only the device "old-one"
+      And the report has the check "tailscale:device" passed, saying "The tailnet no longer holds the device old-one"
+
+    Scenario: Without the tailnet-admin credential the device is left to a person
+      Given the fleet declares the tailnet control plane:
+        """
+        { "api": "tailscale", "tag": "tag:fleet-worker" }
+        """
+      And the secrets provider holds no tailnet-admin credential
+      When the operator runs fleet-node-retire for "worker-one" with --apply --yes
+      Then the command exits with 0
+      And the control plane was asked nothing
+      And the report has the check "tailscale:device" skipped, saying "the secrets provider holds no tailnet-admin"
 
   Rule: A worker reached from declared data has its host key pinned in the fleet state
     The operator's ~/.ssh/known_hosts is neither needed nor changed: the key

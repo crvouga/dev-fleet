@@ -5,7 +5,8 @@ import {
   appendManagerLinks,
   appendDashboardEvidence,
 } from './managed-health';
-import { discoverTailnet } from '../tailscale';
+import { discoverTailnet, type Tailnet } from '../tailscale';
+import type { FleetNode, NodeReport } from '../types';
 import { appendPublicReachability } from '../public-reachability';
 import { tailnetHealth } from '../tailnet-health';
 import { makeReport, renderReport, reportExitCode } from '../report';
@@ -14,6 +15,8 @@ import { publicHubUrl } from '../monitoring/beszel';
 import { stableUrls } from './fleet-sync-output';
 import { timeout } from './options';
 import { appendUsage } from './worker-usage-report';
+import { appendTailnetLeftovers } from '../tailnet-cleanup';
+import { fleet } from '../fleet-config';
 import { withUsage } from '../worker-activity';
 import type { FleetServices } from './fleet';
 import type { Settings } from './settings';
@@ -65,7 +68,7 @@ export async function executeTailnet(
   // The hub runs on the manager, which worker scope deliberately filters out of
   // `tailnet`; its visibility comes from the unfiltered discovery.
   const dashboard = options.workers
-    ? await appendDashboardEvidence(nodes, discovered)
+    ? await workerFleetEvidence(nodes, discovered, registered, services)
     : null;
   // Parked workers, and what each active one is doing (uptime, agent turns).
   const usage = options.managed
@@ -100,6 +103,21 @@ export async function executeTailnet(
       usage
     ),
   };
+}
+
+/** What the canonical worker fleet is checked for beyond each worker: the
+ * dashboard's evidence, and devices tagged as workers that are no declared
+ * worker (#123). Returns the private hub address.
+ */
+async function workerFleetEvidence(
+  nodes: NodeReport[],
+  discovered: Tailnet,
+  registered: FleetNode[],
+  services: FleetServices
+): Promise<string | null> {
+  const dashboard = await appendDashboardEvidence(nodes, discovered);
+  await appendTailnetLeftovers(nodes, fleet, services.tailnet, registered);
+  return dashboard;
 }
 
 /** Shown to people: the stable public name, never the tailnet address. */

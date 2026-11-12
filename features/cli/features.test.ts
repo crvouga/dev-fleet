@@ -11,6 +11,7 @@ import './steps/menu';
 import './steps/watch';
 import './steps/validate';
 import './steps/usage';
+import './steps/leftovers';
 
 runFeatures({
   directory: import.meta.dir,

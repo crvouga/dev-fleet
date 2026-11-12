@@ -215,7 +215,7 @@ There are 296 codes; 46 need a person.
 ## A new worker with no hands on it
 
 - **Meaning:** A machine created without a person (from a pipeline or infrastructure-as-code) could not be enrolled, joined to the tailnet, given its account or brought to ready in one run: its first boot is still running or failed, the tailnet control plane refused a key, the image lets only root in and the account could not be created, or its first-converge or maintenance reboot did not happen.
-- **Confirm:** The `bootstrap:first-boot`, `tailscale:enrolment-key`, `worker:account` and `worker:reboot` checks of the report `devfleet fleet-sync --json` prints; on the worker, `cloud-init status --long`.
+- **Confirm:** The `bootstrap:first-boot`, `tailscale:enrolment-key`, `worker:account` and `worker:reboot` checks of the report `devfleet fleet-sync --json` prints, or the `tailscale:device` check of `fleet-node-replace` and `fleet-node-retire` and the `tailscale:leftover` check of `devfleet fleet-status`, which ask the same control plane; on the worker, `cloud-init status --long`.
 - **Fix:** FIRST_BOOT_PENDING and WORKER_REBOOT_BUSY clear on their own: run `devfleet fleet-sync` again later. A TAILNET code names what to fix in `tailnet` of `fleet.json` or in the secret `tailnet-admin`; then run `devfleet fleet-sync`.
 - **Escalate:** A first boot that failed means the image or its user data is wrong: recreate the machine. A root login that cannot create the declared account needs a person on the machine (`useradd --create-home --shell /bin/bash --groups sudo USER`).
 

@@ -107,3 +107,37 @@ Feature: fleet-status checks the manager and its workers without changing them
         | parked         | 0     |
         | idleCostPerDay | 36    |
         | currency       | "USD" |
+
+  Rule: A device tagged as a worker that no declared worker accounts for is a leftover
+    A rebuilt or abandoned rented machine can stay on the tailnet, carrying
+    the fleet's worker tag. fleet-status asks the control plane fleet.json
+    declares for every device with the tag and warns of each one that is no
+    declared worker (parked ones included) and no device the roster binds.
+    It names the device by its name only.
+
+    Background:
+      Given these workers are registered:
+        | id         | ssh        | workspace           |
+        | worker-one | worker-one | /home/dev/workspace |
+        | worker-two | worker-two | /home/dev/workspace |
+      And the probe sent to workers is "standalone-probe-source"
+      And every worker answers the probe as this workspace does at the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    Scenario: A device joined by hand with the worker tag shows up in fleet-status
+      Given fleet.json declares the hosted Tailscale as its control plane, tagging workers "tag:fleet-worker"
+      And the control plane lists these devices:
+        | id      | name        | tags             |
+        | nOne    | worker-one  | tag:fleet-worker |
+        | nTwo    | worker-two  | tag:fleet-worker |
+        | nByHand | scratch-box | tag:fleet-worker |
+        | nLaptop | laptop      | tag:personal     |
+      When the operator runs "devfleet fleet-status --require none"
+      Then fleet-status warns of exactly these leftover devices:
+        | scratch-box |
+      And the check "tailscale:leftover" of "tailnet" says "tagged tag:fleet-worker, which is no declared worker"
+
+    Scenario: Without a tailnet control plane nothing is asked and nothing is reported
+      Given fleet.json declares no tailnet control plane
+      When the operator runs "devfleet fleet-status --require none"
+      Then fleet-status reports no leftover device
+      And the control plane was asked nothing

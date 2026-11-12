@@ -551,6 +551,10 @@
       "meaning": "A machine's Tailscale identity is unambiguous."
     },
     {
+      "id": "tailscale:leftover",
+      "meaning": "Every device on the tailnet that carries the fleet's worker tag is a declared worker (parked ones included) or a device the roster binds; warns, naming the device, for one that is not."
+    },
+    {
       "id": "tailscale:membership",
       "meaning": "A registered machine is in the visible tailnet."
     },

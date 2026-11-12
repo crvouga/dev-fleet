@@ -93,9 +93,14 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
   take everything of the old machine with it: its pinned host key, its
   monitoring system (pointed at the new machine, or deleted), the manager's
   T3 link to its environment (the new one is paired in the manager's T3), its
-  Vault token and, once the tailnet control is wired, its tailnet device.
-  `fleet-status --workers` warns about a monitoring system that matches no
-  declared worker (`beszel:leftover`).
+  Vault token and its tailnet device. The device is deleted through the
+  control plane fleet.json declares under `tailnet`, asked with the secret
+  `tailnet-admin` (workers are not registered as ephemeral devices); without
+  either, `tailscale:device` is skipped and names the device to remove in the
+  admin console. `fleet-status --workers` warns about a monitoring system that
+  matches no declared worker (`beszel:leftover`), and `fleet-status` about a
+  device carrying the worker tag that is no declared worker, parked or not,
+  and no device the roster binds (`tailscale:leftover`).
 
 ## Parked and idle workers
 

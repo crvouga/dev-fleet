@@ -20,6 +20,8 @@ import { reconcileRecords } from '../../../src/cli/fleet-sync-records';
 import { changeWorkers, readWorkerStates } from '../../../src/state/workers';
 import { knownHostsPath } from '../../../src/ssh-connection';
 import { declareFleet, workersOf } from '../../support/fleet';
+import { tailnetCleanup } from '../../../src/tailnet-cleanup';
+import { controlPlane, http } from './tailnet';
 
 /** fleet-node-replace and fleet-node-retire, against a Vault, a tailnet and
  * Ansible that answer from memory.
@@ -38,9 +40,6 @@ interface Lifecycle {
   clock: number;
   /** The systems the monitoring hub watches. */
   systems: { id: string; name: string; host: string }[];
-  /** The devices the tailnet control removed, when one is wired. */
-  removed: string[];
-  tailnetControl: boolean;
 }
 const lifecycles = new WeakMap<FleetSyncWorld, Lifecycle>();
 
@@ -67,8 +66,6 @@ function lifecycle(world: FleetSyncWorld): Lifecycle {
     computers: [],
     clock: Date.parse('2026-11-01T00:00:00Z'),
     systems: [],
-    removed: [],
-    tailnetControl: false,
   };
   lifecycles.set(world, found);
   vault(world, found);
@@ -176,18 +173,15 @@ export function services(world: FleetSyncWorld): NodeLifecycleServices {
     roster: state.roster,
     definition: () => fleet,
     monitoring: async () => hub(state),
-    ...(state.tailnetControl
+    // The real cleanup, against the control plane the scenario declares.
+    ...(controlPlane(world).config
       ? {
-          tailnet: {
-            removeDevice: async (_worker, device) => {
-              state.removed.push(device);
-              return {
-                id: 'tailscale:device',
-                status: 'pass' as const,
-                summary: `The tailnet no longer holds ${device}.`,
-              };
-            },
-          },
+          tailnet: tailnetCleanup(
+            controlPlane(world).config!,
+            async (name) =>
+              name === 'tailnet-admin' ? controlPlane(world).credential : null,
+            http(world)
+          ),
         }
       : {}),
     vault: () => true,
@@ -428,10 +422,6 @@ Given(
   }
 );
 
-Given('the tailnet control is wired', (world) => {
-  lifecycle(world).tailnetControl = true;
-});
-
 Then('the monitoring hub watches only:', (world, table: DataTable) => {
   expect<object[]>(
     lifecycle(world).systems.map(({ name, host }) => ({ name, host }))
@@ -470,9 +460,22 @@ Then(
 );
 
 Then(
-  'the tailnet control removed the device {string}',
+  'the remedy of the check {string} says {string}',
+  (world, id: string, text: string) => {
+    const found = checks(world).find((check) => check.id === id) as
+      { remedy?: { action: string } } | undefined;
+    expect(found?.remedy?.action).toContain(text);
+  }
+);
+
+Then(
+  'the control plane was asked to delete only the device {string}',
   (world, device: string) => {
-    expect(lifecycle(world).removed).toEqual([device]);
+    expect(
+      controlPlane(world)
+        .requests.filter((request) => request.method === 'DELETE')
+        .map((request) => request.url.split('/').at(-1))
+    ).toEqual([device]);
   }
 );
 

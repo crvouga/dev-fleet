@@ -91,6 +91,16 @@ export const CHECK_OWNERS: CheckOwner[] = [
     manual:
       'The tailnet-admin credential and the tag it may use are the operator’s, kept in the secrets provider and the control plane.',
   },
+  {
+    pattern: 'tailscale:device',
+    manual:
+      'Removing a device needs the tailnet-admin credential and a declared control plane, both the operator’s; without them a person removes it in the admin console.',
+  },
+  {
+    pattern: 'tailscale:leftover',
+    manual:
+      'Whether a device tagged as a worker belongs to the fleet is the operator’s choice: declare it, or remove it from the tailnet.',
+  },
   // Whether a worker runs is the operator's choice (fleet-node-park).
   { pattern: 'worker:idle', manual: PARKING },
   { pattern: 'worker:park*', manual: PARKING },
