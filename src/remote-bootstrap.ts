@@ -24,6 +24,7 @@ import { record } from './config';
 import { installedDefinition, type FleetDefinition } from './definition';
 import { cleanCheck, validCheck } from './protocol';
 import { UBUNTU_RELEASES } from './platform/ubuntu-release';
+import { T3_RESTART_MODES } from './platform/t3-service';
 
 export interface BootstrapPayload {
   revision: string;
@@ -33,7 +34,12 @@ export interface BootstrapPayload {
   authorizeSudo?: string;
   /** The fleet configuration every node keeps at ~/.config/dev-fleet/fleet.json. */
   config?: string;
+  /** `fleet-sync --restart-busy`: a worker's T3 restarts for a new release or
+   * policy even while agent turns run. By default it waits for idle.
+   */
+  restartBusy?: boolean;
 }
+
 /** No manager tool installation; Git/source preparation is part of apply approval. */
 export async function prepareBootstrap(
   root: string,
@@ -129,6 +135,7 @@ export async function bootstrapRemote(
     node.id,
     transfer.mode,
     UBUNTU_RELEASES.map((entry) => entry.release).join(' '),
+    T3_RESTART_MODES[payload.restartBusy ? 1 : 0],
   ]
     .map(shellQuote)
     .join(' ');

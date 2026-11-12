@@ -45,6 +45,12 @@ export async function convergeT3Service(
   ];
 }
 
+/** How a worker's T3 restarts for a new release or policy, as the manager's
+ * bootstrap passes it on to node convergence (`fleet-sync --restart-busy`).
+ * The words cross from one revision's script to another: an interface.
+ */
+export const T3_RESTART_MODES = ['keep-turns', 'restart-busy'] as const;
+
 /** The recovery script, installed outside every revision (`tasks/recovery.yml`). */
 export const T3_HEALTH_SCRIPT = '/usr/local/lib/personal-fleet/t3-health.sh';
 

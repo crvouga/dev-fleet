@@ -53,9 +53,11 @@ export function assertManagedConfig(dir: string): void {
 function publishedConfig(root: string, previous: string | undefined): string {
   return (
     MARKER +
-    withTrustedPaths(
-      readFileSync(join(root, 'mise.toml'), 'utf8'),
-      trustedPaths(previous)
+    withProjectLocks(
+      withTrustedPaths(
+        readFileSync(join(root, 'mise.toml'), 'utf8'),
+        trustedPaths(previous)
+      )
     )
   );
 }
@@ -160,6 +162,30 @@ export function withTrustedPaths(config: string, paths: string[]): string {
   return header.test(config)
     ? config.replace(header, (match) => `${match}${line}\n`)
     : `${config.replace(/\n*$/, '\n')}\n[settings]\n${line}\n`;
+}
+
+/**
+ * A project adds the tools dev-fleet does not ship in its own mise.toml. On a
+ * fleet machine mise installs those only from the project's mise.lock and
+ * refuses a tool the lock does not name; the fleet's own tools are installed
+ * with --locked anyway. mise honours `locked_scopes` only in the global
+ * config, so both settings are added at publish time.
+ */
+export const PROJECT_LOCK_SETTINGS = [
+  'locked = true',
+  'locked_scopes = ["project"]',
+];
+
+/** Adds the project lock settings to the [settings] table withTrustedPaths made. */
+export function withProjectLocks(config: string): string {
+  if (/^locked(_scopes)?\s*=/m.test(config))
+    throw new Error(
+      'mise.toml sets locked or locked_scopes; the global config adds them for projects.'
+    );
+  return config.replace(
+    /^\[settings\][^\S\n]*\n/m,
+    (match) => `${match}${PROJECT_LOCK_SETTINGS.join('\n')}\n`
+  );
 }
 
 function changedFile(source: string, destination: string): boolean {

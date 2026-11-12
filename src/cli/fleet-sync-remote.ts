@@ -65,12 +65,16 @@ export async function selected(
         'Manager connection bindings or target policy changed after approval. Inspect a fresh plan and approve it; no source preparation or node mutation occurred.'
       )
     );
-  const payload = options.apply
+  const prepared = options.apply
     ? await prepareBootstrap(machineRoot(), options.revision, run, {
         definition: canonical,
         checkout: settings.workspace,
       })
     : null;
+  const payload =
+    prepared && options.restartBusy
+      ? { ...prepared, restartBusy: true }
+      : prepared;
   const started = Date.now();
   const report = await synchronizeManager(
     {

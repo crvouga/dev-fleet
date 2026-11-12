@@ -11,7 +11,11 @@ bundle_sha=$2
 node=$3
 source_mode=${4:-transfer}
 releases=${5:-}
+# Whether a worker's T3 restarts while agent turns run (fleet-sync
+# --restart-busy); an older manager passes nothing and turns are kept.
+t3_restart=${6:-keep-turns}
 case "$source_mode" in cached|transfer) ;; *) exit 2;; esac
+case "$t3_restart" in keep-turns|restart-busy) ;; *) exit 2;; esac
 case "$releases" in *[!0-9.\ ]*|'') exit 2;; esac
 case "$revision" in *[!a-f0-9]*|'') exit 2;; esac
 [ "${#revision}" = 40 ] || exit 2
@@ -255,7 +259,7 @@ trap - EXIT INT TERM
 # session: the session may be gone by the time it ends. The evidence is then
 # printed for the manager that is still connected, under the same lock.
 code=0
-mise exec --locked bun -- bun src/node-converge.ts "$node" "$revision" >"$result.partial" 2>"$root/remote-operation.log" || code=$?
+mise exec --locked bun -- bun src/node-converge.ts "$node" "$revision" "$t3_restart" >"$result.partial" 2>"$root/remote-operation.log" || code=$?
 mv -f -- "$result.partial" "$result"
 operation finished ",\"finished\":$(date +%s),\"exit\":$code"
 cat -- "$result" || true

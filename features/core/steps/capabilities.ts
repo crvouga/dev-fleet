@@ -44,6 +44,19 @@ Given(
 );
 
 Given(
+  /^the fleet declares the Git identity "([^"]+)" <([^>]+)>, signing commits with SSH$/,
+  (world, name: string, email: string) => {
+    identities.set(world, { name, email, signing: 'ssh' });
+  }
+);
+
+const homes = new WeakMap<CoreWorld, string>();
+
+Given("the worker's home is {string}", (world, home: string) => {
+  homes.set(world, home);
+});
+
+Given(
   'the fleet declares that pushes are proven against {string}',
   (world, repository: string) => {
     const git = identities.get(world);
@@ -72,7 +85,14 @@ When(
 );
 
 When("the worker's Git is checked", async (world) => {
-  reported(world, await gitChecks(identities.get(world), world.commands.run));
+  reported(
+    world,
+    await gitChecks(
+      identities.get(world),
+      world.commands.run,
+      homes.get(world) ?? '/home/dev'
+    )
+  );
 });
 
 Then(

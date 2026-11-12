@@ -84,16 +84,24 @@ export function toolChanges(
 }
 
 /** What restarts follow from the changes, as the playbooks and the toolchain
- * setup act on them.
+ * setup act on them. A worker's T3 restarts only while it runs no agent turn
+ * (`ansible/ubuntu/tasks/t3-restart.yml`) unless `--restart-busy` asks for it
+ * anyway: only then do running turns end.
  */
-export function restarts(tools: ToolChange[], files: string[]): Restart[] {
+export function restarts(
+  tools: ToolChange[],
+  files: string[],
+  restartBusy = false
+): Restart[] {
   const found: Restart[] = [];
+  const when = restartBusy
+    ? 'at once (--restart-busy): its running agent turns end.'
+    : 'once it runs no agent turn: running turns keep going and the restart is pending until then.';
   if (tools.some((change) => change.tool === 't3'))
     found.push({
       service: 't3',
-      reason:
-        'T3 is upgraded and restarted on every machine; its running agent turns end.',
-      endsRunningTurns: true,
+      reason: `T3 is upgraded on every worker and restarted ${when}`,
+      endsRunningTurns: restartBusy,
     });
   else if (
     files.some((file) =>
@@ -102,9 +110,8 @@ export function restarts(tools: ToolChange[], files: string[]): Restart[] {
   )
     found.push({
       service: 't3',
-      reason:
-        'The managed T3 policy may change: a T3 that has not loaded it is restarted, and its running agent turns end.',
-      endsRunningTurns: true,
+      reason: `The managed T3 policy may change: a T3 that has not loaded it is restarted ${when}`,
+      endsRunningTurns: restartBusy,
     });
   const agents = tools.filter((change) => AGENT_TOOLS.includes(change.tool));
   if (agents.length)
@@ -136,6 +143,8 @@ export async function syncPlan(
     state: Standing;
     nodes: string[];
     sources: string[];
+    /** `--restart-busy`: a T3 restart does not wait for idle. */
+    restartBusy?: boolean;
   },
   run: Runner
 ): Promise<SyncPlan> {
@@ -163,7 +172,9 @@ export async function syncPlan(
     revision: { from: input.from, to: input.to },
     known: changes !== null,
     tools: changes?.tools ?? [],
-    restarts: changes ? restarts(changes.tools, changes.files) : [],
+    restarts: changes
+      ? restarts(changes.tools, changes.files, input.restartBusy === true)
+      : [],
     nodes: input.nodes.map((node) => ({
       node,
       from: input.from,

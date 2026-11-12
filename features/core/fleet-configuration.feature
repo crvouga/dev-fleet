@@ -73,6 +73,10 @@ Feature: The fleet configuration
         | the release is one the support matrix lists | ubuntu.release | "22.04"               | DEFINITION_INVALID | $.ubuntu.release |
         | a notify target is webhook or ntfy          | notify         | {"targets":["pager"]} | DEFINITION_INVALID | $.notify         |
 
+      Examples: Commits are signed only the way dev-fleet signs them
+        | rule                        | field | value                                                                                   | code               | path          |
+        | commits are signed with SSH | git   | {"name":"Example User","email":"example-user@users.noreply.github.com","signing":"gpg"} | DEFINITION_INVALID | $.git.signing |
+
       Examples: The previous owner/parent shape is rejected
         | rule                                   | field   | value | code               | path      |
         | the configuration is written version 3 | version | 2     | DEFINITION_INVALID | $.version |
@@ -124,6 +128,7 @@ Feature: The fleet configuration
         | the bucket is a directory         | accept  | state   | {"directory":"/mnt/fleet"}                       |
         | another fleet's source is named   | accept  | source  | {"repository":"https://git.example.org/a/b.git"} |
         | secrets come from the environment | accept  | secrets | {"provider":"env"}                               |
+        | commits are signed with SSH       | accept  | git     | {"name":"Example User","email":"example-user@users.noreply.github.com","signing":"ssh"} |
 
       Examples: Refused
         | change                           | verdict | field                       | value                                                          |
@@ -144,6 +149,7 @@ Feature: The fleet configuration
         | the bucket holds credentials     | refuse  | state                       | {"bucket":"my-fleet-state","accessKeyId":"x"}                  |
         | there is an unknown block        | refuse  | extra                       | {}                                                             |
         | a canary id is malformed         | refuse  | canary                      | "Not An Id"                                                    |
+        | commits are signed with GPG      | refuse  | git                         | {"name":"Example User","email":"example-user@users.noreply.github.com","signing":"gpg"} |
 
     Scenario Outline: Only the parser refuses a definition where <change>
       A rule that relates two fields cannot be written in the schema. These

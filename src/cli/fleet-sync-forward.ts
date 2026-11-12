@@ -109,6 +109,7 @@ export function forwardedFlags(
   const switches: [boolean | undefined, string][] = [
     [options.all, '--all'],
     [options.vaultPasswordLogin, '--vault-password-login'],
+    [options.restartBusy, '--restart-busy'],
     [options.dryRun, '--dry-run'],
     [options.apply, '--apply'],
     [options.yes, '--yes'],

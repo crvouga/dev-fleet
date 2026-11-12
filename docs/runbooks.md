@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 260 codes; 34 need a person.
+There are 263 codes; 34 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -150,10 +150,10 @@ There are 260 codes; 34 need a person.
 
 ## Git identity and pushing
 
-- **Meaning:** Commits on the node would carry the wrong author, or git cannot authenticate to GitHub on its own.
+- **Meaning:** Commits on the node would carry the wrong author, would not be signed although `git.signing` is declared, or git cannot authenticate to GitHub on its own.
 - **Confirm:** On the node: `git config --global --get user.name`, and `printf "protocol=https\nhost=github.com\n\n" | GIT_TERMINAL_PROMPT=0 git credential fill >/dev/null`.
 - **Fix:** Declare the `git` block in `fleet.json` and run `devfleet fleet-sync` (`ansible/github/git.yml`). Remove lines in `~/.gitconfig` that override it.
-- **Escalate:** GIT_REMOTE_REFUSED means the fleet account lost access to the declared repository: a person grants it.
+- **Escalate:** GIT_REMOTE_REFUSED means the fleet account lost access to the declared repository: a person grants it. GitHub shows signed commits as verified only once a person adds each node's `~/.ssh/dev-fleet-git-signing.pub` to the account as a signing key.
 
 - `GIT_CONFIGURATION_INCOMPLETE`: git configuration incomplete.
 - `GIT_CREDENTIAL_HELPER_MISSING`: git credential helper missing.
@@ -163,6 +163,9 @@ There are 260 codes; 34 need a person.
 - `GIT_IDENTITY_UNDECLARED`: git identity undeclared.
 - `GIT_REMOTE_REFUSED`: git remote refused. **Needs a person.**
 - `GIT_REMOTE_UNREACHABLE`: git remote unreachable.
+- `GIT_SIGNING_FAILED`: git signing failed: the node's own key is missing or cannot sign without a prompt.
+- `GIT_SIGNING_MISSING`: git signing missing.
+- `GIT_SIGNING_OVERRIDDEN`: git signing overridden.
 
 ## GitHub sign-in
 

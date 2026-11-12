@@ -4,6 +4,7 @@ import { succeeded } from '../../support/commands';
 import { powerRecoveryCheck } from '../../../src/power-recovery';
 import { convergeProxy } from '../../../src/proxy-converge';
 import { codingAuth, serviceAuth } from '../../../src/service-auth';
+import agentRegistry from '../../../agents/registry.json';
 import { toolchainChecks } from '../../../src/toolchain-checks';
 import { workerAccessChecks } from '../../../src/worker-access-checks';
 import {
@@ -32,6 +33,40 @@ When(
   /^the "(codex|claude)" sign-in is checked$/,
   async (world, agent: 'codex' | 'claude') => {
     reported(world, await codingAuth(agent, world.commands.run));
+  }
+);
+
+When(
+  'the sign-ins of every agent CLI the registry names are checked',
+  async (world) => {
+    reported(world, [
+      ...(await codingAuth('claude', world.commands.run)),
+      ...(await codingAuth('codex', world.commands.run)),
+      ...(await serviceAuth(world.commands.run)),
+    ]);
+  }
+);
+
+/** The agent CLIs: every tool of agents/registry.json, and Copilot CLI,
+ * which signs in with the node's GitHub sign-in.
+ */
+const AGENT_CLIS = [...Object.keys(agentRegistry.defaults), 'copilot'];
+
+Then('there is an "auth:" check for each of them', (world) => {
+  const ids = (world.checks ?? []).map((check) => check.id);
+  for (const cli of AGENT_CLIS) expect(ids).toContain(`auth:${cli}`);
+});
+
+Then(
+  'every "auth:" check that is skipped or not applicable states its reason',
+  (world) => {
+    const quiet = (world.checks ?? []).filter(
+      (check) =>
+        check.id.startsWith('auth:') &&
+        (check.status === 'skip' || check.status === 'not-applicable')
+    );
+    expect(quiet.length).toBeGreaterThan(0);
+    for (const check of quiet) expect(check.summary.length).toBeGreaterThan(30);
   }
 );
 

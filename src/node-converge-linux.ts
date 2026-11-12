@@ -37,10 +37,11 @@ import type { Check, Runner } from './types';
  */
 export async function convergeLinux(
   root: string,
-  target: { node: string; revision: string },
+  target: { node: string; revision: string; restartBusy?: boolean },
   run: Runner
 ): Promise<Check[]> {
   const { node, revision } = target;
+  const restartBusy = target.restartBusy === true;
   const audit = await auditUbuntu(run);
   if (!audit.supported || !audit.passwordlessSudo)
     return [
@@ -64,7 +65,9 @@ export async function convergeLinux(
   );
   const { baseline, verified } = await baselineStep(root, run, node);
   checks.push(...baseline, ...verified);
-  checks.push(...(await t3AfterBaseline(root, { node, baseline, run })));
+  checks.push(
+    ...(await t3AfterBaseline(root, { node, baseline, run, restartBusy }))
+  );
   checks.push(
     ...(await attempt('workstation:configuration', () =>
       configureWorkstation(root, run, node)
@@ -246,7 +249,8 @@ async function applyTailscale(root: string, run: Runner): Promise<Check> {
 async function convergeT3(
   root: string,
   node: string,
-  run: Runner
+  run: Runner,
+  restartBusy: boolean
 ): Promise<Check[]> {
   const artifact = managedT3();
   const startedAt = await t3StartedAt(run);
@@ -254,10 +258,13 @@ async function convergeT3(
     artifact,
     run,
     async () => {
-      const staged = await stageT3Policy(root, artifact.path, run, node);
+      const staged = await stageT3Policy(root, artifact.path, run, {
+        node,
+        restartBusy,
+      });
       return staged.status === 'pass' ? [] : [staged];
     },
-    () => installT3Desktop(root, run)
+    () => installT3Desktop(root, run, restartBusy)
   );
   if (checks.every((check) => check.status === 'pass'))
     checks.push(
@@ -296,7 +303,11 @@ async function publishT3Route(root: string, run: Runner): Promise<boolean> {
   return result.ok;
 }
 
-async function installT3Desktop(root: string, run: Runner): Promise<boolean> {
+async function installT3Desktop(
+  root: string,
+  run: Runner,
+  restartBusy: boolean
+): Promise<boolean> {
   const user = userInfo();
   const desktop = managedT3Desktop();
   const ubuntu = resolve(root, 'ansible/ubuntu');
@@ -314,6 +325,7 @@ async function installT3Desktop(root: string, run: Runner): Promise<boolean> {
         t3_desktop_url: desktop.url,
         t3_desktop_name: desktop.name,
         t3_desktop_sha256: desktop.sha256,
+        t3_restart_busy: restartBusy,
       }),
     },
     {
@@ -346,9 +358,14 @@ async function installT3Desktop(root: string, run: Runner): Promise<boolean> {
 
 async function t3AfterBaseline(
   root: string,
-  context: { node: string; baseline: Check[]; run: Runner }
+  context: {
+    node: string;
+    baseline: Check[];
+    run: Runner;
+    restartBusy: boolean;
+  }
 ): Promise<Check[]> {
-  const { node, baseline, run } = context;
+  const { node, baseline, run, restartBusy } = context;
   if (baseline.some((check) => check.status !== 'pass'))
     return [
       {
@@ -361,7 +378,7 @@ async function t3AfterBaseline(
         },
       },
     ];
-  return attempt('t3:service', () => convergeT3(root, node, run));
+  return attempt('t3:service', () => convergeT3(root, node, run, restartBusy));
 }
 
 async function enableWorkerRecovery(

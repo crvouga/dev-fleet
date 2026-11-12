@@ -228,6 +228,23 @@ function bootstraps(world: OrchestrationWorld) {
   return after;
 }
 
+Given(
+  /^the sync (keeps running agent turns|restarts a busy T3 \(--restart-busy\))$/,
+  (world, request: string) => {
+    need(world.bootstrap.payload, 'a bootstrap payload').restartBusy =
+      request.startsWith('restarts');
+  }
+);
+
+Then(
+  "the bootstrap passed {string} as how the worker's T3 restarts",
+  (world, mode: string) => {
+    expect(bootstraps(world).length).toBeGreaterThan(0);
+    for (const { command } of bootstraps(world))
+      expect(command.at(-1)!.endsWith(` '${mode}'`)).toBe(true);
+  }
+);
+
 Then('the bootstrap ran in {string} mode', (world, mode: string) => {
   for (const { command } of bootstraps(world))
     expect(command.at(-1)).toContain(`'${mode}'`);

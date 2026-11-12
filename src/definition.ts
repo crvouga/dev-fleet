@@ -137,6 +137,11 @@ export interface GitIdentity {
    * credentials, proving it can push (`worker:git-push-auth`).
    */
   verifyRepository?: string;
+  /** Sign every commit and tag. `ssh`: each node signs with a key of its own,
+   * made on the node by `ansible/github/git.yml`; the private key never
+   * leaves it (`worker:git-signing`).
+   */
+  signing?: 'ssh';
 }
 const ID = /^[a-z][a-z0-9-]{0,62}$/;
 const HOST = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/;
@@ -575,8 +580,10 @@ function backupStorage(value: unknown, path: string): HubBackups['storage'] {
 function gitIdentity(value: unknown): GitIdentity {
   const path = '$.git';
   const fields = object(value, path);
-  keys(fields, ['name', 'email', 'verifyRepository'], path);
-  const { verifyRepository } = fields;
+  keys(fields, ['name', 'email', 'verifyRepository', 'signing'], path);
+  const { verifyRepository, signing } = fields;
+  if (signing !== undefined && signing !== 'ssh')
+    fail(`${path}.signing`, '"ssh"', signing);
   return {
     // Written into a quoted Git configuration value: no quote, backslash or
     // line break.
@@ -597,6 +604,7 @@ function gitIdentity(value: unknown): GitIdentity {
             'an https URL of a GitHub repository'
           ),
         }),
+    ...(signing === 'ssh' ? { signing } : {}),
   };
 }
 function secrets(value: unknown): SecretsConfig {

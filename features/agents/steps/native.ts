@@ -1,6 +1,9 @@
 import { expect } from 'bun:test';
-import { readFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import { render } from '../../../src/agents/render';
+import { select } from '../../../src/agents/registry';
 import { rewriteAuthenticate } from '../../../src/agents/launch';
 import {
   NATIVE_AGENTS,
@@ -51,6 +54,10 @@ const machine = part(() => ({
   service: false,
   outOfQuota: new Set<string>(),
   checks: [] as Check[],
+  /** Where the agent profiles are rendered; none unless a step says so. */
+  profiles: '/dev/null/profiles',
+  /** Commands already run before the step that is observed. */
+  before: 0,
 }));
 
 // ── Pins ─────────────────────────────────────────────────────────────────
@@ -142,17 +149,76 @@ Given('the shared {string} account is out of quota', (world, name: string) => {
 When(
   'the agents of the machine {string} are verified',
   async (world, id: string) => {
-    const { cache, commands, outOfQuota } = machine(world);
-    if (!cache)
-      throw new Error('Say what is remembered of earlier verification.');
-    machine(world).checks = await verifyNativeAgents(
-      id,
-      checkout,
-      commands.run,
-      { outOfQuota, cache, t3Service: machine(world).service }
-    );
+    machine(world).checks = await verify(world, id);
   }
 );
+
+async function verify(world: AgentsWorld, id: string): Promise<Check[]> {
+  const { cache, commands, outOfQuota, profiles } = machine(world);
+  if (!cache)
+    throw new Error('Say what is remembered of earlier verification.');
+  return verifyNativeAgents(id, checkout, commands.run, {
+    outOfQuota,
+    cache,
+    t3Service: machine(world).service,
+    profiles,
+  });
+}
+
+Given('verified sessions are remembered', async (world) => {
+  const directory = await mkdtemp(join(tmpdir(), 'verify-cache-'));
+  world.defer(() => rm(directory, { recursive: true, force: true }));
+  machine(world).cache = { directory };
+});
+
+Given(
+  'the agent profiles of the machine {string} are rendered',
+  async (world, node: string) => {
+    const directory = await mkdtemp(join(tmpdir(), 'agent-profiles-'));
+    world.defer(() => rm(directory, { recursive: true, force: true }));
+    machine(world).profiles = directory;
+    for (const tool of new Set(NATIVE_AGENTS.map((agent) => agent.binary)))
+      for (const [name, content] of Object.entries(
+        render(select(node, tool, 'proxy'))
+      )) {
+        const path = join(directory, node, tool, 'proxy', name);
+        await mkdir(dirname(path), { recursive: true });
+        await writeFile(path, content);
+      }
+  }
+);
+
+Given(
+  'the agents of the machine {string} have been verified once',
+  async (world, id: string) => {
+    await verify(world, id);
+    machine(world).before = machine(world).commands.calls.length;
+  }
+);
+
+Given(
+  'the {string} profile of the machine {string} now holds something else',
+  async (world, tool: string, node: string) => {
+    const directory = join(machine(world).profiles, node, tool, 'proxy');
+    const [name] = Object.keys(render(select(node, tool, 'proxy')));
+    await writeFile(join(directory, name!), 'edited by hand\n');
+  }
+);
+
+const launchedAgain = (world: AgentsWorld): string[] =>
+  machine(world)
+    .commands.calls.slice(machine(world).before)
+    .map((call) => call.command)
+    .filter(isLaunch)
+    .map((command) => String(launcherOf(command)));
+
+Then('no launcher was run again', (world) => {
+  expect(launchedAgain(world)).toEqual([]);
+});
+
+Then('only the launcher {string} was run again', (world, launcher: string) => {
+  expect(launchedAgain(world)).toEqual([launcher]);
+});
 
 // ── The environment of the T3 service ────────────────────────────────────
 

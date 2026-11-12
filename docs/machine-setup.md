@@ -184,7 +184,13 @@ railway login
 Only sign into providers the task actually needs. On fleet machines the Git
 identity and the GitHub credential helper come from the `git` block of
 `fleet.json`: `fleet-sync` writes them in `~/.config/git/config` and checks
-them as `worker:git-identity` and `worker:git-push-auth`. Elsewhere set `git
+them as `worker:git-identity` and `worker:git-push-auth`. With
+`"signing": "ssh"` in that block every node also makes an SSH key of its own
+(`~/.ssh/dev-fleet-git-signing`, never copied off the node) and signs every
+commit and tag with it, checked as `worker:git-signing`; GitHub shows those
+commits as verified once you add each node's `.pub` to the account as a
+signing key (`gh ssh-key add ~/.ssh/dev-fleet-git-signing.pub --type signing`
+on the node). Elsewhere set `git
 config --global user.name` and `user.email` after confirming them; do not guess
 an email or overwrite an existing identity. Enable Git LFS hooks when needed with `git lfs install`.
 
@@ -404,10 +410,28 @@ Deno, Yarn and headless Chromium for browser tests), `go`, `rust` (with CMake
 and Ninja) or `jvm` (Temurin), each a `worker_profile_<name>` under `[vars]` in
 `mise.toml`. `worker.tools` adds single tools dev-fleet already pins. The setup
 installs them (`--node` reads the installed configuration) and the doctor
-checks each as `tool:<name>` (`--profiles`, `--tools`).
+checks each as `tool:<name>` (`--profiles`, `--tools`). The base tools include
+`tmux`, for sessions that outlive an SSH connection.
+
+A tool dev-fleet does not ship belongs to the project that needs it: pin it in
+the project's own `mise.toml` and lock it with `mise lock`. On every fleet
+machine dev-fleet's global configuration sets `locked = true` for the
+`project` scope, so mise installs a project's tools in a checkout only from
+that project's `mise.lock` and refuses a tool the lock does not name;
+`mise install --locked` in the checkout installs and verifies them.
+
+There is no `mobile` profile. No mobile toolchain can be pinned with
+checksums for both worker architectures through mise: Flutter publishes no
+Linux arm64 release, the Android SDK's platforms and build tools are fetched
+by `sdkmanager` at run time (outside any lock, behind a licence a person
+accepts), and iOS builds need macOS and Xcode, which workers are not. A
+project that builds for Android on x86_64 workers pins `flutter`, `java` and
+`android-sdk` in its own `mise.toml` as above.
+
 `worker.exposure` (fleet-wide) or `exposure` on one worker says what a worker
 opens beyond loopback and the tailnet; without it, nothing. See
 [Exposure](ubuntu-sync.md#exposure).
+
 The source-owned `worker-auth.ts` timer renews the worker's existing Vault token
 and can restore the declared GitHub account from its authorized Vault service
 credential, without copying another machine's login directory.

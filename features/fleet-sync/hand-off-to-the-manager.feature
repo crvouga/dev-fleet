@@ -46,6 +46,10 @@ Feature: fleet-sync started on a worker is handed to the manager
       When a worker prepares to hand "fleet-sync --node w1 --node w2 --dry-run --json --schedule status" at revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to the manager
       Then the manager is asked for exactly "--revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --node w1 --node w2 --schedule status --dry-run --json"
 
+    Scenario: The hand-off keeps the request to restart a busy T3
+      When a worker prepares to hand "fleet-sync --restart-busy --dry-run" at revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to the manager
+      Then the manager is asked for exactly "--revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --restart-busy --dry-run"
+
   Rule: A worker reports what the manager answered and runs nothing itself
 
     Scenario: A worker hands fleet-sync to the manager and reports its result

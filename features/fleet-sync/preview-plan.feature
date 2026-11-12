@@ -49,7 +49,9 @@ Feature: fleet-sync --dry-run says what a sync would change, and changes nothing
           Restarts agent-clis: New sessions use the new claude; running turns keep the version they started with.
         """
 
-    Scenario: A pending T3 bump restarts T3, which ends its running agent turns
+    Scenario: A pending T3 bump restarts T3 once it is idle, so no running agent turn ends
+      A worker's T3 restarts only while it runs no agent turn; a busy one
+      keeps its turns and the restart stays pending until it is idle.
       Given the revision "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" pins, in its mise.toml:
         """
         [tools]
@@ -68,9 +70,39 @@ Feature: fleet-sync --dry-run says what a sync would change, and changes nothing
         | t3   | 0.1.8-nightly.20261106.4262 | 0.1.9 |
       And the plan restarts exactly:
         | service | ends running turns |
-        | t3      | yes                |
+        | t3      | no                 |
+      And the plan prints:
+        """
+        Plan: aaaaaaaaaaaa → bbbbbbbbbbbb on worker-one.
+          t3 0.1.8-nightly.20261106.4262 → 0.1.9
+          Restarts t3: T3 is upgraded on every worker and restarted once it runs no agent turn: running turns keep going and the restart is pending until then.
+        """
 
-    Scenario: A change to T3's managed policy may restart T3, even with no tool bump
+    Scenario: With --restart-busy, the plan says that running agent turns end
+      Given the revision "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" pins, in its mise.toml:
+        """
+        [tools]
+        node = "26.13.0"
+        claude = "2.1.314"
+        gemini = { version = "0.66.0", allow_builds = ["@lydell/node-pty"] }
+
+        [vars]
+        t3_version = "0.1.9"
+        """
+      And between "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" these files change:
+        | mise.toml |
+      When the plan from "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" is made for the machines "worker-one", restarting a busy T3
+      Then the plan restarts exactly:
+        | service | ends running turns |
+        | t3      | yes                |
+      And the plan prints:
+        """
+        Plan: aaaaaaaaaaaa → bbbbbbbbbbbb on worker-one.
+          t3 0.1.8-nightly.20261106.4262 → 0.1.9
+          Restarts t3: T3 is upgraded on every worker and restarted at once (--restart-busy): its running agent turns end.
+        """
+
+    Scenario: A change to T3's managed policy may restart T3 once it is idle, even with no tool bump
       Given the revision "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" pins, in its mise.toml:
         """
         [tools]
@@ -87,7 +119,7 @@ Feature: fleet-sync --dry-run says what a sync would change, and changes nothing
       Then the plan lists no tool change
       And the plan restarts exactly:
         | service | ends running turns |
-        | t3      | yes                |
+        | t3      | no                 |
 
     Scenario: The same revision again changes nothing, and reads nothing from Git
       When the plan from "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is made for the machines "worker-one"

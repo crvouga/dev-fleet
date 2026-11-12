@@ -85,6 +85,23 @@ Feature: A worker is bootstrapped over SSH with one verified revision
         """
       And the bootstrap was fed no bundle
 
+    Scenario Outline: The bootstrap tells the worker whether its T3 may restart while agent turns run (<request>)
+      A worker's T3 restarts for a new release or policy only while it runs
+      no agent turn, unless fleet-sync was given --restart-busy.
+      Given the sync <request>
+      And the worker answers that it holds the revision
+      And the bootstrap on the worker succeeds, printing:
+        """
+        { "version": 1, "checks": [ { "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" } ] }
+        """
+      When the worker is bootstrapped
+      Then the bootstrap passed "<mode>" as how the worker's T3 restarts
+
+      Examples:
+        | request                             | mode         |
+        | keeps running agent turns           | keep-turns   |
+        | restarts a busy T3 (--restart-busy) | restart-busy |
+
     Scenario: A worker held by another fleet operation reports the lock, and nothing else is claimed
       Given the worker answers that it does not hold the revision
       And the bootstrap on the worker fails, printing:

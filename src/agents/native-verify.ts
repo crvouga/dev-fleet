@@ -1,6 +1,9 @@
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { currentPlatform } from '../platform';
+import { agentRoot, render } from './render';
+import { select } from './registry';
 import type { Check, Runner } from '../types';
 import { pinnedPath } from './toolchain';
 import { registry } from './registry';
@@ -110,9 +113,13 @@ export async function verifyNativeAgents(
      * account change or key rotation re-verifies at once.
      */
     accounts?: AccountContext;
+    /** Where the agent profiles are rendered; this user's by default. */
+    profiles?: string;
   } = {}
 ): Promise<Check[]> {
   const { outOfQuota = new Set<string>(), cache = {} } = options;
+  const profiles =
+    options.profiles ?? agentRoot(homedir(), currentPlatform().name);
   const pins = parsePins(await readFile(join(workspace, 'mise.toml'), 'utf8'));
   const environment = options.t3Service
     ? await serviceLaunch(run)
@@ -136,7 +143,8 @@ export async function verifyNativeAgents(
                   registry,
                   await sourceKey(launcherSources(workspace, agent)),
                   options.accounts?.rosterVersion ?? '',
-                  options.accounts?.keyVersion ?? ''
+                  options.accounts?.keyVersion ?? '',
+                  await configurationKey(profiles, node, agent.binary)
                 ),
                 () =>
                   sessionCheck(agent, { node, workspace, cwd, launch }, run),
@@ -157,6 +165,7 @@ export async function verifyNativeAgents(
                 launch,
                 cache,
                 run,
+                profiles,
               })
           )
         : [];
@@ -207,6 +216,7 @@ async function accountSession(
     launch: Launch;
     cache: VerifyCache;
     run: Runner;
+    profiles: string;
   }
 ): Promise<'ok' | 'cooling-down' | 'failed'> {
   const spec = ACCOUNT_LAUNCH[instance.tool];
@@ -218,7 +228,8 @@ async function accountSession(
       instance,
       spec,
       accounts.rosterVersion,
-      accounts.keyVersion
+      accounts.keyVersion,
+      await configurationKey(context.profiles, context.node, instance.tool)
     ),
     async () => {
       const agents = join(context.workspace, 'agents');
@@ -484,6 +495,26 @@ function sessionRemedy(agent: Agent): string {
 }
 
 /** The launcher and profile code a session depends on. */
+/** Digest of the agent's proxy profile as it is on this machine: the files
+ * its session reads. A profile rendered again, edited or removed changes it,
+ * so the session is proven again at once. Empty for a tool with no profile.
+ */
+export async function configurationKey(
+  profiles: string,
+  node: string,
+  tool: string
+): Promise<string> {
+  try {
+    const selection = select(node, tool, 'proxy');
+    const directory = join(profiles, node, tool, 'proxy');
+    return await sourceKey(
+      Object.keys(render(selection)).map((name) => join(directory, name))
+    );
+  } catch {
+    return '';
+  }
+}
+
 function launcherSources(workspace: string, agent: Agent): string[] {
   const agents = join(workspace, 'agents');
   const lib = join(workspace, 'src/agents');

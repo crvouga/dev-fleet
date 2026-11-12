@@ -94,3 +94,5 @@ Feature: devfleet fleet-sync refuses before it changes anything
         | fleet-discover --local                |
         | fleet-unknown                         |
         | fleet doctor                          |
+        | fleet-sync --restart-busy --only accounts |
+        | fleet-sync --restart-busy --schedule enable |

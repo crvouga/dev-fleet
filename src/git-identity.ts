@@ -25,6 +25,7 @@ export async function convergeGitIdentity(
         git_name: git.name,
         git_email: git.email,
         git_home: home,
+        git_signing: git.signing ?? '',
       }),
     }
   );
@@ -33,7 +34,9 @@ export async function convergeGitIdentity(
       id: 'git:configuration',
       status: result.ok ? 'pass' : 'fail',
       summary: result.ok
-        ? 'The declared Git identity and the GitHub credential helper are written in ~/.config/git/config.'
+        ? git.signing
+          ? "The declared Git identity, the GitHub credential helper and commit signing with this node's own SSH key are written in ~/.config/git/config."
+          : 'The declared Git identity and the GitHub credential helper are written in ~/.config/git/config.'
         : 'GIT_CONFIGURATION_INCOMPLETE',
       ...(result.ok
         ? {}
@@ -152,9 +155,79 @@ export async function gitPushAuthCheck(
   };
 }
 
+/** The node's own commit signing key, made on the node by
+ * `ansible/github/git.yml`: an interface, like every path written to a
+ * machine.
+ */
+export function signingKey(home: string = homedir()): string {
+  return resolve(home, '.ssh/dev-fleet-git-signing');
+}
+
+/** What the signing probe signs: a fixed text, so nothing of the node's is. */
+const SIGNING_PROBE = 'dev-fleet signing probe\n';
+
+/** With `git.signing` declared, every commit and tag is signed with the
+ * node's own key: Git is configured to, and the key really signs. Without it
+ * there is no check.
+ */
+export async function gitSigningCheck(
+  git: GitIdentity | undefined,
+  run: Runner,
+  home: string = homedir()
+): Promise<Check | null> {
+  if (git?.signing !== 'ssh') return null;
+  const id = 'worker:git-signing';
+  const key = signingKey(home);
+  const format = await effective(run, 'gpg.format');
+  const signer = await effective(run, 'user.signingkey');
+  const always = await effective(run, 'commit.gpgsign');
+  if (format !== 'ssh' || signer !== `${key}.pub` || always !== 'true')
+    return {
+      id,
+      status: 'fail',
+      summary:
+        !format && !signer && !always
+          ? 'GIT_SIGNING_MISSING'
+          : 'GIT_SIGNING_OVERRIDDEN',
+      remedy: {
+        action:
+          'Rerun fleet-sync: it makes the node its own signing key and writes the signing settings in ~/.config/git/config. A ~/.gitconfig that sets gpg.format, user.signingkey or commit.gpgsign wins over it; remove those lines.',
+      },
+    };
+  const signed = await run(
+    ['ssh-keygen', '-Y', 'sign', '-n', 'git', '-f', key],
+    {
+      input: SIGNING_PROBE,
+      timeoutMs: 10_000,
+    }
+  );
+  if (!signed.ok || !signed.stdout.includes('-----BEGIN SSH SIGNATURE-----'))
+    return {
+      id,
+      status: 'fail',
+      summary: 'GIT_SIGNING_FAILED',
+      remedy: {
+        action:
+          "The node's signing key (~/.ssh/dev-fleet-git-signing) is missing or cannot sign without a prompt. Remove both halves of it and rerun fleet-sync, which makes a new one; then add the new public key to the GitHub account as a signing key.",
+      },
+    };
+  return {
+    id,
+    status: 'pass',
+    summary:
+      'Commits and tags on this node are signed with its own SSH key. GitHub shows them as verified once ~/.ssh/dev-fleet-git-signing.pub is a signing key of the account.',
+  };
+}
+
 export async function gitChecks(
   git: GitIdentity | undefined,
-  run: Runner
+  run: Runner,
+  home: string = homedir()
 ): Promise<Check[]> {
-  return [await gitIdentityCheck(git, run), await gitPushAuthCheck(git, run)];
+  const signing = await gitSigningCheck(git, run, home);
+  return [
+    await gitIdentityCheck(git, run),
+    await gitPushAuthCheck(git, run),
+    ...(signing ? [signing] : []),
+  ];
 }
