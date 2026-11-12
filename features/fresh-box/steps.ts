@@ -2,6 +2,7 @@ import { expect } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import ubuntu from '../../ansible/ubuntu/policy.json';
+import { ubuntuRelease } from '../../src/platform/ubuntu-release';
 import { sshArgs } from '../../src/ssh';
 import { World, steps, type DataTable } from '../support/gherkin';
 import {
@@ -47,12 +48,12 @@ const { Given, When, Then } = freshBox;
 Given(
   'a fresh Ubuntu {float} machine with an SSH server and an account that can use sudo',
   async (world, release: number) => {
-    expect(release.toFixed(2)).toBe(ubuntu.release);
+    expect(ubuntuRelease(release.toFixed(2))).toBeDefined();
     world.machine = await box(FRESH_BOX);
     world.revision = (await sshClient()).revision;
     expect(
       (await world.remote('. /etc/os-release && echo "$VERSION_ID"')).stdout
-    ).toBe(ubuntu.release);
+    ).toBe(release.toFixed(2));
     expect((await world.remote('id -u')).stdout).not.toBe('0');
     expect((await world.remote('sudo -n true')).ok).toBe(true);
   }

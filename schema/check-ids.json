@@ -175,10 +175,6 @@
       "meaning": "A native per-machine login is in place."
     },
     {
-      "id": "macos:release",
-      "meaning": "The manager runs a supported macOS release."
-    },
-    {
       "id": "manager:docker",
       "meaning": "The manager runs the pinned Docker Desktop."
     },
@@ -201,6 +197,10 @@
     {
       "id": "notify:configured",
       "meaning": "Every notification target fleet.json names has its address available as a secret."
+    },
+    {
+      "id": "platform:environment",
+      "meaning": "The worker runs on a physical or virtual machine of its own, not in a container or WSL2."
     },
     {
       "id": "platform:unsupported",
@@ -485,6 +485,10 @@
     {
       "id": "worker:github-principal",
       "meaning": "The worker's GitHub login is the declared account."
+    },
+    {
+      "id": "worker:package:*",
+      "meaning": "The pinned Ubuntu package is installed at or past its pin."
     },
     {
       "id": "worker:power-loss-recovery",

@@ -17,11 +17,12 @@ import {
   type T3Definition,
 } from './ide/definition';
 import { parseNotify, type NotifyConfig } from './notify';
+import { ubuntuRelease } from './platform/ubuntu-release';
 
 export interface MachineDefinition {
   id: string;
   ssh: string;
-  os: 'linux' | 'macOS' | 'windows';
+  os: 'linux';
   /** Tool profiles this worker adds to the fleet-wide ones. */
   toolProfiles?: ToolProfile[];
   network?: {
@@ -78,7 +79,9 @@ export interface FleetDefinition {
   git?: GitIdentity;
   /** Where fleet-watch sends notifications; absent, nobody is notified. */
   notify?: NotifyConfig;
-  ubuntu: { release: '26.04'; architectures: ['amd64', 'arm64'] };
+  /** An Ubuntu release ansible/ubuntu/policy.json accepts, with exactly the
+   * architectures the policy names for it. */
+  ubuntu: { release: string; architectures: string[] };
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
 export interface AccountPolicy {
@@ -449,14 +452,22 @@ function source(value: unknown): FleetDefinition['source'] {
   return { repository: value['repository'] };
 }
 function baseline(ubuntu: unknown): FleetDefinition['ubuntu'] {
+  if (!record(ubuntu) || !keys(ubuntu, ['release', 'architectures']))
+    return fail();
+  const accepted =
+    typeof ubuntu['release'] === 'string'
+      ? ubuntuRelease(ubuntu['release'])
+      : undefined;
   if (
-    !record(ubuntu) ||
-    !keys(ubuntu, ['release', 'architectures']) ||
-    ubuntu['release'] !== '26.04' ||
-    JSON.stringify(ubuntu['architectures']) !== '["amd64","arm64"]'
+    !accepted ||
+    JSON.stringify(ubuntu['architectures']) !==
+      JSON.stringify(accepted.architectures)
   )
     return fail();
-  return ubuntu as FleetDefinition['ubuntu'];
+  return {
+    release: accepted.release,
+    architectures: [...accepted.architectures],
+  };
 }
 
 /** The configuration as every machine keeps it at

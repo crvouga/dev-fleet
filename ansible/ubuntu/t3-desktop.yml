@@ -4,8 +4,8 @@
 # unit starts the app with the graphical session, so the UI is on screen and the
 # server is up after every boot. Starting or migrating is left to fleet-sync.
 #
-# The upstream .deb declares libxss1, which Ubuntu 26.04 no longer ships and the
-# binary does not link. Instead of patching the package or leaving apt with an
+# The upstream .deb declares libxss1, which current Ubuntu releases no longer
+# ship and the binary does not link. Instead of patching the package or leaving apt with an
 # unmet dependency, the verified package payload is unpacked to its own path and
 # its real runtime libraries and bundled AppArmor profile are installed.
 - name: Install the pinned T3 Code desktop app and start it with the session

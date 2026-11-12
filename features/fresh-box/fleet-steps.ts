@@ -3,8 +3,10 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import example from '../../examples/fleet.json';
 import ubuntu from '../../ansible/ubuntu/policy.json';
+import { ubuntuRelease } from '../../src/platform/ubuntu-release';
 import { parseDefinition } from '../../src/definition';
 import { synchronizeManager, type ManagerReport } from '../../src/manager-sync';
+import { PLATFORM_PROBE } from '../../src/machine/platform';
 import type { CommandResult, Runner } from '../../src/types';
 import type { DataTable } from '../support/gherkin';
 import { freshBox, type FreshBoxWorld } from './steps';
@@ -59,7 +61,7 @@ const revisionDir = async (): Promise<string> =>
 Given(
   'these fresh Ubuntu {float} machines, each with only an SSH server and an account that can use sudo:',
   async (world, release: number, table: DataTable) => {
-    expect(release.toFixed(2)).toBe(ubuntu.release);
+    expect(ubuntuRelease(release.toFixed(2))).toBeDefined();
     fleet(world).machines = await Promise.all(
       table.list().map((name) => box(name))
     );
@@ -69,7 +71,7 @@ Given(
 Given(
   'a fresh Ubuntu {float} machine {string} whose home has {int} MB free',
   async (world, release: number, name: string, megabytes: number) => {
-    expect(release.toFixed(2)).toBe(ubuntu.release);
+    expect(ubuntuRelease(release.toFixed(2))).toBeDefined();
     expect(megabytes).toBe(64);
     const machine = await box(name, { smallHome: true });
     fleet(world).machines.push(machine);
@@ -78,13 +80,19 @@ Given(
 );
 
 /** The machines are not on a tailnet: `tailscale status` and the SSH
- * aliases are answered as if each were online under its own name.
+ * aliases are answered as if each were online under its own name. They are
+ * containers, which the platform probe refuses: its answer says "machine"
+ * instead, and every other line of it is the machine's own.
  */
-const tailnet: Runner = (command, options) => {
+const tailnet: Runner = async (command, options) => {
   const names = command[0] === 'ssh' && command.includes('-G');
-  if (names)
-    return Promise.resolve(answer(`hostname ${command.at(-1)}.fleet.test\n`));
-  return transport(command, options);
+  if (names) return answer(`hostname ${command.at(-1)}.fleet.test\n`);
+  const result = await transport(command, options);
+  if (command[0] !== 'ssh' || command.at(-1) !== PLATFORM_PROBE) return result;
+  return {
+    ...result,
+    stdout: result.stdout.replace(/^container$/m, 'machine'),
+  };
 };
 let tailnetMachines: string[] = [];
 const answer = (stdout: string): CommandResult => ({
@@ -685,5 +693,65 @@ Then(
       expect(
         `${command}: ${(await remote(named(world, name), `command -v ${command}`)).ok}`
       ).toBe(`${command}: false`);
+  }
+);
+
+Then(
+  'the package database of {string} is consistent',
+  async (world, name: string) => {
+    expect(
+      (await asRoot(named(world, name), 'test -z "$(dpkg --audit)"')).ok
+    ).toBe(true);
+  }
+);
+
+/** An unattended upgrade, as far as dpkg can tell: the pinned package
+ * rebuilt one revision past its pin and installed with dpkg. */
+const PAST_PIN = '+fleettest1';
+Given(
+  'an update outside fleet-sync moved the pinned package {string} on {string} past its pin',
+  async (world, pkg: string, name: string) => {
+    const machine = named(world, name);
+    const pinned = (ubuntu.packages as Record<string, string>)[pkg]!;
+    world.defer(async () => {
+      await asRoot(
+        machine,
+        `apt-get install -y --allow-downgrades ${pkg}=${pinned} >/dev/null 2>&1; true`
+      );
+    });
+    const moved = await asRoot(
+      machine,
+      [
+        'set -e',
+        'dir=$(mktemp -d) && cd "$dir"',
+        `APT_CONFIG=/etc/personal-fleet/apt.conf apt-get download ${pkg}=${pinned} >/dev/null 2>&1 || apt-get download ${pkg} >/dev/null 2>&1`,
+        `dpkg-deb -R ${pkg}_*.deb tree`,
+        `sed -i 's/^Version: .*/&${PAST_PIN}/' tree/DEBIAN/control`,
+        'dpkg-deb -b tree moved.deb >/dev/null',
+        'dpkg -i moved.deb >/dev/null',
+      ].join('\n'),
+      300_000
+    );
+    expect(moved.ok).toBe(true);
+  }
+);
+
+Then(
+  'the bootstrap reports {string} as a warning that says {string}',
+  (world, id: string, summary: string) => {
+    const check = world.bootstrap.checks.find((entry) => entry.id === id);
+    expect(check?.status).toBe('warn');
+    expect(check?.summary).toContain(summary);
+  }
+);
+
+Then(
+  'the package {string} on {string} is still past its pin',
+  async (world, pkg: string, name: string) => {
+    const version = await asRoot(
+      named(world, name),
+      `dpkg-query -W -f='\${Version}' ${pkg}`
+    );
+    expect(version.stdout.endsWith(PAST_PIN)).toBe(true);
   }
 );

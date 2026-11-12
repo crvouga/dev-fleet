@@ -49,10 +49,11 @@
     line: /swap.fleet none swap sw 0 0
   when: active_swap.stdout | trim == ''
 
-- name: Install the systemd userspace OOM killer
-  ansible.builtin.apt:
-    name: systemd-oomd
-    state: present
+- name: Install the systemd userspace OOM killer at its pin
+  ansible.builtin.include_tasks: install.yml
+  vars:
+    install_pins:
+      systemd-oomd: "{{ packages['systemd-oomd'] }}"
 - name: Create memory and disk policy directories
   ansible.builtin.file:
     path: '{{ item }}'
@@ -276,7 +277,7 @@
         After=docker.service
         [Service]
         Type=oneshot
-        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ resourceSafety.diskGcPressureMiB }} --pressure-inode-percent {{ resourceSafety.inodeWarnFreePercent }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}
+        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ resourceSafety.diskGcPressureMiB }} --pressure-inode-percent {{ resourceSafety.inodeWarnFreePercent }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}{% for root in resourceSafety.diskGcWorktreeRoots %} --worktree-root {{ root }}{% endfor %} --worktree-idle-days {{ resourceSafety.diskGcWorktreeIdleDays }}{% for cache, mib in resourceSafety.diskGcCacheCapsMiB.items() %} --cache-cap {{ cache }}={{ mib }}{% endfor %} --keep-newest /var/cache/personal-fleet={{ resourceSafety.diskGcPackagesKept }} --mise {{ development_home }}/.local/bin/mise --user {{ development_user }}
 
         TimeoutStartSec=2h
         Nice=19

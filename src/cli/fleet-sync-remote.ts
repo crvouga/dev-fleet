@@ -203,7 +203,7 @@ function deployWithMonitoring(
     );
     // Workers are Linux by definition.
     ui.progress.step(node.id, 'Verifying SSH, OS and T3');
-    result.checks.push(...(await inspectBootstrap(node, run, 'linux')));
+    result.checks.push(...(await inspectBootstrap(node, run)));
     result.checks.push(
       ...(await workerChecks(enabled(idesOf(canonical), IDES), node, {
         run,

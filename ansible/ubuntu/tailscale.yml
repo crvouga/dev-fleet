@@ -8,17 +8,28 @@
   vars_files:
     - policy.json
   tasks:
-    - name: Require supported Ubuntu
-      ansible.builtin.assert:
-        that:
-          - ansible_facts.distribution == 'Ubuntu'
-          - ansible_facts.distribution_version == release
+    - ansible.builtin.import_tasks: tasks/release.yml
     - name: Inspect installed packages before possible network interruption
       ansible.builtin.package_facts:
         manager: apt
-    - name: Require maintenance for an installed version change
+    # The pin is a minimum: a newer Tailscale is kept and reported as a
+    # warning by the worker checks; an older one needs a maintenance window.
+    - name: Compare the installed Tailscale with its pin
+      ansible.builtin.command:
+        argv:
+          - dpkg
+          - --compare-versions
+          - '{{ ansible_facts.packages.tailscale[0].version }}'
+          - ge
+          - '{{ tailscale.version }}'
+      register: tailscale_pin
+      changed_when: false
+      failed_when: tailscale_pin.rc not in [0, 1]
+      check_mode: false
+      when: "'tailscale' in ansible_facts.packages"
+    - name: Require maintenance for an upgrade to the pin
       ansible.builtin.assert:
-        that: "'tailscale' not in ansible_facts.packages or ansible_facts.packages.tailscale[0].version == tailscale.version"
+        that: "'tailscale' not in ansible_facts.packages or tailscale_pin.rc == 0"
         fail_msg: TAILSCALE_UPGRADE_PENDING; upgrading an active VPN can disconnect SSH. Review an explicit maintenance operation.
     - name: Inspect existing package-source ownership before writing
       ansible.builtin.find:
@@ -35,7 +46,7 @@
         fail_msg: TAILSCALE_SOURCE_OWNER_CONFLICT; review the existing signed source and its migration before creating another repository entry.
     - name: Install pinned upstream signing key
       ansible.builtin.get_url:
-        url: https://pkgs.tailscale.com/stable/ubuntu/resolute.noarmor.gpg
+        url: https://pkgs.tailscale.com/stable/ubuntu/{{ ubuntu_release.codename }}.noarmor.gpg
         dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
         checksum: 'sha256:{{ tailscale.keySha256 }}'
         owner: root
@@ -44,7 +55,7 @@
         timeout: 30
     - name: Declare the signed upstream package source
       ansible.builtin.apt_repository:
-        repo: deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu resolute main
+        repo: deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu {{ ubuntu_release.codename }} main
         filename: tailscale
         state: present
         update_cache: false

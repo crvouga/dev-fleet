@@ -1,5 +1,5 @@
-import policy from '../../ansible/ubuntu/policy.json';
 import type { Runner } from '../types';
+import { packagePins, UBUNTU_RELEASES, ubuntuRelease } from './ubuntu-release';
 
 export interface UbuntuAudit {
   supported: boolean;
@@ -11,7 +11,13 @@ export interface UbuntuAudit {
   passwordlessSudo: boolean;
   rebootPending: boolean;
 }
-const PACKAGES = [...Object.keys(policy.packages), 'tailscale'];
+// Every package any accepted release pins, so one audit serves them all.
+const PACKAGES = [
+  ...new Set([
+    ...UBUNTU_RELEASES.flatMap((release) => Object.keys(packagePins(release))),
+    'tailscale',
+  ]),
+];
 
 /** Read-only audit: never emit package sources, environment, accounts or raw errors. */
 export async function auditUbuntu(run: Runner): Promise<UbuntuAudit> {
@@ -32,14 +38,15 @@ export async function auditUbuntu(run: Runner): Promise<UbuntuAudit> {
   const version =
     /^VERSION_ID="?([0-9]+\.[0-9]+)"?$/m.exec(release.stdout)?.[1] ?? null;
   const reported = arch.stdout.trim();
-  const architecture = policy.architectures.includes(reported)
+  const accepted = ubuntuRelease(version);
+  const architecture = accepted?.architectures.includes(reported)
     ? reported
     : null;
   return {
     supported:
       release.ok &&
       /^ID=ubuntu$/m.test(release.stdout) &&
-      version === policy.release &&
+      accepted !== undefined &&
       architecture !== null,
     release: version,
     architecture,

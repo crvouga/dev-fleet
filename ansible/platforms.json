@@ -1,0 +1,111 @@
+{
+  "version": 1,
+  "rows": [
+    {
+      "role": "manager",
+      "platform": "any other",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "The fleet configuration accepts only a macOS manager."
+    },
+    {
+      "role": "worker",
+      "platform": "Ubuntu",
+      "versions": "any other release",
+      "architectures": "any",
+      "status": "refused",
+      "note": "UBUNTU_BASELINE_MISMATCH"
+    },
+    {
+      "role": "worker",
+      "platform": "Ubuntu",
+      "versions": "an accepted release",
+      "architectures": "any other",
+      "status": "refused",
+      "note": "UBUNTU_BASELINE_MISMATCH"
+    },
+    {
+      "role": "worker",
+      "platform": "Debian",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "UBUNTU_BASELINE_MISMATCH"
+    },
+    {
+      "role": "worker",
+      "platform": "macOS",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "The fleet configuration accepts only Linux workers."
+    },
+    {
+      "role": "worker",
+      "platform": "Windows",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "The fleet configuration accepts only Linux workers."
+    },
+    {
+      "role": "worker",
+      "platform": "WSL2",
+      "environment": "wsl",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "WORKER_ENVIRONMENT_UNSUPPORTED"
+    },
+    {
+      "role": "worker",
+      "platform": "container",
+      "environment": "container",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "WORKER_ENVIRONMENT_UNSUPPORTED"
+    },
+    {
+      "role": "toolchain only",
+      "platform": "macOS",
+      "versions": "any",
+      "architectures": "arm64, x86_64",
+      "status": "best effort",
+      "note": "No fleet role: devfleet bootstrap installs the pinned tools (docs/machine-setup.md)."
+    },
+    {
+      "role": "toolchain only",
+      "platform": "Linux",
+      "versions": "any",
+      "architectures": "x86_64, aarch64",
+      "status": "best effort",
+      "note": "No fleet role: devfleet bootstrap installs the pinned tools (docs/machine-setup.md)."
+    },
+    {
+      "role": "toolchain only",
+      "platform": "WSL2",
+      "versions": "any",
+      "architectures": "x86_64",
+      "status": "best effort",
+      "note": "Treated as Linux: devfleet bootstrap installs the pinned tools (docs/machine-setup.md)."
+    },
+    {
+      "role": "toolchain only",
+      "platform": "Windows",
+      "versions": "any",
+      "architectures": "x64",
+      "status": "best effort",
+      "note": "No fleet role: bootstrap/bootstrap.ps1 installs the pinned tools (docs/machine-setup.md)."
+    },
+    {
+      "role": "toolchain only",
+      "platform": "Alpine",
+      "versions": "any",
+      "architectures": "any",
+      "status": "refused",
+      "note": "musl: the pinned mise build needs glibc."
+    }
+  ]
+}

@@ -7,15 +7,13 @@
   vars_files:
     - policy.json
   pre_tasks:
-    - name: Require the supported common release and an explicit non-root user
+    - ansible.builtin.import_tasks: tasks/release.yml
+    - name: Require an explicit non-root user
       ansible.builtin.assert:
         that:
-          - ansible_facts.distribution == 'Ubuntu'
-          - ansible_facts.distribution_version == release
-          - ansible_facts.architecture in ['x86_64', 'aarch64']
           - development_user is match('^[a-z_][a-z0-9_-]{0,31}$')
           - development_user != 'root'
-        fail_msg: Unsupported platform or user; no distribution upgrade is permitted.
+        fail_msg: Unsupported user; name the non-root developer account.
     - name: Read the designated existing account
       ansible.builtin.getent:
         database: passwd
@@ -25,6 +23,7 @@
         that:
           - ansible_facts.getent_passwd[development_user][1] | int == development_uid | int
           - ansible_facts.getent_passwd[development_user][4] == development_home
+    - ansible.builtin.import_tasks: tasks/dpkg.yml
     # Memory and disk safety must land even when the disk is nearly full.
     - ansible.builtin.import_tasks: tasks/resources.yml
     - name: Inspect capacity before package and service changes
@@ -55,29 +54,6 @@
         fail_msg: DOCKER_OWNER_CONFLICT; migrate the existing Docker owner explicitly before applying the Ubuntu-native baseline.
     - name: Inspect existing service ownership
       ansible.builtin.service_facts:
-    - name: Wait for legitimate package transactions before inspecting dpkg
-      ansible.builtin.command:
-        argv:
-          - /usr/bin/python3
-          - '-c'
-          - |
-            import fcntl
-            files = [open(path, 'a') for path in ['/var/lib/dpkg/lock-frontend', '/var/lib/dpkg/lock']]
-            for handle in files:
-                fcntl.lockf(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-      register: apt_idle
-      changed_when: false
-      retries: 24
-      delay: 5
-      until: apt_idle.rc == 0
-    - name: Inspect package database consistency
-      ansible.builtin.command: dpkg --audit
-      changed_when: false
-      register: dpkg_audit
-    - name: Require package database recovery before modifying packages
-      ansible.builtin.assert:
-        that: dpkg_audit.stdout | trim == ''
-        fail_msg: APT_STATE_BROKEN; inspect dpkg --audit and use reviewed package recovery. Never remove package lock files.
   tasks:
     - ansible.builtin.import_tasks: tasks/packages.yml
     - ansible.builtin.import_tasks: tasks/docker.yml

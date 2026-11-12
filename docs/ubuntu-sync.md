@@ -61,10 +61,9 @@ resolve enrolled fleet
 
 Bare invocation selects every canonical Linux and macOS node. It does not mean
 “this computer,” and the manager is not implicitly a deployment target. Its own
-node is targeted only if explicitly declared in Fleet membership. Ubuntu 26.04 is
-the accepted worker platform; a node declared `"os": "macOS"` runs the same phases
-best effort through `ansible/macos` (see the platform matrix below).
-Windows machines stay declared for diagnostics and are never converged.
+node is targeted only if explicitly declared in Fleet membership. Workers are the
+Ubuntu releases the [support matrix](support-matrix.md) lists; it also says what
+is refused (macOS and Windows workers, WSL2, containers) and why.
 `--node ID` filters troubleshooting/rollout. `--all` is an explicit spelling of the
 default. Neither flag authorizes managing arbitrary Tailscale peers.
 
@@ -217,9 +216,12 @@ provider configuration: agent profiles are applied by `fleet-sync`. See
 
 ## Ubuntu and remote-work safety
 
-The declared common baseline is Ubuntu **26.04 LTS**, amd64/arm64. Other releases
-receive `UBUNTU_BASELINE_MISMATCH`; there is no automatic release upgrade or
-package downgrade. Fleet audits release, packages, service state and dpkg
+The accepted releases are named once, in `ansible/ubuntu/policy.json`, and
+listed in the [support matrix](support-matrix.md). Other releases receive
+`UBUNTU_BASELINE_MISMATCH`, and WSL2 and containers
+`WORKER_ENVIRONMENT_UNSUPPORTED`; there is no automatic release upgrade or
+package downgrade. Package pins are minimums: see the
+[worker contract](worker-contract.md#package-pins-and-security-updates). Fleet audits release, packages, service state and dpkg
 consistency, declares snapshot sources for managed transactions, and pins its
 selected APT packages. Unrelated applications and package sources are preserved.
 

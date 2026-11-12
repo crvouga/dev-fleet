@@ -2,12 +2,15 @@ import { expect } from 'bun:test';
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
+  readdirSync,
   realpathSync,
+  statSync,
   symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { steps, type DataTable } from '../../support/gherkin';
 import { part, type BootstrapWorld } from './world';
 
@@ -17,6 +20,7 @@ const DAY = 24 * 3600;
 interface Event {
   event: string;
   dry_run?: boolean;
+  reclaimed_mib?: number;
 }
 
 const collector = part((world) => {
@@ -35,6 +39,9 @@ const collector = part((world) => {
     files: [] as string[],
     options: [] as string[],
     events: [] as Event[],
+    worktree: '',
+    cache: '',
+    mise: '',
   };
 });
 
@@ -144,7 +151,16 @@ Given(
   }
 );
 
-When(/^the disk GC runs( as a dry run)?$/, (world, dry: string | undefined) => {
+When(/^the disk GC runs( as a dry run)?$/, (world, dry: string | undefined) =>
+  runCollector(world, Boolean(dry))
+);
+
+When('the disk GC runs with these limits:', (world, table: DataTable) => {
+  collector(world).options.push(...table.raw().flat());
+  runCollector(world, false);
+});
+
+function runCollector(world: BootstrapWorld, dry: boolean): void {
   const state = collector(world);
   const out = Bun.spawnSync([
     'python3',
@@ -170,7 +186,7 @@ When(/^the disk GC runs( as a dry run)?$/, (world, dry: string | undefined) => {
     .trim()
     .split('\n')
     .map((line) => JSON.parse(line) as Event);
-});
+}
 
 Then('these are gone from the checkout:', (world, table: DataTable) => {
   for (const path of table.list())
@@ -192,4 +208,160 @@ Then('it reports a removal marked as a dry run', (world) => {
       (event) => event.event === 'removed' && event.dry_run === true
     )
   ).toBe(true);
+});
+
+// ── Stores that only grow ───────────────────────────────────────────────
+
+const MIB = 1024 * 1024;
+
+Given('the checkout has a remote that holds its commits', (world) => {
+  const { home, repo } = collector(world);
+  const origin = join(home, 'origin.git');
+  git(home, 'init', '--quiet', '--bare', origin);
+  git(repo, 'remote', 'add', 'origin', origin);
+  git(repo, 'push', '--quiet', 'origin', 'HEAD:refs/heads/main');
+  git(repo, 'fetch', '--quiet', 'origin');
+});
+
+Given(
+  /^an agent worktree "([^"]+)" of the checkout under "([^"]+)" with (nothing unsaved|a commit no remote holds|an uncommitted edit|an untracked file|a process running in it)$/,
+  (world, name: string, under: string, work: string) => {
+    const state = collector(world);
+    const worktree = join(state.home, under, name);
+    mkdirSync(dirname(worktree), { recursive: true });
+    git(state.repo, 'worktree', 'add', '--quiet', '-b', name, worktree);
+    state.worktree = worktree;
+    if (work === 'a commit no remote holds') {
+      writeFileSync(join(worktree, 'src/main.ts'), 'fixed');
+      git(worktree, 'commit', '--quiet', '-am', 'fix');
+    } else if (work === 'an uncommitted edit')
+      writeFileSync(join(worktree, 'src/main.ts'), 'half done');
+    else if (work === 'an untracked file')
+      writeFileSync(join(worktree, 'notes.md'), 'ideas');
+    else if (work === 'a process running in it') {
+      mkdirSync(join(state.proc, '4343'));
+      symlinkSync(worktree, join(state.proc, '4343', 'cwd'));
+    }
+  }
+);
+
+/** Every file of the worktree and what Git touches for it carry that time,
+ * so only what is in it can keep it. */
+Given(/^the worktree was last used (\d+) days ago$/, (world, days: string) => {
+  const { repo, worktree } = collector(world);
+  const when = Date.now() / 1000 - Number(days) * DAY;
+  const admin = join(repo, '.git', 'worktrees', basename(worktree));
+  const paths = [
+    join(admin, 'index'),
+    join(admin, 'HEAD'),
+    join(admin, 'logs', 'HEAD'),
+  ];
+  const walk = (directory: string): void => {
+    paths.push(directory);
+    for (const entry of readdirSync(directory, { withFileTypes: true }))
+      if (entry.isDirectory()) walk(join(directory, entry.name));
+      else paths.push(join(directory, entry.name));
+  };
+  walk(worktree);
+  for (const path of paths) if (existsSync(path)) utimesSync(path, when, when);
+});
+
+Then(/^the worktree is (removed|kept)$/, (world, verdict: string) => {
+  const { repo, worktree } = collector(world);
+  expect(existsSync(worktree)).toBe(verdict === 'kept');
+  // The branch outlives its worktree.
+  git(
+    repo,
+    'rev-parse',
+    '--verify',
+    '--quiet',
+    `refs/heads/${basename(worktree)}`
+  );
+});
+
+Given(
+  'the cache {string} holds {int} files of {int} MiB, written an hour apart',
+  (world, cache: string, count: number, size: number) => {
+    const state = collector(world);
+    state.cache = join(state.home, cache);
+    mkdirSync(join(state.cache, 'packages'), { recursive: true });
+    const now = Date.now() / 1000;
+    for (let index = 0; index < count; index += 1) {
+      const path = join(state.cache, 'packages', `entry-${index}`);
+      writeFileSync(path, Buffer.alloc(size * MIB, 1));
+      const when = now - (count - index) * 3600;
+      utimesSync(path, when, when);
+    }
+  }
+);
+
+const cacheFiles = (cache: string): string[] =>
+  readdirSync(join(cache, 'packages')).sort();
+
+Then(
+  'the cache {string} holds {int} MiB or less',
+  (world, _cache: string, mib: number) => {
+    const { cache } = collector(world);
+    const total = cacheFiles(cache).reduce(
+      (sum, name) => sum + statSync(join(cache, 'packages', name)).size,
+      0
+    );
+    expect(total).toBeLessThanOrEqual(mib * MIB);
+  }
+);
+
+Then('the newest file of the cache is still there', (world) => {
+  expect(cacheFiles(collector(world).cache)).toContain('entry-5');
+});
+
+Then('the run reports at least {int} MiB reclaimed', (world, mib: number) => {
+  const finished = collector(world).events.find(
+    (event) => event.event === 'finished'
+  );
+  expect(finished?.reclaimed_mib).toBeGreaterThanOrEqual(mib);
+});
+
+Given(
+  'the directory {string} holds these downloads, oldest first:',
+  (world, directory: string, table: DataTable) => {
+    const target = join(collector(world).home, directory);
+    mkdirSync(target);
+    const now = Date.now() / 1000;
+    table.list().forEach((name, index, names) => {
+      writeFileSync(join(target, name), name);
+      const when = now - (names.length - index) * 3600;
+      utimesSync(join(target, name), when, when);
+    });
+  }
+);
+
+Then(
+  'the directory {string} holds exactly:',
+  (world, directory: string, table: DataTable) => {
+    expect(readdirSync(join(collector(world).home, directory)).sort()).toEqual(
+      table.list().sort()
+    );
+  }
+);
+
+Given('a stand-in for mise that records how it is run', (world) => {
+  const state = collector(world);
+  state.mise = join(state.home, 'mise');
+  writeFileSync(
+    state.mise,
+    `#!/bin/sh\nprintf '%s\\n' "$*" >> '${state.mise}.log'\n`,
+    { mode: 0o755 }
+  );
+});
+
+When('the disk GC runs with the stand-in for mise', (world) => {
+  const state = collector(world);
+  state.options.push('--mise', state.mise);
+  runCollector(world, false);
+});
+
+Then('the stand-in for mise was run with {string}', (world, args: string) => {
+  expect(readFileSync(`${collector(world).mise}.log`, 'utf8')).toBe(
+    `${args}\n`
+  );
 });

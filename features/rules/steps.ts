@@ -10,6 +10,10 @@ import {
   release,
   scheduledCommand,
 } from '../../src/cli/fleet-sync-schedule';
+import {
+  renderSupportMatrix,
+  supportMatrix,
+} from '../../src/machine/support-matrix';
 import { World, scenariosOf, steps, type DataTable } from '../support/gherkin';
 
 const root = resolve(import.meta.dir, '../..');
@@ -400,19 +404,43 @@ Then('each is a package the Ubuntu policy pins', (world) => {
     expect(Object.keys(ubuntu.packages)).toContain(name);
 });
 
-Then(
-  '{string} requires the Ubuntu release of the Ubuntu policy',
-  (_world, path: string) => {
-    expect(read(path)).toContain(`= ${ubuntu.release} ]`);
+/** A release of the Ubuntu policy as a word, never inside a package version
+ * such as 12.12ubuntu2.26.04.2; its codename as a word. */
+const RELEASE_NAMES = new RegExp(
+  ubuntu.releases
+    .flatMap((entry) => [
+      `(?<![\\w.])${entry.release.replace('.', '\\.')}(?!\\.?\\d)`,
+      `\\b${entry.codename}\\b`,
+    ])
+    .join('|')
+);
+
+When(
+  'the files under these directories are searched for a release or codename the Ubuntu policy accepts:',
+  async (world, table: DataTable) => {
+    const paths = (
+      await Promise.all(table.list().map((dir) => files(`${dir}/**/*`)))
+    ).flat();
+    world.searched = paths.length;
+    world.found = paths.filter((path) => RELEASE_NAMES.test(read(path)));
   }
 );
 
-Then(
-  '{string} requires the minimum macOS version of the macOS policy',
-  (_world, path: string) => {
-    expect(read(path)).toContain(`-ge ${macos.minimumMajorVersion} ]`);
+Then('only these files name one:', (world, table: DataTable) => {
+  expect(world.searched).toBeGreaterThan(0);
+  expect(world.found).toEqual(table.list().sort());
+});
+
+When(
+  'this text is searched for a release or codename the Ubuntu policy accepts:',
+  (world, text: string) => {
+    world.found = RELEASE_NAMES.test(text) ? [text] : [];
   }
 );
+
+Then(/^it names (one|none)$/, (world, verdict: string) => {
+  expect(world.found.length).toBe(verdict === 'one' ? 1 : 0);
+});
 
 When(
   'every key of the macOS and Ubuntu policies is looked up in the playbooks, the sources and these features',
@@ -1098,5 +1126,74 @@ Then(
         )
       );
     else expect(pattern.exec(text)?.[2]).toBe(expected);
+  }
+);
+
+// ── Support matrix ───────────────────────────────────────────────────────
+
+When('docs\\/support-matrix.md is read', (world) => {
+  world.output = read('docs/support-matrix.md');
+});
+
+Then('its table is the one the policies generate', (world) => {
+  expect(world.output).toContain(`\n${renderSupportMatrix()}\n`);
+});
+
+/** WSL is how most text names WSL2. */
+const spellings = (name: string): string[] =>
+  name === 'WSL2' ? ['WSL2', 'WSL'] : [name];
+const platformsNamed = (text: string, names: string[]): string[] =>
+  names.filter((name) =>
+    spellings(name).some((spelling) =>
+      new RegExp(`(?<![\\w-])${spelling}(?![\\w-])`).test(text)
+    )
+  );
+
+When(
+  'the code and the features are searched for these platform names:',
+  async (world, table: DataTable) => {
+    const paths = (
+      await Promise.all(
+        [
+          'src/**/*.ts',
+          'bootstrap/**/*',
+          'ansible/**/*.{yml,sh,py}',
+          'features/**/*.feature',
+        ].map(files)
+      )
+    )
+      .flat()
+      // This feature names every platform it looks for.
+      .filter((path) => path !== 'features/rules/support-matrix.feature');
+    world.searched = paths.length;
+    world.found = [
+      ...new Set(
+        paths.flatMap((path) => platformsNamed(read(path), table.list()))
+      ),
+    ];
+  }
+);
+
+When(
+  'this text is searched for the platform names {string}:',
+  (world, names: string, text: string) => {
+    world.found = platformsNamed(text, names.split(','));
+  }
+);
+
+const unlisted = (world: RulesWorld): string[] => {
+  const listed = new Set(supportMatrix().map((row) => row.platform));
+  return world.found.filter((name) => !listed.has(name));
+};
+
+Then('each name found is a platform of the support matrix', (world) => {
+  expect(world.found.length).toBeGreaterThan(0);
+  expect(unlisted(world)).toEqual([]);
+});
+
+Then(
+  'it names {string}, which has no row in the support matrix',
+  (world, platform: string) => {
+    expect(unlisted(world)).toEqual([platform]);
   }
 );

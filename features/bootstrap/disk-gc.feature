@@ -69,3 +69,51 @@ Feature: The disk GC removes only what a worker can rebuild
       | short            |
       | under pressure   |
       | short of inodes  |
+
+  Rule: Stores that only grow are kept under the limits of the Ubuntu policy
+
+    Scenario Outline: An agent worktree last used <days> days ago with <work> is <verdict>
+      A worktree goes only when Git can vouch for everything in it: nothing
+      uncommitted or untracked, and every commit on a remote. Its branch is
+      kept either way.
+      Given the checkout has a remote that holds its commits
+      And an agent worktree "fix-login" of the checkout under ".t3/worktrees/project" with <work>
+      And the worktree was last used <days> days ago
+      When the disk GC runs with these limits:
+        | --worktree-root      | .t3/worktrees |
+        | --worktree-idle-days | 30            |
+      Then the worktree is <verdict>
+
+      Examples:
+        | days | work                     | verdict |
+        | 40   | nothing unsaved          | removed |
+        | 10   | nothing unsaved          | kept    |
+        | 40   | a commit no remote holds | kept    |
+        | 40   | an uncommitted edit      | kept    |
+        | 40   | an untracked file        | kept    |
+        | 40   | a process running in it  | kept    |
+
+    Scenario: A cache past its cap loses its oldest files until it fits
+      Given the cache ".bun/install/cache" holds 6 files of 1 MiB, written an hour apart
+      When the disk GC runs with these limits:
+        | --cache-cap | .bun/install/cache=3 |
+      Then the cache ".bun/install/cache" holds 3 MiB or less
+      And the newest file of the cache is still there
+      And the run reports at least 3 MiB reclaimed
+
+    Scenario: Only the current and the previous downloaded T3 package are kept
+      Given the directory "packages" holds these downloads, oldest first:
+        | t3-1.deb |
+        | t3-2.deb |
+        | t3-3.deb |
+        | t3-4.deb |
+      When the disk GC runs with these limits:
+        | --keep-newest | packages=2 |
+      Then the directory "packages" holds exactly:
+        | t3-3.deb |
+        | t3-4.deb |
+
+    Scenario: Tool versions no configuration uses are pruned by mise
+      Given a stand-in for mise that records how it is run
+      When the disk GC runs with the stand-in for mise
+      Then the stand-in for mise was run with "prune --yes"

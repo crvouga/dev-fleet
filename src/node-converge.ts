@@ -23,7 +23,7 @@ async function main(): Promise<Check[]> {
       summary: 'PLATFORM_UNSUPPORTED',
       remedy: {
         action:
-          'Workers are Ubuntu 26.04. The macOS manager converges itself locally in fleet-sync.',
+          'Workers run an Ubuntu release docs/support-matrix.md lists. The macOS manager converges itself locally in fleet-sync.',
       },
     },
   ];

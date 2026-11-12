@@ -1,0 +1,50 @@
+---
+# The snapshot every managed package comes from, separate from the system's
+# own sources. Included before any pinned package is installed; a second
+# inclusion in one run changes nothing.
+- name: Create owned APT configuration directory
+  ansible.builtin.file:
+    path: /etc/personal-fleet
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Declare snapshot sources used only for managed package transactions
+  ansible.builtin.copy:
+    dest: /etc/personal-fleet/ubuntu.sources
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    content: |
+      Types: deb
+      URIs: https://snapshot.ubuntu.com/ubuntu/{{ snapshot }}/
+      Suites: {{ ubuntu_release.codename }} {{ ubuntu_release.codename }}-updates {{ ubuntu_release.codename }}-security
+      Components: main universe restricted multiverse
+      Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+  register: snapshot_sources
+# Fetching the snapshot indexes must leave the indexes of the system's own
+# sources in place: the system's APT and unattended upgrades still use them.
+- name: Isolate snapshot selection from unrelated APT operations
+  ansible.builtin.copy:
+    dest: /etc/personal-fleet/apt.conf
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Dir::Etc::sourcelist "/etc/personal-fleet/ubuntu.sources";
+      Dir::Etc::sourceparts "-";
+      APT::Get::List-Cleanup "false";
+      DPkg::Lock::Timeout "{{ aptLockTimeoutSeconds }}";
+- name: Inspect immutable snapshot package index
+  ansible.builtin.stat:
+    path: '/var/lib/apt/lists/snapshot.ubuntu.com_ubuntu_{{ snapshot }}_dists_{{ ubuntu_release.codename }}_InRelease'
+  register: snapshot_index
+- name: Fetch signed snapshot indexes after source change or interrupted setup
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 0
+    lock_timeout: '{{ aptLockTimeoutSeconds }}'
+  environment:
+    APT_CONFIG: /etc/personal-fleet/apt.conf
+  when: snapshot_sources.changed or not snapshot_index.stat.exists

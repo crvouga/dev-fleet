@@ -4,7 +4,9 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
   Ubuntu machines, each with only an SSH server and an account that can use
   sudo. Faults are made on the machines themselves: a held lock, a dropped
   connection, a killed installer, a broken resolver, a full disk. Only the
-  tailnet is a stand-in, because the machines are not on one.
+  tailnet is a stand-in, because the machines are not on one, and the
+  platform probe is told each machine is one of its own: a container is
+  refused as a worker.
 
   A container has no systemd, so some checks a real worker passes fail here.
   That makes every run here a partial verification: it must say so, and must
@@ -90,6 +92,28 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
     And a package installation someone else started on "fleet-b" was interrupted after unpacking "unzip"
     When the manager bootstraps "fleet-b"
     Then the bootstrap reports "DPKG_INTERRUPTED" with a remedy that says "dpkg --configure -a"
+
+  Scenario: A package run cut off by a power loss is finished by the Ubuntu baseline of the next run
+    A package the bootstrap does not need is left unpacked and not
+    configured, as a power loss during a sync leaves it. The bootstrap needs
+    no package, so it leaves APT alone; the baseline waits for the lock,
+    finishes the run once with dpkg --configure -a and checks again.
+    Given every machine has been bootstrapped
+    And a package installation fleet-sync started on "fleet-b" was interrupted after unpacking "zip"
+    When the manager bootstraps "fleet-b"
+    Then the bootstrap reaches node convergence
+    And the package database of "fleet-b" is consistent
+    And the package "zip" is installed on "fleet-b"
+
+  Scenario: A pinned package Ubuntu moved past its pin is kept and reported as a warning
+    A pin is a minimum: security updates keep flowing, nothing downgrades
+    them, and the worker is not turned red by one.
+    Given every machine has been bootstrapped
+    And an update outside fleet-sync moved the pinned package "unzip" on "fleet-b" past its pin
+    When the manager bootstraps "fleet-b"
+    Then the bootstrap reaches node convergence
+    And the bootstrap reports "worker:package:unzip" as a warning that says "PACKAGE_NEWER_THAN_PIN"
+    And the package "unzip" on "fleet-b" is still past its pin
 
   Scenario: A toolchain setup killed midway completes on the next run, and leaves no installer behind
     Given every machine has been bootstrapped

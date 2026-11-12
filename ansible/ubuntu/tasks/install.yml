@@ -1,0 +1,38 @@
+---
+# The one way a pinned Ubuntu package is installed: from the snapshot,
+# waiting for the APT lock, and never downgrading. A pin is a minimum: a
+# package Ubuntu's security updates moved past its pin is left as it is and
+# reported as a warning (docs/worker-contract.md). `install_pins` maps each
+# package to its pinned version.
+- ansible.builtin.import_tasks: snapshot.yml
+- name: Read the installed package versions
+  ansible.builtin.package_facts:
+    manager: apt
+- name: Compare each installed pinned package with its pin
+  ansible.builtin.command:
+    argv:
+      - dpkg
+      - --compare-versions
+      - '{{ ansible_facts.packages[item][0].version }}'
+      - ge
+      - '{{ install_pins[item] }}'
+  loop: "{{ install_pins.keys() | select('in', ansible_facts.packages) | list }}"
+  register: pin_comparison
+  changed_when: false
+  failed_when: pin_comparison.rc not in [0, 1]
+  check_mode: false
+- name: Select the pinned packages that are absent or older than their pin
+  ansible.builtin.set_fact:
+    below_pin: "{{ (install_pins.keys() | reject('in', ansible_facts.packages) | list) + (pin_comparison.results | selectattr('rc', 'equalto', 1) | map(attribute='item') | list) }}"
+- name: Install the pinned version of each package below its pin, without restarting services
+  ansible.builtin.apt:
+    name: '{{ item }}={{ install_pins[item] }}'
+    state: present
+    lock_timeout: '{{ aptLockTimeoutSeconds }}'
+    allow_downgrade: false
+    allow_unauthenticated: false
+    fail_on_autoremove: true
+    policy_rc_d: 101
+  environment:
+    APT_CONFIG: /etc/personal-fleet/apt.conf
+  loop: '{{ below_pin }}'

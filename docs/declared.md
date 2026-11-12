@@ -47,11 +47,10 @@ stays in the playbook: the playbook is its declaration.
   launchd job from TypeScript and has never worked from the published package.
   It should become a playbook.
 - **The rest of a worker's packages.** Only the packages in `policy.json` are
-  exact. `systemd-oomd` and the T3 desktop libraries are installed at whatever
-  version the machine's own archive holds, and the machine's own updates move
-  everything else. Pinning them needs every worker on the snapshot with its
-  own updates off, so security fixes arrive only when the snapshot moves. That
-  is a policy choice, not a missing line.
+  pinned. The T3 desktop libraries are installed at whatever version the
+  machine's own archive holds, and Ubuntu's security updates move everything
+  else, pinned packages included: a pin is a minimum
+  ([worker contract](worker-contract.md#package-pins-and-security-updates)).
 - **What a worker needs before Ansible exists.** `fleet-remote-bootstrap.sh`
   installs Git, curl, CA certificates, Python and `ansible-core` from the
   machine's own archive (the snapshot is HTTPS, and a new machine has no CA

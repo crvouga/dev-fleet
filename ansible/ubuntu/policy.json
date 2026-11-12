@@ -1,7 +1,12 @@
 {
   "version": 1,
-  "release": "26.04",
-  "architectures": ["amd64", "arm64"],
+  "releases": [
+    {
+      "release": "26.04",
+      "codename": "resolute",
+      "architectures": ["amd64", "arm64"]
+    }
+  ],
   "snapshot": "20261101T000000Z",
   "packages": {
     "sudo": "1.9.17p2-1ubuntu3.2",
@@ -17,7 +22,8 @@
     "python3": "3.14.3-0ubuntu2",
     "unzip": "6.0-29ubuntu1",
     "xz-utils": "5.8.3-1ubuntu0.1",
-    "ansible-core": "2.20.1-1"
+    "ansible-core": "2.20.1-1",
+    "systemd-oomd": "259.9-0ubuntu0.1"
   },
   "tailscale": {
     "version": "1.104.5",
@@ -47,6 +53,15 @@
     "diskGcDockerAgeHours": 168,
     "diskGcPressureDockerAgeHours": 24,
     "diskGcPressureCaches": [".bun/install/cache"],
+    "diskGcWorktreeRoots": [".t3/worktrees"],
+    "diskGcWorktreeIdleDays": 30,
+    "diskGcCacheCapsMiB": {
+      ".bun/install/cache": 4096,
+      ".npm/_cacache": 2048,
+      ".cache/uv": 4096,
+      ".cache/pip": 1024
+    },
+    "diskGcPackagesKept": 2,
     "dockerLogMaxSize": "50m",
     "dockerLogMaxFiles": "3",
     "inodeWarnFreePercent": 10,

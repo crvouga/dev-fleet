@@ -5,6 +5,8 @@ import { verifyResourceSafety } from './platform/resource-verify';
 import policy from '../ansible/ubuntu/policy.json';
 import { userInfo } from 'node:os';
 import { T3_HEALTH_SCRIPT, runningVersionCheck } from './platform/t3-service';
+import { compareDebianVersions } from './platform/debian-version';
+import { packagePins, ubuntuRelease } from './platform/ubuntu-release';
 import type { Check, Runner } from './types';
 
 function check(id: string, ok: boolean, summary: string): Check {
@@ -22,6 +24,34 @@ function check(id: string, ok: boolean, summary: string): Check {
       : {}),
   };
 }
+/** A pin is a minimum (docs/worker-contract.md): Ubuntu's security updates
+ * may move a package past it, which is reported but never undone. */
+export function pinnedPackage(
+  name: string,
+  pinned: string,
+  installed: string | undefined
+): Check {
+  const order =
+    installed === undefined ? -1 : compareDebianVersions(installed, pinned);
+  if (order <= 0)
+    return check(
+      `package:${name}`,
+      order === 0,
+      order === 0
+        ? 'Installed at the version the policy pins.'
+        : `PACKAGE_BELOW_PIN ${name} ${installed ?? 'missing'}, pinned ${pinned}`
+    );
+  return {
+    id: `worker:package:${name}`,
+    status: 'warn',
+    summary: `PACKAGE_NEWER_THAN_PIN ${name} ${installed}, pinned ${pinned}`,
+    remedy: {
+      action:
+        'An unattended security update moved this package past its pin, and it is kept. Raise the pin in the Ubuntu policy when the snapshot moves.',
+    },
+  };
+}
+
 /** Observed unit state for a failed service check, e.g.
  * `SERVICE_NOT_INSTALLED beszel-agent.service (inactive)`. */
 export function serviceState(name: string, show: string): string {
@@ -56,17 +86,13 @@ export async function workerHostChecks(
       audit.passwordlessSudo,
       'Designated worker user has noninteractive sudo.'
     ),
-    ...Object.entries(policy.packages).map(([name, version]) =>
-      check(
-        `package:${name}`,
-        audit.packages[name] === version,
-        'Exact declarative Ubuntu package version.'
-      )
+    ...Object.entries(packagePins(ubuntuRelease(audit.release))).map(
+      ([name, version]) => pinnedPackage(name, version, audit.packages[name])
     ),
-    check(
-      'package:tailscale',
-      audit.packages['tailscale'] === policy.tailscale.version,
-      'Exact declarative Tailscale version.'
+    pinnedPackage(
+      'tailscale',
+      policy.tailscale.version,
+      audit.packages['tailscale']
     ),
   ];
   for (const name of policy.alwaysOnServices) {
