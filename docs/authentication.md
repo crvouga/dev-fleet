@@ -74,6 +74,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | `auth:vault-isolation`        | `src/cli/fleet-sync-vault.ts`              |
 | `worker:git-identity`         | `src/git-identity.ts`                      |
 | `worker:git-push-auth`        | `src/definition.ts`, `src/git-identity.ts` |
+| `worker:git-signing`          | `src/definition.ts`, `src/git-identity.ts` |
 | `worker:github-sync`          | `src/worker-access-checks.ts`              |
 | `worker:proxy-authentication` | `src/worker-access-checks.ts`              |
 | `worker:vault-renewal`        | `src/worker-access-checks.ts`              |

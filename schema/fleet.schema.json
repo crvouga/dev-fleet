@@ -674,6 +674,10 @@
           "type": "string",
           "pattern": "^https://github\\.com/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$",
           "description": "A GitHub repository the fleet's account can push to, ideally private. Each node lists it through git with its own credentials."
+        },
+        "signing": {
+          "enum": ["ssh"],
+          "description": "Sign every commit and tag. ssh: each node makes an SSH key of its own (~/.ssh/dev-fleet-git-signing), which never leaves it, and signs with it; measured as worker:git-signing. GitHub shows the commits as verified once each node's public key is added as a signing key to the account."
         }
       }
     },

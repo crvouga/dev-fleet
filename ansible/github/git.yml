@@ -14,6 +14,11 @@
     # gh answers for GitHub through the pinned toolchain's shim, so any
     # session's PATH works.
     git_credential_helper: "!'{{ git_home }}/.local/share/mise/shims/gh' auth git-credential"
+    # Optional commit signing (git.signing in fleet.json): each node signs
+    # with an SSH key of its own, made on the node. The private key never
+    # leaves it and is never in fleet.json, a variable or argv.
+    git_signs: "{{ git_signing | default('') == 'ssh' }}"
+    git_signing_key: '{{ git_home }}/.ssh/dev-fleet-git-signing'
   tasks:
     - name: Require a declared identity
       ansible.builtin.assert:
@@ -64,3 +69,80 @@
           - git_effective.results[2].stdout_lines | default([]) | last | default('') == git_credential_helper
         fail_msg: GIT_IDENTITY_OVERRIDDEN; another Git configuration (often ~/.gitconfig) sets user.name, user.email or the GitHub credential helper after dev-fleet's. Remove those lines.
       when: not ansible_check_mode
+    - name: Create the per-user SSH directory for the signing key
+      ansible.builtin.file:
+        path: '{{ git_home }}/.ssh'
+        state: directory
+        mode: '0700'
+      when: git_signs | bool
+    - name: Make this node's own commit signing key, once
+      ansible.builtin.command:
+        argv:
+          - ssh-keygen
+          - -q
+          - -t
+          - ed25519
+          - -N
+          - ''
+          - -C
+          - dev-fleet git signing
+          - -f
+          - '{{ git_signing_key }}'
+        creates: '{{ git_signing_key }}'
+      when: git_signs | bool
+    - name: Inspect the public half of the signing key
+      ansible.builtin.stat:
+        path: '{{ git_signing_key }}.pub'
+      register: git_signing_public_file
+      when: git_signs | bool
+    - name: Read the public half of the signing key
+      ansible.builtin.slurp:
+        src: '{{ git_signing_key }}.pub'
+      register: git_signing_public
+      when: git_signs | bool and git_signing_public_file.stat.exists
+    - name: Name the node's own key as the signer of the declared identity
+      ansible.builtin.copy:
+        dest: '{{ git_home }}/.config/git/allowed_signers'
+        content: "{{ git_email }} namespaces=\"git\" {{ git_signing_public.content | b64decode | trim }}\n"
+        mode: '0600'
+      when: git_signing_public is not skipped
+    - name: Sign every commit and tag with the node's own key, or stop signing
+      ansible.builtin.blockinfile:
+        path: '{{ git_config }}'
+        create: true
+        mode: '0600'
+        marker: '# {mark} dev-fleet: commit signing'
+        state: "{{ 'present' if git_signs | bool else 'absent' }}"
+        block: |
+          [gpg]
+          	format = ssh
+          [gpg "ssh"]
+          	allowedSignersFile = {{ git_home }}/.config/git/allowed_signers
+          [user]
+          	signingkey = {{ git_signing_key }}.pub
+          [commit]
+          	gpgsign = true
+          [tag]
+          	gpgsign = true
+    - name: Read the effective signing configuration
+      ansible.builtin.command:
+        argv: [git, config, --global, --get-all, '{{ item }}']
+      environment:
+        HOME: '{{ git_home }}'
+      loop:
+        - gpg.format
+        - user.signingkey
+        - commit.gpgsign
+      register: git_signing_effective
+      check_mode: false
+      changed_when: false
+      failed_when: false
+      when: git_signs | bool
+    - name: Require the node's own key to sign every commit (worker:git-signing)
+      ansible.builtin.assert:
+        that:
+          - git_signing_effective.results[0].stdout_lines | default([]) | last | default('') == 'ssh'
+          - git_signing_effective.results[1].stdout_lines | default([]) | last | default('') == git_signing_key + '.pub'
+          - git_signing_effective.results[2].stdout_lines | default([]) | last | default('') == 'true'
+        fail_msg: GIT_SIGNING_OVERRIDDEN; another Git configuration (often ~/.gitconfig) sets gpg.format, user.signingkey or commit.gpgsign after dev-fleet's. Remove those lines.
+      when: git_signs | bool and not ansible_check_mode

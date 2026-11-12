@@ -135,6 +135,65 @@ Feature: A worker proves it can do what agents do on it
         | git | config | --global | --get-all | user.name |
       And nothing reported contains "PRIVATE_SENTINEL"
 
+    Scenario: Without signing declared, there is no signing check
+      Given these commands print:
+        | command                                    | prints                                |
+        | git config --global --get-all user.name    | Example User                          |
+        | git config --global --get-all user.email   | example-user@users.noreply.github.com |
+        | git credential fill                        | password=PRIVATE_SENTINEL             |
+      When the worker's Git is checked
+      Then there is no check "worker:git-signing"
+      And no "ssh-keygen" command was run
+
+  Rule: With signing declared, every commit is signed with the node's own SSH key
+
+    Background:
+      Given the fleet declares the Git identity "Example User" <example-user@users.noreply.github.com>, signing commits with SSH
+      And the worker's home is "/home/dev"
+
+    Scenario: Git signs with the node's own key, and the key really signs
+      The probe signs a fixed text on standard input: no file of the node's
+      is signed, and the signature is not reported.
+      Given these commands print:
+        | command                                    | prints                                                        |
+        | git config --global --get-all user.name    | Example User                                                  |
+        | git config --global --get-all user.email   | example-user@users.noreply.github.com                         |
+        | git credential fill                        | password=PRIVATE_SENTINEL                                     |
+        | git config --global --get-all gpg.format   | ssh                                                           |
+        | git config --global --get-all user.signingkey | /home/dev/.ssh/dev-fleet-git-signing.pub                   |
+        | git config --global --get-all commit.gpgsign  | true                                                       |
+        | ssh-keygen -Y sign -n git -f /home/dev/.ssh/dev-fleet-git-signing | -----BEGIN SSH SIGNATURE-----␊PRIVATE_SENTINEL␊-----END SSH SIGNATURE----- |
+      When the worker's Git is checked
+      Then the check "worker:git-signing" passes
+      And the summary of the check "worker:git-signing" mentions "signing key of the account"
+      And the command "ssh-keygen -Y sign" was given "dev-fleet signing probe␊" on standard input
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+    Scenario Outline: Signing that is <how> fails worker:git-signing with <code>
+      Given these commands print:
+        | command                                       | prints     |
+        | git config --global --get-all user.name       | Example User |
+        | git config --global --get-all user.email      | example-user@users.noreply.github.com |
+        | git credential fill                           | password=PRIVATE_SENTINEL |
+        | git config --global --get-all gpg.format      | <format>   |
+        | git config --global --get-all user.signingkey | <key>      |
+        | git config --global --get-all commit.gpgsign  | <always>   |
+      And the command "ssh-keygen -Y sign" fails with the error "Load key: No such file or directory PRIVATE_SENTINEL"
+      When the worker's Git is checked
+      Then the check "worker:git-signing" fails
+      And the summary of the check "worker:git-signing" mentions "<code>"
+      And the remedy of the check "worker:git-signing" mentions "fleet-sync"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | how                          | format  | key                                      | always | code                     |
+        | not configured               |         |                                          |        | GIT_SIGNING_MISSING      |
+        | overridden by another file   | openpgp | /home/dev/.ssh/dev-fleet-git-signing.pub | true   | GIT_SIGNING_OVERRIDDEN   |
+        | turned off for commits       | ssh     | /home/dev/.ssh/dev-fleet-git-signing.pub | false  | GIT_SIGNING_OVERRIDDEN   |
+        | configured, without its key  | ssh     | /home/dev/.ssh/dev-fleet-git-signing.pub | true   | GIT_SIGNING_FAILED |
+
+  Rule: Without a declared identity
+
     Scenario: Without a declared identity the fleet is warned, not blocked
       Given the fleet declares no Git identity
       And every command prints "password=PRIVATE_SENTINEL"
