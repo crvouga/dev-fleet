@@ -1,6 +1,15 @@
 import { expect } from 'bun:test';
-import { mkdir, readlink, realpath } from 'node:fs/promises';
-import { join } from 'node:path';
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
+import { mkdir, readlink, realpath, rm } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { parse } from 'yaml';
 import {
   T3_RESTARTED_SUMMARY,
   loadedT3Policy,
@@ -8,7 +17,10 @@ import {
   verifyT3Policy,
 } from '../../../src/platform/t3-policy';
 import { convergeT3Route } from '../../../src/platform/t3-route';
-import { convergeT3Service } from '../../../src/platform/t3-service';
+import {
+  convergeT3Service,
+  t3RestartMarker,
+} from '../../../src/platform/t3-service';
 import { succeeded } from '../../support/commands';
 import { commandLine } from '../../support/answers';
 import { machines, temporary } from './world';
@@ -34,11 +46,23 @@ When(
     world.checks = [
       await loadedT3Policy(executable, world.run, {
         restarted: play === 'restarted it',
+        uid: 1000,
         pause: async () => {
           world.pauses++;
         },
       }),
     ];
+  }
+);
+
+Given(
+  'a restart of T3 has been deferred for {int} hours',
+  (world, hours: number) => {
+    const since = Math.floor(Date.now() / 1000) - hours * 3600;
+    world.commands.answer(
+      commandLine(`cat ${t3RestartMarker(1000)}`),
+      succeeded(`${since}\n`)
+    );
   }
 );
 
@@ -185,3 +209,89 @@ Then(
     );
   }
 );
+
+// ── The recovery watchdog ────────────────────────────────────────────────
+
+interface Task {
+  'ansible.builtin.copy'?: { src?: string; dest: string; content?: string };
+  loop?: string[];
+}
+const ubuntu = resolve(import.meta.dir, '../../../ansible/ubuntu');
+const recoveryTasks = (): Task[] =>
+  parse(readFileSync(join(ubuntu, 'tasks/recovery.yml'), 'utf8')) as Task[];
+/** The ExecStart of the recovery unit, as the role writes it. */
+const execStart = (): string => {
+  const unit = recoveryTasks().find((task) =>
+    task['ansible.builtin.copy']?.dest.endsWith(
+      'personal-worker-recovery.service'
+    )
+  );
+  const line = /^ExecStart=(.*)$/m.exec(
+    unit?.['ansible.builtin.copy']?.content ?? ''
+  );
+  if (!line?.[1]) throw new Error('The recovery unit has no ExecStart.');
+  return line[1];
+};
+
+Given(
+  'a revision installed the recovery watchdog as the role declares it',
+  async (world) => {
+    world.directory = await temporary(world, 'recovery-');
+    const revision = join(world.directory, 'revisions/abc/ansible/ubuntu');
+    await mkdir(revision, { recursive: true });
+    for (const name of readdirSync(ubuntu))
+      if (/\.(sh|py)$/.test(name))
+        copyFileSync(join(ubuntu, name), join(revision, name));
+    for (const task of recoveryTasks()) {
+      const copy = task['ansible.builtin.copy'];
+      if (!copy?.src) continue;
+      for (const item of task.loop ?? []) {
+        const render = (text: string) =>
+          text
+            .replaceAll('{{ playbook_dir }}', revision)
+            .replaceAll('{{ item }}', item);
+        const dest = join(world.directory, 'root', render(copy.dest));
+        await mkdir(dirname(dest), { recursive: true });
+        copyFileSync(render(copy.src), dest);
+      }
+    }
+  }
+);
+
+Given('that revision has been pruned', async (world) => {
+  await rm(join(world.directory, 'revisions'), {
+    recursive: true,
+    force: true,
+  });
+});
+
+When('the recovery unit runs', (world) => {
+  const bin = join(world.directory, 'bin');
+  mkdirSync(bin, { recursive: true });
+  // A healthy desktop app in a graphical session.
+  for (const name of ['systemctl', 'curl']) {
+    writeFileSync(join(bin, name), '#!/bin/sh\nexit 0\n');
+    chmodSync(join(bin, name), 0o755);
+  }
+  const [shell, script] = execStart().split(' ');
+  const ran = Bun.spawnSync([shell!, join(world.directory, 'root', script!)], {
+    env: {
+      PATH: `${bin}:/usr/bin:/bin`,
+      XDG_RUNTIME_DIR: world.directory,
+      HOME: world.directory,
+    },
+  });
+  world.ran = String(ran.exitCode);
+});
+
+Then('the recovery unit succeeds', (world) => {
+  expect(world.ran).toBe('0');
+});
+
+When('the recovery unit the role declares is read', (world) => {
+  world.ran = execStart();
+});
+
+Then('the recovery unit starts {string}', (world, command: string) => {
+  expect(world.ran).toBe(command);
+});

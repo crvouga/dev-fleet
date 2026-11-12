@@ -785,3 +785,78 @@ Then('none has more than one {string} step', (world, keyword: string) => {
       .map((scenario) => `${scenario.path}: ${scenario.name}`)
   ).toEqual([]);
 });
+
+// ── Emitters ─────────────────────────────────────────────────────────────
+
+/** Source files that produce checks and codes: TypeScript and what Ansible
+ * runs on a machine. */
+async function emitters(): Promise<{ path: string; text: string }[]> {
+  const paths = [
+    ...(await files('src/**/*.ts')),
+    ...(await files('bootstrap/**/*.ts')),
+    ...(await files('ansible/**/*.{yml,sh,py}')),
+  ];
+  return paths.map((path) => ({ path, text: read(path) }));
+}
+
+When(
+  'the check ids of the {string} and {string} columns of the fleet-sync report are read',
+  (world, first: string, second: string) => {
+    const report = read('src/cli/fleet-sync-output.ts');
+    world.found = [first, second].flatMap((title) => {
+      const column = new RegExp(
+        `title: '${title}',[\\s\\S]*?\\]\\.includes\\(`
+      ).exec(report)?.[0];
+      if (!column) throw new Error(`No column ${title}.`);
+      return [...column.matchAll(/'([a-z0-9]+:[a-z0-9:-]+)'/g)].map(
+        (match) => match[1]!
+      );
+    });
+  }
+);
+
+Then('there are more than {int}', (world, count: number) => {
+  expect(world.found.length).toBeGreaterThan(count);
+});
+
+Then('each is produced outside the report', async (world) => {
+  const sources = (await emitters()).filter(
+    ({ path }) => path !== 'src/cli/fleet-sync-output.ts'
+  );
+  // `worker:` checks are built from their name by one helper.
+  const produced = (id: string) =>
+    [id, id.slice(id.indexOf(':') + 1)].some((name) =>
+      sources.some(({ text }) => text.includes(`'${name}'`))
+    );
+  expect(world.found.filter((id) => !produced(id))).toEqual([]);
+});
+
+When('the T3 codes the documents and features name are read', async (world) => {
+  const documents = [
+    'README.md',
+    ...(await files('docs/**/*.md')),
+    ...(await files('features/**/*.feature')),
+  ];
+  world.found = [
+    ...new Set(
+      documents.flatMap((path) =>
+        [...read(path).matchAll(/(?<![$\w])T3_[A-Z]+(?:_[A-Z]+)+\b/g)].map(
+          (match) => match[0]
+        )
+      )
+    ),
+  ];
+});
+
+Then(
+  'each is emitted by the code that measures or recovers T3',
+  async (world) => {
+    const sources = await emitters();
+    expect(
+      world.found.filter(
+        (code) =>
+          !sources.some(({ text }) => new RegExp(`\\b${code}\\b`).test(text))
+      )
+    ).toEqual([]);
+  }
+);

@@ -1,6 +1,8 @@
 import { runAnsible } from './ansible';
 import { desired } from '../t3/desired';
 import policy from '../../ansible/ubuntu/t3/policy.json';
+import ubuntu from '../../ansible/ubuntu/policy.json';
+import { restartDeferral } from './t3-service';
 import { basename, dirname, join, resolve } from 'node:path';
 import { rename, rm, symlink } from 'node:fs/promises';
 import { userInfo } from 'node:os';
@@ -34,6 +36,7 @@ export async function stageT3Policy(
       t3_policy_document: document,
       development_user: user.username,
       development_uid: user.uid,
+      development_home: user.homedir,
     }),
     timeoutMs: 120_000,
   });
@@ -84,14 +87,21 @@ export const T3_RESTARTED_SUMMARY =
   'T3 was restarted to load the new managed policy; the running server confirms it.';
 
 /** `t3-policy.yml` restarts a running T3 that has not loaded the staged policy
- * (ending its running turns), so every node offers the same providers after
- * every sync. This measures the outcome; `restarted` says whether the app
- * restarted during this sync and so needs time to reconnect.
+ * so every node offers the same providers, but only while it runs no agent
+ * turn: a busy T3 keeps its turns and the play records the restart as
+ * pending, for personal-worker-recovery to apply at the first idle check.
+ * This measures the outcome; `restarted` says whether the app restarted
+ * during this sync and so needs time to reconnect.
  */
 export async function loadedT3Policy(
   executable: string,
   run: Runner,
-  options: { restarted: boolean; pause?: () => Promise<void> }
+  options: {
+    restarted: boolean;
+    pause?: () => Promise<void>;
+    uid?: number;
+    now?: number;
+  }
 ): Promise<Check> {
   // A restarted desktop app takes a few seconds to come back with its server.
   const check = await verifyT3Policy(
@@ -103,8 +113,25 @@ export async function loadedT3Policy(
           setTimeout(done, options.restarted ? 5000 : 1000)
         ))
   );
-  if (check.status !== 'pass')
-    return { ...check, summary: 'T3_POLICY_RESTART_FAILED' };
+  if (check.status !== 'pass') {
+    const deferral = await restartDeferral(
+      run,
+      options.uid ?? userInfo().uid,
+      options.now
+    );
+    if (!deferral.pending)
+      return { ...check, summary: 'T3_POLICY_RESTART_FAILED' };
+    return {
+      ...check,
+      status: deferral.overdue ? 'fail' : 'warn',
+      summary: 'T3_POLICY_RESTART_PENDING',
+      remedy: {
+        action: deferral.overdue
+          ? `Agent turns kept T3 from loading the staged policy for ${ubuntu.t3RestartMaxDeferralHours} hours. Finish or stop them, or restart t3code-desktop.service on the worker (this ends its running turns).`
+          : 'Agent turns are running, so T3 keeps them and loads the staged policy at the first check of personal-worker-recovery with no turn running.',
+      },
+    };
+  }
   return options.restarted
     ? { ...check, summary: T3_RESTARTED_SUMMARY }
     : check;

@@ -1,7 +1,10 @@
 Feature: The policy a worker's T3 has loaded is measured, never assumed
   fleet-sync stages the managed policy, and a playbook restarts a running T3
-  that has not loaded it. Afterwards T3 itself is asked, with
-  "t3 policy show", and only its own word that it loaded this policy counts.
+  that has not loaded it, but only while it runs no agent turn: a busy T3
+  keeps its turns and the restart is recorded as pending, for the recovery
+  watchdog to apply at the first idle check. Afterwards T3 itself is asked,
+  with "t3 policy show", and only its own word that it loaded this policy
+  counts.
 
   Rule: The running T3 is asked, a bounded number of times, and nothing is changed
 
@@ -61,8 +64,29 @@ Feature: The policy a worker's T3 has loaded is measured, never assumed
 
     Scenario: A policy still not loaded after the play is a failure, never a wait
       Given these commands answer:
-        | command                 | answer                                                |
-        | /managed/t3 policy show | prints Restart T3 Code to apply the installed policy. |
+        | command                                        | answer                                                |
+        | /managed/t3 policy show                        | prints Restart T3 Code to apply the installed policy. |
+        | cat /run/user/1000/personal-t3-restart-pending | fails                                                 |
       When the policy loaded by the T3 at "/managed/t3" is measured after a play that restarted it
       Then the check fails with "T3_POLICY_RESTART_FAILED"
-      And every command that ran was "/managed/t3 policy show"
+      And no command with the word "start" was run
+
+  Rule: A restart deferred while agent turns run is pending, until it has waited too long
+
+    Background:
+      Given these commands answer:
+        | command                 | answer                                                |
+        | /managed/t3 policy show | prints Restart T3 Code to apply the installed policy. |
+
+    Scenario: A policy change while an agent turn runs leaves the turn running and reports the pending restart
+      Given a restart of T3 has been deferred for 2 hours
+      When the policy loaded by the T3 at "/managed/t3" is measured after a play that left it running
+      Then the check warns
+      And the summary of the check is "T3_POLICY_RESTART_PENDING"
+      And no command with the word "start" was run
+
+    Scenario: A restart deferred longer than the policy allows fails
+      The policy allows 24 hours.
+      Given a restart of T3 has been deferred for 25 hours
+      When the policy loaded by the T3 at "/managed/t3" is measured after a play that left it running
+      Then the check fails with "T3_POLICY_RESTART_PENDING"

@@ -53,6 +53,16 @@
       register: t3_desktop_installed
       changed_when: false
       failed_when: false
+    - name: Check whether the desktop app is running before an update
+      become: true
+      become_user: '{{ development_user }}'
+      environment:
+        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+      ansible.builtin.command:
+        argv: [systemctl, --user, is-active, --quiet, t3code-desktop.service]
+      register: t3_desktop_was_active
+      changed_when: false
+      failed_when: false
     - name: Unpack the pinned app when its version differs
       when: t3_desktop_installed.stdout | default('') != t3_desktop_name
       block:
@@ -94,6 +104,7 @@
               - -T
               - '/opt/.t3code-staging{{ t3_desktop_dir }}'
               - '{{ t3_desktop_dir }}'
+          register: t3_desktop_updated
           changed_when: true
         - name: Add the launcher entry and icon
           ansible.builtin.copy:
@@ -218,3 +229,11 @@
         name: t3code-desktop.service
         state: started
       failed_when: false
+    # A running app keeps the files of its release: restart it into the one
+    # just installed, only while it runs no agent turn. Otherwise
+    # personal-worker-recovery restarts it at the first idle check, and
+    # t3:running-version reports T3_RESTART_PENDING until then.
+    - ansible.builtin.import_tasks: tasks/t3-restart.yml
+      when:
+        - t3_desktop_was_active.rc == 0
+        - t3_desktop_updated is changed

@@ -1,4 +1,25 @@
 ---
+# The unit runs a copy installed outside every revision: a synced revision is
+# pruned two syncs later, and the unit must not name a file that is gone.
+- name: Create the directory of the installed recovery scripts
+  become: true
+  ansible.builtin.file:
+    path: /usr/local/lib/personal-fleet
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+- name: Install the T3 recovery scripts outside the revision
+  become: true
+  ansible.builtin.copy:
+    src: '{{ playbook_dir }}/{{ item }}'
+    dest: '/usr/local/lib/personal-fleet/{{ item }}'
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - t3-health.sh
+    - t3-idle.py
 - name: Declare bounded recovery of the worker T3 desktop app
   ansible.builtin.copy:
     dest: '{{ development_home }}/.config/systemd/user/personal-worker-recovery.service'
@@ -10,7 +31,7 @@
       Description=Keep the worker T3 desktop app running and responsive
       [Service]
       Type=oneshot
-      ExecStart=/bin/sh {{ development_source }}/ansible/ubuntu/t3-health.sh
+      ExecStart=/bin/sh /usr/local/lib/personal-fleet/t3-health.sh
       TimeoutStartSec=90
 - name: Declare persistent service recovery checks
   ansible.builtin.copy:

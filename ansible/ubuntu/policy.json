@@ -26,6 +26,7 @@
   "aptLockTimeoutSeconds": 120,
   "minimumFreeDiskMiB": 4096,
   "minimumFreeInodes": 10000,
+  "t3RestartMaxDeferralHours": 24,
   "alwaysOnServices": ["ssh", "tailscaled", "docker", "beszel-agent"],
   "resourceSafety": {
     "swapFileMiB": 8192,

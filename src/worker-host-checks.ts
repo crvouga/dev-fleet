@@ -4,6 +4,7 @@ import { verifyUbuntuBoot } from './platform/ubuntu-verify';
 import { verifyResourceSafety } from './platform/resource-verify';
 import policy from '../ansible/ubuntu/policy.json';
 import { userInfo } from 'node:os';
+import { T3_HEALTH_SCRIPT, runningVersionCheck } from './platform/t3-service';
 import type { Check, Runner } from './types';
 
 function check(id: string, ok: boolean, summary: string): Check {
@@ -120,17 +121,12 @@ async function recoveryChecks(run: Runner): Promise<Check[]> {
     )
   );
   checks.push(await t3HealthCheck(run));
+  checks.push(await runningVersionCheck(run, userInfo().uid));
   const renewal = await run([
     'systemctl',
     '--user',
     'is-active',
     'personal-worker-auth.timer',
-  ]);
-  const recovery = await run([
-    'systemctl',
-    '--user',
-    'is-active',
-    'personal-worker-recovery.timer',
   ]);
   checks.push(
     check(
@@ -139,15 +135,42 @@ async function recoveryChecks(run: Runner): Promise<Check[]> {
       'Worker credential renewal timer is active.'
     )
   );
-  checks.push(
-    check(
-      'service-recovery',
-      recovery.ok,
-      'Worker service recovery timer is active.'
-    )
-  );
+  checks.push(await serviceRecoveryCheck(run));
   checks.push(await powerRecoveryCheck(run));
   return checks;
+}
+
+/** The recovery timer is active, the script its unit runs exists, and the
+ * last run of the unit succeeded: a watchdog that fails on every tick is not
+ * recovery. */
+export async function serviceRecoveryCheck(run: Runner): Promise<Check> {
+  const timer = await run([
+    'systemctl',
+    '--user',
+    'is-active',
+    'personal-worker-recovery.timer',
+  ]);
+  const script = await run(['test', '-r', T3_HEALTH_SCRIPT]);
+  const unit = await run([
+    'systemctl',
+    '--user',
+    'show',
+    'personal-worker-recovery.service',
+    '--property=Result',
+  ]);
+  const result = /^Result=(.*)$/m.exec(unit.stdout)?.[1] ?? 'unknown';
+  const summary = !timer.ok
+    ? 'WORKER_RECOVERY_TIMER_INACTIVE'
+    : !script.ok
+      ? 'WORKER_RECOVERY_SCRIPT_MISSING'
+      : !unit.ok || result !== 'success'
+        ? `WORKER_RECOVERY_LAST_RUN_FAILED (${/^[\w-]+$/.test(result) ? result : 'unknown'})`
+        : 'Worker service recovery timer is active and its last run succeeded.';
+  return check(
+    'service-recovery',
+    timer.ok && script.ok && unit.ok && result === 'success',
+    summary
+  );
 }
 
 /** The server answers its local API now, not merely that a process exists. */

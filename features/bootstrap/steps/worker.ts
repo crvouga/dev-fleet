@@ -1,6 +1,13 @@
 import { expect } from 'bun:test';
 import { spawnSync, type SpawnSyncReturns } from 'node:child_process';
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs';
+import { Database } from 'bun:sqlite';
 import { join, resolve } from 'node:path';
 import { steps, type DataTable } from '../../support/gherkin';
 import { part, type BootstrapWorld } from './world';
@@ -233,19 +240,29 @@ Then(
 const watchdog = part((world) => ({
   directory: world.directory('t3-health-'),
   headless: false,
+  retires: true,
+  session: true,
   desktop: false,
   healthy: false,
-  prepared: false,
+  running: '',
+  installed: '',
+  idle: true,
+  output: '',
 }));
 const log = (world: BootstrapWorld): string =>
   join(watchdog(world).directory, 'calls');
+const calls = (world: BootstrapWorld): string[] =>
+  readFileSync(log(world), 'utf8').split('\n').filter(Boolean);
+const marker = (world: BootstrapWorld): string =>
+  join(watchdog(world).directory, 'personal-t3-restart-pending');
 
-/** Runs the watchdog with a `systemctl` and a `curl` that only record how
- * they were called and answer as the scenario says.
+/** Runs the watchdog with a `systemctl`, `curl`, `sudo` and `python3` that
+ * only record how they were called and answer as the scenario says, and an
+ * installed app whose release is the one the scenario names.
  */
 function watch(world: BootstrapWorld): number {
   const state = watchdog(world);
-  const { directory, headless, desktop, healthy } = state;
+  const { directory } = state;
   const stand = (name: string, body: string): void => {
     writeFileSync(
       join(directory, name),
@@ -253,19 +270,46 @@ function watch(world: BootstrapWorld): number {
     );
     chmodSync(join(directory, name), 0o755);
   };
-  if (!state.prepared) {
-    writeFileSync(log(world), '');
-    stand(
-      'systemctl',
-      `case "$*" in *"is-active --quiet t3code.service") exit ${headless ? 0 : 3};; *is-active*) exit ${desktop ? 0 : 3};; esac`
+  const exit = (yes: boolean): number => (yes ? 0 : 3);
+  if (!existsSync(log(world))) writeFileSync(log(world), '');
+  stand(
+    'systemctl',
+    [
+      'case "$*" in',
+      `  *"t3code.service") case "$*" in *disable*) exit ${exit(state.retires)};; *) exit ${exit(state.headless)};; esac;;`,
+      `  *"is-active --quiet graphical-session.target") exit ${exit(state.session)};;`,
+      `  *is-active*) exit ${exit(state.desktop)};;`,
+      'esac',
+    ].join('\n')
+  );
+  stand(
+    'curl',
+    state.healthy
+      ? `printf '%s' '{"environmentId":"e","serverVersion":"${state.running}"}'`
+      : 'exit 28'
+  );
+  stand('sudo', '');
+  stand('python3', `exit ${state.idle ? 0 : 1}`);
+  const app = join(directory, 'app');
+  mkdirSync(app, { recursive: true });
+  if (state.installed)
+    writeFileSync(
+      join(app, '.personal-fleet-version'),
+      `T3-Code-${state.installed}-amd64.deb`
     );
-    stand('curl', `exit ${healthy ? 0 : 28}`);
-    state.prepared = true;
-  }
-  return Bun.spawnSync(
+  const ran = Bun.spawnSync(
     ['/bin/sh', join(checkout, 'ansible/ubuntu/t3-health.sh')],
-    { env: { PATH: `${directory}:/usr/bin:/bin`, XDG_RUNTIME_DIR: directory } }
-  ).exitCode;
+    {
+      env: {
+        PATH: `${directory}:/usr/bin:/bin`,
+        XDG_RUNTIME_DIR: directory,
+        HOME: directory,
+        T3_DESKTOP_DIR: app,
+      },
+    }
+  );
+  state.output = ran.stdout.toString();
+  return ran.exitCode;
 }
 
 Given(
@@ -274,6 +318,14 @@ Given(
     watchdog(world).headless = state === 'running';
   }
 );
+
+Given('the headless T3 server cannot be stopped', (world) => {
+  watchdog(world).retires = false;
+});
+
+Given('there is no graphical session', (world) => {
+  watchdog(world).session = false;
+});
 
 Given(
   /^the T3 desktop service is (running|stopped)$/,
@@ -289,6 +341,26 @@ Given(
   }
 );
 
+Given(
+  'T3 answers its health check as release {string}',
+  (world, version: string) => {
+    watchdog(world).healthy = true;
+    watchdog(world).running = version;
+  }
+);
+
+Given('the installed release is {string}', (world, version: string) => {
+  watchdog(world).installed = version;
+});
+
+Given(/^T3 runs (no|an) agent turn$/, (world, turn: string) => {
+  watchdog(world).idle = turn === 'no';
+});
+
+Given('a restart for the staged policy is pending', (world) => {
+  writeFileSync(marker(world), '1800000000\n');
+});
+
 Given(/^the watchdog has run (\d+) times?$/, (world, times: number) => {
   for (let run = 0; run < Number(times); run++) watch(world);
 });
@@ -297,8 +369,37 @@ When('the watchdog runs', (world) => {
   world.exit = watch(world);
 });
 
+When('the watchdog runs {int} times', (world, times: number) => {
+  for (let run = 0; run < times; run++) world.exit = watch(world);
+});
+
 Then('it runs {string}', (world, command: string) => {
-  expect(readFileSync(log(world), 'utf8')).toContain(command);
+  expect(calls(world)).toContain(command);
+});
+
+Then('it does not run {string}', (world, command: string) => {
+  expect(calls(world)).not.toContain(command);
+});
+
+Then(
+  'it runs {string} before {string}',
+  (world, first: string, second: string) => {
+    const ran = calls(world);
+    expect(ran).toContain(first);
+    expect(ran.indexOf(first)).toBeLessThan(ran.indexOf(second));
+  }
+);
+
+Then('it ran {string} {int} times', (world, command: string, times) => {
+  expect(calls(world).filter((line) => line === command)).toHaveLength(times);
+});
+
+Then('it says {string}', (world, text: string) => {
+  expect(watchdog(world).output).toContain(text);
+});
+
+Then(/^the pending restart is (kept|cleared)$/, (world, kept: string) => {
+  expect(existsSync(marker(world))).toBe(kept === 'kept');
 });
 
 Then('it starts and restarts nothing', (world) => {
@@ -307,4 +408,51 @@ Then('it starts and restarts nothing', (world) => {
 
 Then('it has restarted nothing', (world) => {
   expect(readFileSync(log(world), 'utf8')).not.toContain('restart');
+});
+
+// ── Whether T3 runs an agent turn ────────────────────────────────────────
+
+const turns = part((world) => ({
+  state: join(world.directory('t3-idle-'), 'statev2.sqlite'),
+  output: '',
+}));
+
+Given(
+  'T3 has recorded runs with these statuses:',
+  (world, table: DataTable) => {
+    const database = new Database(turns(world).state);
+    database.run(
+      'CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, status TEXT)'
+    );
+    for (const [index, status] of table.list().entries())
+      database.run(
+        'INSERT INTO orchestration_v2_projection_runs VALUES (?, ?)',
+        [`run-${index}`, status]
+      );
+    database.close();
+  }
+);
+
+Given('T3 keeps its state in a database without runs', (world) => {
+  new Database(turns(world).state).close();
+});
+
+When('T3 is asked whether it runs an agent turn', (world) => {
+  const ran = spawnSync(
+    'python3',
+    [
+      '-I',
+      '-B',
+      join(checkout, 'ansible/ubuntu/t3-idle.py'),
+      '--state',
+      turns(world).state,
+    ],
+    { encoding: 'utf8' }
+  );
+  world.exit = ran.status;
+  turns(world).output = ran.stdout;
+});
+
+Then('the answer says {string}', (world, text: string) => {
+  expect(turns(world).output).toContain(text);
 });

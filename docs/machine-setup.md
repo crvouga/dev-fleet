@@ -352,9 +352,10 @@ only running T3 is the T3 Code desktop app, installed from the same release's
 upstream `SHA256SUMS` omits packages) and started by the `t3code-desktop.service`
 user unit in the GDM auto-login session. It shares `~/.t3` with the former
 headless service, so environment identity and pairing are kept. A conflicting
-launcher version or a still-running headless service requires reviewed
-maintenance; routine fleet-sync never restarts active turns to promote a new
-pin. The disposable Ubuntu VM test still exercises the former headless service
+launcher version requires reviewed maintenance; the recovery timer stops a
+still-running headless service. Routine fleet-sync never ends a running turn
+to load a new pin or policy: the app restarts into them at the first idle
+check (`t3:running-version`, `t3:policy-loaded`). The disposable Ubuntu VM test still exercises the former headless service
 and does not cover the desktop session. Private routing and paired execution
 require separate evidence.
 
