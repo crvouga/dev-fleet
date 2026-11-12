@@ -215,7 +215,15 @@ Then('the commit was not sent again', (world) => {
   expect(world.bootstrap.transferred).toBe(false);
 });
 
-Then('it took less than {int} seconds', (world, seconds: number) => {
+Then('it took less than {int} seconds', async (world, seconds: number) => {
+  if (world.bootstrap.seconds >= seconds) {
+    // Every Ansible task on the machine is logged with its time (the
+    // Dockerfile sets ANSIBLE_LOG_PATH for SSH sessions): name the slowest.
+    const slowest = await world.remote(
+      `awk -F' [|] ' '/TASK \\[|PLAY \\[/ { split($1, t, /[ ,]/); split(t[2], h, ":"); now = h[1] * 3600 + h[2] * 60 + h[3]; if (task) print now - start, task; task = $NF; start = now }' /tmp/fleet-ansible.log | sort -rn | head -10`
+    );
+    console.log(`\nSlowest Ansible tasks (seconds):\n${slowest.stdout}`);
+  }
   expect(world.bootstrap.seconds).toBeLessThan(seconds);
 });
 

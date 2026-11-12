@@ -13,6 +13,7 @@ FROM ubuntu-${RELEASE}
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo openssh-server && rm -rf /var/lib/apt/lists/* \
   && useradd --create-home --shell /bin/sh fleettest \
   && printf 'fleettest ALL=(ALL) NOPASSWD:ALL\n' >/etc/sudoers.d/fleettest && chmod 0440 /etc/sudoers.d/fleettest \
-  && mkdir -p /run/sshd
+  && mkdir -p /run/sshd \
+  && echo 'ANSIBLE_LOG_PATH=/tmp/fleet-ansible.log' >>/etc/environment
 EXPOSE 22
 CMD ["/usr/sbin/sshd", "-D", "-e"]
