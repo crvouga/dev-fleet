@@ -80,6 +80,10 @@
       ansible.builtin.import_tasks: tasks/user.yml
     - name: Configure SSH
       ansible.builtin.import_tasks: tasks/ssh.yml
+    # A container's network belongs to its host, which owns the firewall.
+    - name: Admit inbound traffic only over loopback and the tailnet
+      ansible.builtin.import_tasks: tasks/firewall.yml
+      when: ansible_facts.virtualization_type not in ['docker', 'container', 'podman', 'lxc', 'systemd-nspawn']
     - name: Install the credential helpers
       ansible.builtin.import_tasks: tasks/credentials.yml
       when: development_source is defined

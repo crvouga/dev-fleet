@@ -14,12 +14,27 @@
   when: ssh_owned_file.stat.exists
   register: ssh_previous
   no_log: true
+# Authentication is hardened in a fragment of its own that sorts before the
+# image's (cloud-init writes 50-cloud-init.conf): sshd keeps the first value it
+# reads. Listeners stay as they are; the firewall (firewall.yml) decides which
+# interfaces reach them.
+- name: Inspect any existing managed SSH hardening fragment
+  ansible.builtin.stat:
+    path: /etc/ssh/sshd_config.d/10-personal-fleet-exposure.conf
+  register: ssh_hardening_file
+- name: Read previous hardening fragment for validation rollback
+  ansible.builtin.slurp:
+    src: /etc/ssh/sshd_config.d/10-personal-fleet-exposure.conf
+  when: ssh_hardening_file.stat.exists
+  register: ssh_hardening_previous
+  no_log: true
 - name: Refuse to overwrite unmanaged SSH configuration
   ansible.builtin.assert:
     that:
       - not ssh_owned_file.stat.exists or (ssh_previous.content | b64decode).startswith('# Managed by personal Fleet')
+      - not ssh_hardening_file.stat.exists or (ssh_hardening_previous.content | b64decode).startswith('# Managed by personal Fleet')
     fail_msg: SSH_UNMANAGED_CONFIG_CONFLICT; review the existing fragment before adoption.
-- name: Stage and validate forwarding policy while preserving listeners and authentication
+- name: Stage and validate forwarding and authentication policy while preserving listeners
   block:
     - name: Write forwarding-only owned fragment
       ansible.builtin.copy:
@@ -29,11 +44,26 @@
         mode: '0644'
         backup: true
         content: |
-          # Managed by personal Fleet; listeners and authentication remain explicit policy.
+          # Managed by personal Fleet; forwarding and keep-alive. Authentication: 10-personal-fleet-exposure.conf.
           AllowTcpForwarding yes
           ClientAliveInterval 30
           ClientAliveCountMax 3
       register: ssh_fragment
+    - name: Write keys-only authentication fragment
+      ansible.builtin.copy:
+        dest: /etc/ssh/sshd_config.d/10-personal-fleet-exposure.conf
+        owner: root
+        group: root
+        mode: '0644'
+        backup: true
+        content: |
+          # Managed by personal Fleet; keys only and no root login (worker exposure policy).
+          PubkeyAuthentication yes
+          PasswordAuthentication no
+          KbdInteractiveAuthentication no
+          PermitEmptyPasswords no
+          PermitRootLogin no
+      register: ssh_hardening
     - name: Validate complete SSH configuration
       ansible.builtin.command: /usr/sbin/sshd -t
       changed_when: false
@@ -54,6 +84,20 @@
         path: /etc/ssh/sshd_config.d/60-personal-fleet.conf
         state: absent
       when: not ssh_owned_file.stat.exists
+    - name: Restore previous hardening fragment after validation failure
+      ansible.builtin.copy:
+        content: '{{ ssh_hardening_previous.content | b64decode }}'
+        dest: /etc/ssh/sshd_config.d/10-personal-fleet-exposure.conf
+        owner: root
+        group: root
+        mode: '0644'
+      when: ssh_hardening_file.stat.exists
+      no_log: true
+    - name: Remove rejected new hardening fragment
+      ansible.builtin.file:
+        path: /etc/ssh/sshd_config.d/10-personal-fleet-exposure.conf
+        state: absent
+      when: not ssh_hardening_file.stat.exists
     - name: Report validation failure without reloading sshd
       ansible.builtin.fail:
         msg: SSH_CONFIG_REJECTED; previous configuration restored, active service untouched.
@@ -62,11 +106,11 @@
     name: ssh.service
     enabled: true
     state: started
-- name: Reload validated forwarding policy without terminating sessions
+- name: Reload validated forwarding and authentication policy without terminating sessions
   ansible.builtin.systemd_service:
     name: ssh.service
     state: reloaded
-  when: ssh_fragment.changed
+  when: ssh_fragment.changed or ssh_hardening.changed
 - name: Verify effective forwarding after reload
   ansible.builtin.command: /usr/sbin/sshd -T
   changed_when: false
@@ -74,3 +118,11 @@
   when: not ansible_check_mode
   register: ssh_verified
   failed_when: "'allowtcpforwarding yes' not in ssh_verified.stdout"
+- name: Require keys-only authentication without root login after reload
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in ssh_verified.stdout_lines"
+      - "'kbdinteractiveauthentication no' in ssh_verified.stdout_lines"
+      - "'permitrootlogin no' in ssh_verified.stdout_lines"
+    fail_msg: SSH_HARDENING_OVERRIDDEN; an earlier sshd_config fragment or Match block keeps password or root login; remove it, then rerun fleet-sync.
+  when: not ansible_check_mode

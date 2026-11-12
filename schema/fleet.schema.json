@@ -114,6 +114,42 @@
               "enum": ["web", "go", "rust", "jvm"]
             },
             "description": "Tool profiles this worker installs on top of the fleet-wide ones: web (pnpm, Deno, Yarn), go, rust (with CMake and Ninja), jvm (Temurin). Each is a locked tool set dev-fleet ships."
+          },
+          "exposure": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "What this worker opens beyond loopback and the tailnet. A field named here replaces the one of worker.exposure.",
+            "properties": {
+              "publicSsh": {
+                "type": "boolean",
+                "description": "Break-glass: keep the SSH port open beyond the tailnet. Default false: after enrolment SSH is reached only over the tailnet."
+              },
+              "publicPorts": {
+                "type": "array",
+                "maxItems": 32,
+                "uniqueItems": true,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["protocol", "port"],
+                  "properties": {
+                    "protocol": {
+                      "enum": ["tcp", "udp"]
+                    },
+                    "port": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 65535
+                    }
+                  }
+                },
+                "description": "Ports opened on every interface; a listener on one passes worker:exposure. Default none."
+              },
+              "otherListeners": {
+                "enum": ["warn", "fail"],
+                "description": "How worker:exposure reports a listener beyond loopback and the tailnet that no fleet service owns, such as an agent's development server on 0.0.0.0. The firewall closes it either way. Default warn; a fleet service there always fails."
+              }
+            }
           }
         }
       }
@@ -339,6 +375,42 @@
             "pattern": "^[A-Za-z0-9@:/._-]{1,75}$"
           },
           "description": "Single tools every worker installs: names of tools dev-fleet's mise.toml pins (for example fd or ripgrep). A tool it does not pin is refused; ask for it in an issue."
+        },
+        "exposure": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What every worker opens beyond loopback and the tailnet. Without it inbound traffic arrives only over loopback and the tailnet, sshd takes keys only and no root login, and published container ports are closed beyond the tailnet.",
+          "properties": {
+            "publicSsh": {
+              "type": "boolean",
+              "description": "Break-glass: keep the SSH port open beyond the tailnet. Default false: after enrolment SSH is reached only over the tailnet."
+            },
+            "publicPorts": {
+              "type": "array",
+              "maxItems": 32,
+              "uniqueItems": true,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["protocol", "port"],
+                "properties": {
+                  "protocol": {
+                    "enum": ["tcp", "udp"]
+                  },
+                  "port": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 65535
+                  }
+                }
+              },
+              "description": "Ports opened on every interface; a listener on one passes worker:exposure. Default none."
+            },
+            "otherListeners": {
+              "enum": ["warn", "fail"],
+              "description": "How worker:exposure reports a listener beyond loopback and the tailnet that no fleet service owns, such as an agent's development server on 0.0.0.0. The firewall closes it either way. Default warn; a fleet service there always fails."
+            }
+          }
         }
       },
       "description": "Policy every worker must meet. All but the two logins, the capabilities and the tools are fixed."
