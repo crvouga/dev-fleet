@@ -52,5 +52,7 @@ jobs:
           path: |
             ~/.cache/fleet-vm-*/vm/*.json
             ~/.cache/fleet-vm-*/vm/*.log
+          # The evidence is under ~/.cache, which is a hidden directory.
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 14

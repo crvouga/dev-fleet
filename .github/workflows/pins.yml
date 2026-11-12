@@ -2,10 +2,12 @@ name: Pins
 # The pins Renovate cannot move because a digest is written beside each
 # version: mise itself and T3 Code. bootstrap/pins.ts moves one to its newest
 # release, digests included, and this opens the pull request; CI, the fresh
-# workers and the VM test then decide like for any other change. Pull requests
-# opened with the workflow's own token do not start CI: set the PINS_TOKEN
-# secret (a fine-grained token or an app's, with contents and pull requests
-# write) so they do.
+# workers and the VM test then decide like for any other change. A push made
+# with the workflow's own token starts no CI, so this workflow starts CI on
+# the branch itself; its checks count for the pull request, and auto-merge.yml
+# merges it when they pass. With the PINS_TOKEN secret (a fine-grained token
+# or an app's, with contents and pull requests write) the push starts CI as
+# any other does.
 on:
   schedule:
     - cron: '23 5 * * 1'
@@ -13,6 +15,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write
 concurrency:
   group: pins
   cancel-in-progress: false
@@ -45,6 +48,7 @@ jobs:
           GH_TOKEN: ${{ secrets.PINS_TOKEN || github.token }}
           PIN: ${{ matrix.pin }}
           SUMMARY: ${{ steps.update.outputs.summary }}
+          OWN_TOKEN: ${{ secrets.PINS_TOKEN == '' }}
         run: |
           git diff --quiet && { echo "$SUMMARY"; exit 0; }
           branch="pins/$PIN"
@@ -58,3 +62,4 @@ jobs:
           gh pr view "$branch" >/dev/null 2>&1 ||
             gh pr create --head "$branch" --label deps --title "chore(deps): $SUMMARY" \
               --body "Moves the $PIN pin, with every digest, to its newest release: $SUMMARY (bootstrap/pins.ts)."
+          if [ "$OWN_TOKEN" = true ]; then gh workflow run ci.yml --ref "$branch"; fi

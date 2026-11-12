@@ -30,13 +30,24 @@ Feature: Every pull request is checked the way machines run
     release the Ubuntu policy accepts runs them on each architecture.
     Then the "CI" workflow runs on "pull_request"
     And its "fresh-box" job runs once for each of:
-      | release | architecture | runner           |
-      | 26.04   | amd64        | ubuntu-latest    |
-      | 26.04   | arm64        | ubuntu-24.04-arm |
-      | 24.04   | amd64        | ubuntu-latest    |
-      | 24.04   | arm64        | ubuntu-24.04-arm |
+      | release | architecture | runner           | feature   |
+      | 26.04   | amd64        | ubuntu-latest    | fresh-box |
+      | 26.04   | amd64        | ubuntu-latest    | fleet     |
+      | 26.04   | arm64        | ubuntu-24.04-arm | fresh-box |
+      | 26.04   | arm64        | ubuntu-24.04-arm | fleet     |
+      | 24.04   | amd64        | ubuntu-latest    | fresh-box |
+      | 24.04   | amd64        | ubuntu-latest    | fleet     |
+      | 24.04   | arm64        | ubuntu-24.04-arm | fresh-box |
+      | 24.04   | arm64        | ubuntu-24.04-arm | fleet     |
     And its "fresh-box" job runs every release the Ubuntu policy accepts
     And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX_RELEASE" to "${{ matrix.release }}"
+
+  Scenario: Each fresh worker feature runs in a job of its own, and none is left out
+    Side by side they end in the time of the longer one. A job that names a
+    feature that does not exist fails instead of passing with nothing run.
+    Then the "CI" workflow runs on "pull_request"
+    And its "fresh-box" job runs every feature of "features/fresh-box"
+    And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX_FEATURE" to "${{ matrix.feature }}"
 
   Scenario: A fresh worker is bootstrapped over SSH on every pull request
     Then the "CI" workflow runs on "pull_request"

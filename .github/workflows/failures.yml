@@ -1,0 +1,106 @@
+name: Failure issues
+# A workflow that fails on main has one open issue saying so, for as long as
+# it fails: which run, which commit, which jobs and steps, and how to read
+# the evidence. The first failing run opens it, each later one rewrites it
+# (and comments when different jobs fail), and the first passing run closes
+# it. So the open issues labelled `ci-failure` are exactly what is broken on
+# main now, and where an agent starts.
+#
+# Runs of pull requests are not tracked: their author sees them. A workflow
+# only another repository calls (workflow_call) reports there.
+on:
+  workflow_run:
+    workflows: [CI, Release, Ubuntu VM, Tailnet, Pins, Auto-merge]
+    types: [completed]
+permissions:
+  contents: read
+concurrency:
+  group: failure-issues-${{ github.event.workflow_run.name }}
+  cancel-in-progress: false
+jobs:
+  track:
+    name: Track ${{ github.event.workflow_run.name }}
+    # A cancelled or skipped run says nothing either way. A release from a
+    # hand-pushed tag runs on the tag, not on main.
+    if: >-
+      github.event.workflow_run.event != 'pull_request' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+       github.event.workflow_run.name == 'Release') &&
+      contains(fromJSON('["success", "failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      actions: read
+      issues: write
+    steps:
+      - name: Open, update or close the issue of this workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          COMMIT: ${{ github.event.workflow_run.head_sha }}
+          STARTED_BY: ${{ github.event.workflow_run.event }}
+          MAIN: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          label=ci-failure
+          title="$WORKFLOW is failing on $MAIN"
+          # A run that ended after a newer one of the same workflow began
+          # says nothing about main now.
+          newer=$(gh api "repos/$GH_REPO/actions/workflows/$WORKFLOW_ID/runs?per_page=30" \
+            --jq "[.workflow_runs[] | select(.event != \"pull_request\" and .id > $RUN_ID and (.conclusion == \"success\" or .conclusion == \"failure\" or .conclusion == \"timed_out\"))] | length")
+          if [ "$newer" -gt 0 ]; then echo "A newer run of $WORKFLOW has ended."; exit 0; fi
+          number=$(gh issue list --state open --label "$label" --limit 100 --json number,title \
+            --jq "map(select(.title == \"$title\"))[0].number // empty")
+          if [ "$CONCLUSION" = success ]; then
+            if [ -n "$number" ]; then gh issue close "$number" --comment "Passing again: $RUN_URL"; fi
+            exit 0
+          fi
+          gh api "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$ATTEMPT/jobs" --paginate \
+            --jq '.jobs[] | select(.conclusion == "failure" or .conclusion == "timed_out")' | jq -s . > failed.json
+          fingerprint=$(jq -r 'map(.name) | sort | join("\n")' failed.json | sha256sum | cut -c1-16)
+          since=$(date -u +%Y-%m-%dT%H:%MZ)
+          previous=''
+          if [ -n "$number" ]; then
+            body=$(gh issue view "$number" --json body --jq .body)
+            since=$(sed -n 's/^<!-- failing since: \(.*\) -->$/\1/p' <<< "$body" | head -n 1 | grep . || echo "$since")
+            previous=$(sed -n 's/^<!-- failed jobs: \(.*\) -->$/\1/p' <<< "$body" | head -n 1)
+          fi
+          case "$WORKFLOW" in
+            Release) effect='Nothing is published while this is open: npm stays at the last release, and no fleet can receive what merged since.' ;;
+            CI) effect="\`$MAIN\` does not pass its own checks: no release follows a failed run, and every pull request opened from it starts broken." ;;
+            Auto-merge) effect='Pull requests may not be merging, and a merge may not be starting CI and its release.' ;;
+            Pins) effect='The pins this workflow moves (mise, T3 Code) are not being updated.' ;;
+            *) effect='The release runs this same test for the commit it publishes, and publishes nothing unless it passes.' ;;
+          esac
+          # The backticks in this text are Markdown, not commands.
+          # shellcheck disable=SC2016
+          {
+            printf 'The **%s** workflow is failing on `%s`. %s\n\n' "$WORKFLOW" "$MAIN" "$effect"
+            printf '| | |\n| --- | --- |\n'
+            printf '| Run | %s (attempt %s, started by `%s`) |\n' "$RUN_URL" "$ATTEMPT" "$STARTED_BY"
+            printf '| Commit | %s |\n' "$COMMIT"
+            printf '| Failing since | %s |\n\n' "$since"
+            printf '### What failed\n\n'
+            jq -r '.[] | "- [\(.name)](\(.html_url))" + (([.steps[]? | select(.conclusion == "failure" or .conclusion == "timed_out") | .name] | select(length > 0) | ", in the step: " + join("; ")) // "")' failed.json
+            if [ "$(jq length failed.json)" -eq 0 ]; then printf -- '- The run ended as `%s` with no failed job: it may not have started.\n' "$CONCLUSION"; fi
+            printf '\n### Fixing it\n\n'
+            printf -- '- `gh run view %s --log-failed` prints the log of the failed steps; `gh run download %s` fetches what the run kept as evidence.\n' "$RUN_ID" "$RUN_ID"
+            printf -- '- A failure that is not of this commit (a download, a runner) passes on `gh run rerun %s --failed`.\n' "$RUN_ID"
+            printf -- '- Anything else is a pull request that says `Fixes #<this issue>`.\n'
+            printf -- '- Leave this issue open: every failing run rewrites it, and the first passing run closes it.\n\n'
+            printf '<!-- failing since: %s -->\n<!-- failed jobs: %s -->\n' "$since" "$fingerprint"
+          } > issue.md
+          gh label create "$label" --color B60205 --description 'A workflow is failing on main' 2> /dev/null || true
+          if [ -z "$number" ]; then
+            gh issue create --title "$title" --label "$label" --body-file issue.md
+          else
+            gh issue edit "$number" --body-file issue.md
+            if [ "$previous" != "$fingerprint" ]; then gh issue comment "$number" --body "Different jobs fail now: $RUN_URL"; fi
+          fi
