@@ -20,9 +20,9 @@ export function sshArgs(node: FleetNode): string[] {
     '-o',
     'ConnectionAttempts=1',
     '-o',
-    'ServerAliveInterval=5',
+    'ServerAliveInterval=15',
     '-o',
-    'ServerAliveCountMax=2',
+    'ServerAliveCountMax=4',
     '-o',
     'ClearAllForwardings=yes',
     '-o',
@@ -65,6 +65,14 @@ const FAILURES = [
     summary: 'SSH key/agent authentication failed.',
     action:
       'Use ssh-add -l and ssh -vvv ALIAS locally; check User, IdentityFile, IdentitiesOnly, agent/keychain access and authorized_keys. Do not share debug logs without review.',
+  },
+  {
+    pattern:
+      /Connection (?:to \S+ )?closed|Connection reset|Broken pipe|Timeout, server \S+ not responding|client_loop: send disconnect/i,
+    id: 'ssh:disconnected',
+    summary: 'The SSH session was lost while the operation ran.',
+    action:
+      'The worker keeps running what it started. Rerun fleet-sync: it follows the operation of the same revision to its end. Check the network between the manager and the worker if it repeats.',
   },
   {
     pattern: /Connection refused|No route to host|Network is unreachable/i,

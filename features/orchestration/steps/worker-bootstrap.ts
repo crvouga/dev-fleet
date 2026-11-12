@@ -73,14 +73,145 @@ Given(
   }
 );
 
+/** Time as the manager sees it during a bootstrap: a pause takes none, and
+ * is added to the clock and to what the scenario can read back.
+ */
+interface Waiting {
+  paused: number[];
+  progress: string[];
+  at: number;
+}
+const waiting = new WeakMap<OrchestrationWorld, Waiting>();
+function waits(world: OrchestrationWorld): Waiting {
+  let found = waiting.get(world);
+  if (!found) {
+    found = { paused: [], progress: [], at: Date.parse('2026-11-01T10:00:00Z') };
+    waiting.set(world, found);
+  }
+  return found;
+}
+
 When('the worker is bootstrapped', async (world) => {
+  const time = waits(world);
   const report = await bootstrapRemote(
     need(world.nodes[0], 'a worker'),
     need(world.bootstrap.payload, 'a bootstrap payload'),
-    world.run
+    world.run,
+    {
+      clock: {
+        pause: (ms) => {
+          time.paused.push(ms);
+          time.at += ms;
+          return Promise.resolve();
+        },
+        now: () => time.at,
+      },
+      progress: (line) => time.progress.push(line),
+    }
   );
   world.checks = report.checks;
   world.outcome = report;
+});
+
+// ── A lost session, and an operation that is still running ───────────────
+
+/** What the worker's operation probe prints. */
+function operation(
+  world: OrchestrationWorld,
+  record: {
+    held: boolean;
+    alive: boolean;
+    revision?: string;
+    phase?: string;
+    finished?: boolean;
+    result?: string;
+  }
+): CommandResult {
+  const started = Math.round(waits(world).at / 1000) - 600;
+  const op = record.revision
+    ? JSON.stringify({
+        version: 1,
+        pid: 4242,
+        revision: record.revision,
+        node: 'devbox',
+        started,
+        phase: record.phase ?? 'lock',
+        ...(record.finished ? { finished: started + 900, exit: 0 } : {}),
+      })
+    : '';
+  return succeeded(
+    [
+      `held=${record.held ? 'yes' : 'no'}`,
+      `alive=${record.alive ? 'yes' : 'no'}`,
+      `operation=${op}`,
+      `result=${record.result ?? ''}`,
+      '',
+    ].join('\n')
+  );
+}
+
+Given(
+  'the worker says the operation of the revision {string} is still running, in the phase {string}',
+  (world, revision: string, phase: string) => {
+    nextSession(
+      world,
+      operation(world, { held: true, alive: true, revision, phase })
+    );
+  }
+);
+
+Given(
+  'the worker says the operation of the revision {string} has finished, with the result:',
+  (world, revision: string, result: string) => {
+    nextSession(
+      world,
+      operation(world, {
+        held: false,
+        alive: false,
+        revision,
+        phase: 'finished',
+        finished: true,
+        result: JSON.stringify(JSON.parse(result)),
+      })
+    );
+  }
+);
+
+Given(
+  'the worker says something else holds its lock, and its last operation of the revision {string} has finished',
+  (world, revision: string) => {
+    nextSession(
+      world,
+      operation(world, {
+        held: true,
+        alive: false,
+        revision,
+        phase: 'finished',
+        finished: true,
+      })
+    );
+  }
+);
+
+Given('the worker says no operation runs on it', (world) => {
+  nextSession(world, operation(world, { held: false, alive: false }));
+});
+
+Given(
+  /^the (?:bootstrap )?session (?:is lost|cannot be opened), printing "([^"]*)"$/,
+  (world, message: string) => {
+    nextSession(world, failed(message));
+  }
+);
+
+Then('the manager paused for {int} seconds in all', (world, seconds: number) => {
+  expect(waits(world).paused.reduce((sum, ms) => sum + ms, 0)).toBe(
+    seconds * 1000
+  );
+});
+
+Then('while it followed, the manager showed:', (world, table: DataTable) => {
+  expect(waits(world).progress).toEqual(table.list());
 });
 
 /** Every session after the one that asked what the worker holds. */

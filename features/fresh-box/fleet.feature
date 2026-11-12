@@ -35,11 +35,22 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
     And the last check of "fleet-b" says "FLEET_PROMOTION_BLOCKED"
     And no fleet operation ran on "fleet-b"
 
-  Scenario: A second run at the same time is refused by the remote lock, and the first completes
+  Scenario: A second run of the same revision follows the first instead of starting another
+    The remote lock keeps a second operation from starting; the second run
+    follows the one that holds it and reports its result.
     Given every machine has been bootstrapped
     When a second bootstrap of "fleet-b" starts while a first one holds it
-    Then the second bootstrap reports "FLEET_REMOTE_LOCKED" with a remedy
-    And the first bootstrap reaches node convergence
+    Then the first bootstrap reaches node convergence
+    And the second bootstrap followed the first and reports its node convergence
+
+  Scenario: The manager's connection drops for 15 seconds mid-bootstrap, and the run still ends in success
+    The worker keeps running what it started; the manager connects again,
+    follows that operation to its end and reports its result.
+    Given every machine has been bootstrapped
+    And "fleet-b" lacks the bootstrap package "unzip"
+    When the manager's SSH connection to "fleet-b" drops for 15 seconds while APT runs there
+    Then the bootstrap followed the operation and reached node convergence
+    And the package "unzip" is installed on "fleet-b"
 
   Scenario: The manager's connection drops during a package installation, and the machine keeps the lock until it ends
     The script ignores the hangup and keeps its lock: a later run must not
