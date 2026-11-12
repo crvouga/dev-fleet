@@ -32,7 +32,7 @@ the last one says how many MiB were reclaimed.
 
 Usage: disk-gc.py --home H [--path P ...] [--idle-days N] [--pressure-mib N]
                   [--pressure-inode-percent N] [--pressure-idle-hours N] [--docker-age-hours N]
-                  [--pressure-docker-age-hours N] [--pressure-cache DIR ...]
+                  [--pressure-docker-age-hours N] [--no-docker] [--pressure-cache DIR ...]
                   [--worktree-root DIR ...] [--worktree-idle-days N]
                   [--cache-cap DIR=MIB ...] [--keep-newest DIR=N ...]
                   [--mise PATH] [--user NAME]
@@ -476,6 +476,9 @@ def main(argv):
     parser.add_argument('--pressure-idle-hours', type=float, default=12)
     parser.add_argument('--docker-age-hours', type=int, default=168)
     parser.add_argument('--pressure-docker-age-hours', type=int, default=24)
+    # A worker without containers (fleet.json features.containers) has no
+    # Docker to prune.
+    parser.add_argument('--no-docker', action='store_true')
     parser.add_argument('--pressure-cache', action='append', default=[])
     parser.add_argument('--worktree-root', action='append', default=[])
     parser.add_argument('--worktree-idle-days', type=float, default=30)
@@ -523,11 +526,12 @@ def main(argv):
             prune = ['runuser', '-u', args.user, '--', 'env', f'HOME={home}'] + prune
         command(prune, args.dry_run, 'mise_prune')
         reclaimed += max(0, before_mise - size_of(installs))
-    if not args.home_only:
+    if not args.home_only and not args.no_docker:
         command(['docker', 'image', 'prune', '--all', '--force', '--filter',
                  f'until={docker_age}h'], args.dry_run, 'docker_images')
         command(['docker', 'builder', 'prune', '--all', '--force', '--filter',
                  f'until={docker_age}h'], args.dry_run, 'docker_build_cache')
+    if not args.home_only:
         command(['apt-get', 'clean'], args.dry_run, 'apt_cache')
 
     after = {p: free_bytes(p) for p in paths}

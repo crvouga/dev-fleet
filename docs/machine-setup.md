@@ -357,9 +357,42 @@ headless service, so environment identity and pairing are kept. A conflicting
 launcher version requires reviewed maintenance; the recovery timer stops a
 still-running headless service. Routine fleet-sync never ends a running turn
 to load a new pin or policy: the app restarts into them at the first idle
-check (`t3:running-version`, `t3:policy-loaded`). The disposable Ubuntu VM test still exercises the former headless service
-and does not cover the desktop session. Private routing and paired execution
-require separate evidence.
+check (`t3:running-version`, `t3:policy-loaded`). Private routing and paired
+execution require separate evidence.
+
+#### Headless workers
+
+A worker whose session is `headless` (`features.session` in `fleet.json`, or
+the `editing` preset) has no display manager, no graphical session and no
+GPU. It runs the pinned T3 **server**, not the desktop app under a virtual
+display: the pinned release ships the server as its own archive
+(`t3-<version>-linux-<arch>.tar.gz`, the `t3_version` and
+`t3_linux_*_sha256` pins, from the release's `SHA256SUMS`), which the
+toolchain already installs on every worker for policy commands. Its
+`t3 serve` runs the server the desktop app embeds, with no browser; the
+subcommand and its flags were read from the pinned release itself
+(`t3 serve --help` of `0.1.8-nightly.20261106.4262`, whose `--mode web`
+server answered `/.well-known/t3/environment` with that `serverVersion`).
+A virtual display would install and pin a display server and a desktop
+toolkit for one process, which costs the memory a small worker needs.
+
+`ansible/ubuntu/t3-headless.yml` declares `t3code-headless.service`, a user
+unit started by `default.target`: the designated user lingers, so it starts at
+boot with nobody logged in. It listens on `127.0.0.1:3773` like the desktop
+app, with `T3CODE_HOME=%h/.t3`, so the private route, the policy, the provider
+instances, `personal-worker-recovery` (which reads the release from the
+unit's versioned server path) and the checks are the same for both session
+types. Switching a worker between types stops and removes the other type's
+unit and keeps `~/.t3`; GDM auto-login, if the machine had it, is left as it
+was. A headless worker installs none of the desktop-only packages
+(`features.desktop` in `ansible/ubuntu/policy.json`) and reports their checks
+as not applicable. The server prints a one-time pairing token to its own
+journal at start, as `t3 serve` does anywhere; pairing is still done from the
+manager.
+
+The disposable Ubuntu VM test (`ansible/ubuntu/tests/vm.py`) converges each
+session type, reboots with nobody logged in and kills the T3 process to
+prove the recovery timer brings it back.
 
 Normal Ubuntu fleet setup is controller-led:
 `devfleet fleet-sync`. See the
@@ -396,7 +429,10 @@ Controller-driven remote bootstrap passes `--worker` to the shared setup owner.
 It installs the `vars.worker_tools` subset from `mise.toml`, with versions and
 artifacts taken from the same `mise.lock`; native T3 and Ubuntu Docker/service
 policy remain source-pinned. `bun bootstrap/doctor.ts --worker --docker --json`
-checks that profile. It does not require unrelated cloud CLIs on workers.
+checks that profile. It does not require unrelated cloud CLIs on workers. A
+worker whose `containers` feature is off (`features.containers: false`, or the
+`editing` preset) leaves `docker-cli` out of its base tools, and its doctor
+runs with `--no-containers` instead of `--docker`.
 
 Tool profiles add locked tool sets on top of it: `worker.toolProfiles` in
 `fleet.json` (fleet-wide) or `toolProfiles` on one worker selects `web` (pnpm,

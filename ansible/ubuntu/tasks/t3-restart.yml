@@ -3,6 +3,7 @@
 # running turn. A busy T3 keeps its turns; the restart is recorded as pending
 # (with the time it was first deferred) and personal-worker-recovery applies it
 # at the first idle check (t3-health.sh). t3_restart_busy restarts it anyway.
+# `t3_unit` names the unit of a headless worker (t3-headless.yml).
 - name: Ask T3 whether an agent turn is running
   become: true
   become_user: '{{ development_user }}'
@@ -25,7 +26,7 @@
     XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
   ansible.builtin.systemd_service:
     scope: user
-    name: t3code-desktop.service
+    name: "{{ t3_unit | default('t3code-desktop.service') }}"
     state: restarted
   when: t3_idle is not skipped and (t3_idle.rc == 0 or t3_restart_busy | default(false) | bool)
 - name: Record the restart as pending while agent turns run

@@ -240,6 +240,8 @@ Then(
 const watchdog = part((world) => ({
   directory: world.directory('t3-health-'),
   headless: false,
+  /** The worker's session type is headless (t3code-headless.service). */
+  server: false,
   retires: true,
   session: true,
   desktop: false,
@@ -277,6 +279,8 @@ function watch(world: BootstrapWorld): number {
     [
       'case "$*" in',
       `  *"t3code.service") case "$*" in *disable*) exit ${exit(state.retires)};; *) exit ${exit(state.headless)};; esac;;`,
+      `  *"is-enabled --quiet t3code-headless.service") exit ${exit(state.server)};;`,
+      `  *"show --property=ExecStart --value t3code-headless.service") echo "{ path=/home/dev/.local/share/personal/tools/t3-${state.installed}-linux-x64/t3 ; argv[]=/home/dev/.local/share/personal/tools/t3-${state.installed}-linux-x64/t3 serve --mode web ; }";;`,
       `  *"is-active --quiet graphical-session.target") exit ${exit(state.session)};;`,
       `  *is-active*) exit ${exit(state.desktop)};;`,
       'esac',
@@ -322,6 +326,18 @@ Given(
 Given('the headless T3 server cannot be stopped', (world) => {
   watchdog(world).retires = false;
 });
+
+Given('the worker runs a headless session', (world) => {
+  watchdog(world).server = true;
+});
+
+Given(
+  /^the T3 server of the headless session is (running|stopped)$/,
+  (world, state: string) => {
+    watchdog(world).server = true;
+    watchdog(world).desktop = state === 'running';
+  }
+);
 
 Given('there is no graphical session', (world) => {
   watchdog(world).session = false;

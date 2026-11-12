@@ -42,7 +42,8 @@ const EXPECTED: Record<string, string> = {
  */
 export function diagnostic(node: string, check: Check): Diagnostic {
   const phase = check.id.split(':')[0]!;
-  const failed = check.status !== 'pass';
+  // A check that does not apply to this machine asks nothing of anyone.
+  const failed = check.status !== 'pass' && check.status !== 'not-applicable';
   const code = /^[A-Z][A-Z0-9_]{2,100}$/.test(check.summary)
     ? check.summary
     : `${check.id.replaceAll(/[^a-z0-9]/g, '_').toUpperCase()}_${failed ? 'UNVERIFIED' : 'VERIFIED'}`;

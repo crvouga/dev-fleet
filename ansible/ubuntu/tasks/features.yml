@@ -1,0 +1,22 @@
+---
+# The declared worker features (fleet.json `features`, resolved by
+# bootstrap/worker-features.ts): `worker_containers` and `worker_session` are
+# passed by fleet-sync. Absent, a worker has containers and a desktop session,
+# as every worker had before features existed. What a feature that is off
+# would install is left out here, as policy.json `features` lists it.
+- name: Require a known session type
+  ansible.builtin.assert:
+    that: worker_session | default('desktop') in ['desktop', 'headless']
+    fail_msg: WORKER_FEATURES_INVALID; the session is desktop or headless (fleet.json features.session).
+  tags: [always]
+- name: Select what the features this worker lacks would install
+  ansible.builtin.set_fact:
+    worker_containers_on: '{{ worker_containers | default(true) | bool }}'
+    worker_headless: "{{ worker_session | default('desktop') == 'headless' }}"
+    worker_packages_off: "{{ ([] if worker_containers | default(true) | bool else features.containers.packages) + (features.desktop.packages if worker_session | default('desktop') == 'headless' else []) }}"
+    worker_always_on_services: '{{ alwaysOnServices | difference([] if worker_containers | default(true) | bool else features.containers.services) }}'
+  tags: [always]
+- name: Pin only the packages of the features this worker has
+  ansible.builtin.set_fact:
+    packages: "{{ packages | dict2items | rejectattr('key', 'in', worker_packages_off) | items2dict }}"
+  tags: [always]

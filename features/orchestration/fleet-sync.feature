@@ -67,6 +67,28 @@ Feature: fleet-sync converges every worker on one approved revision
       | wsl         | WSL2      |
       | container   | container |
 
+  Scenario: A worker below the minimum worker size is reported and never deployed
+    The probe measures the machine before anything is installed on it.
+    Given every worker answers a fresh SSH session as a "kvm" virtual machine with 2 CPUs, 1983 MiB of memory and a 40960 MiB root filesystem
+    And deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision
+    Then the revision was deployed to no worker
+    And every worker has a check "platform:worker-size" that says "WORKER_SIZE_BELOW_MINIMUM: memory 1983 MiB < 3584 MiB"
+    And every worker has a check "platform:machine-class" that says "Virtual machine (kvm)"
+    And the fleet is not ready
+
+  Scenario: A virtual worker of the minimum size is deployed
+    Given every worker answers a fresh SSH session as a "kvm" virtual machine with 2 CPUs, 3584 MiB of memory and a 20480 MiB root filesystem
+    And deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision
+    Then the revision was deployed to these workers, in order:
+      | first  |
+      | second |
+
   Scenario: A failed canary stops promotion, and the workers after it are still inspected
     What a failed deployment threw may hold anything, so it is never reported.
     Given deploying a worker fails with the error "secret detail"

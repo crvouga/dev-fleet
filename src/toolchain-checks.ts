@@ -40,11 +40,20 @@ export async function toolchainChecks(
     return [
       ...(!result.ok || !data['ok'] ? [fallback] : []),
       ...(checks as Check[]),
+      ...(worker?.containers === false ? [dockerCliNotApplicable] : []),
     ];
   } catch {
     return [fallback];
   }
 }
+
+/** The `containers` feature is off: the base tools leave the Docker CLI out. */
+const dockerCliNotApplicable: Check = {
+  id: 'tool:docker-cli',
+  status: 'not-applicable',
+  summary:
+    'Not applicable: containers are off for this worker (features.containers), so the Docker CLI is not installed.',
+};
 
 /** Checks of the doctor that are not a tool version, with their own words. */
 const OWN: Record<string, { pass: string; fail: string; action: string }> = {
@@ -107,7 +116,8 @@ function doctorArguments(root: string, worker?: ToolSelection): string[] {
     'bun',
     join(root, 'bootstrap/doctor.ts'),
     '--json',
-    '--docker',
+    // A worker without containers has no Docker engine to require.
+    ...(worker?.containers === false ? [] : ['--docker']),
     ...(worker ? ['--worker', ...selectionArguments(worker)] : []),
   ];
 }

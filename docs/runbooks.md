@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 251 codes; 31 need a person.
+There are 257 codes; 32 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -103,6 +103,18 @@ There are 251 codes; 31 need a person.
 - `WORKER_RECOVERY_SCRIPT_MISSING`: worker recovery script missing.
 - `WORKER_RECOVERY_SETUP_FAILED`: worker recovery setup failed.
 - `WORKER_RECOVERY_TIMER_INACTIVE`: worker recovery timer inactive.
+
+## Worker size and features
+
+- **Meaning:** The machine is smaller than the minimum worker (`sizing.minimumWorker` in `ansible/ubuntu/policy.json`), more agent sessions run than its memory policy supports, its declared `features` in `fleet.json` are not ones dev-fleet knows, or something dev-fleet installed for a feature that is now off is still there.
+- **Confirm:** `devfleet fleet-sync --dry-run` shows the `platform:worker-size` check of each worker and, under the plan, what turning a feature off removes; `devfleet fleet-status --workers` shows `worker:features` and `worker:agent-sessions`.
+- **Fix:** Resize a machine below the minimum, then run `devfleet fleet-sync`; nothing was installed on it. For a feature removal, run `devfleet fleet-sync` again. For too many sessions, finish some or move work to a larger worker.
+- **Escalate:** A package another package depends on stays installed until a person removes that one.
+
+- `AGENT_SESSION_CAPACITY_EXHAUSTED`: agent session capacity exhausted: more agent sessions run than the memory policy supports (a warning; the size of a session is an estimate).
+- `WORKER_FEATURES_INVALID`: worker features invalid: the session is neither desktop nor headless.
+- `WORKER_FEATURE_REMOVAL_INCOMPLETE`: worker feature removal incomplete: a Docker package or the docker group membership is still there with containers off.
+- `WORKER_SIZE_BELOW_MINIMUM`: worker size below minimum: less memory, disk or CPUs than the minimum worker. **Needs a person.**
 
 ## Containers on a worker
 
@@ -224,6 +236,8 @@ There are 251 codes; 31 need a person.
 - `T3_PROVIDER_NAMES_PENDING`: t3 provider names pending.
 - `T3_PROVIDER_NAMES_UNVERIFIED`: t3 provider names unverified.
 - `T3_RESTART_PENDING`: t3 restart pending.
+- `T3_SERVER_INSTALL_FAILED`: t3 server install failed: the pinned server of a headless worker is missing from the toolchain, or `t3-headless.yml` did not apply.
+- `T3_SERVER_STOPPED`: t3 server stopped: the lingering `t3code-headless.service` of a headless worker is not running.
 - `T3_SETTINGS_BUSY`: t3 settings busy.
 
 ## Monitoring (Beszel)

@@ -1,9 +1,13 @@
 import type { Check, Runner } from '../types';
+import type { MachineClass } from '../machine/machine-class';
 
-const LOGIND = {
+/** What a lid does: a virtual machine has none, so these do not apply. */
+const LID = {
   HandleLidSwitch: 's "ignore"',
   HandleLidSwitchDocked: 's "ignore"',
   HandleLidSwitchExternalPower: 's "ignore"',
+};
+const LOGIND = {
   IdleAction: 's "ignore"',
   KillUserProcesses: 'b false',
   StopIdleSessionUSec: 't 18446744073709551615',
@@ -17,9 +21,33 @@ const POWER_FILES = [
  */
 export async function verifyUbuntuBoot(
   user: string,
-  run: Runner
+  run: Runner,
+  machine: MachineClass = 'physical'
 ): Promise<Check[]> {
-  for (const [property, expected] of Object.entries(LOGIND)) {
+  const virtual = machine === 'virtual';
+  // On a virtual machine the lid policy is not applicable; the sleep masks
+  // stay, since a guest can still be suspended by its own idle policy.
+  const lid: Check[] = virtual
+    ? [
+        {
+          id: 'ubuntu:lid-policy',
+          status: 'not-applicable',
+          summary: 'Not applicable: a virtual machine has no lid.',
+        },
+      ]
+    : [];
+  return [
+    ...lid,
+    ...(await bootPolicy(user, run, virtual ? LOGIND : { ...LID, ...LOGIND })),
+  ];
+}
+
+async function bootPolicy(
+  user: string,
+  run: Runner,
+  properties: Record<string, string>
+): Promise<Check[]> {
+  for (const [property, expected] of Object.entries(properties)) {
     const observed = await run([
       'busctl',
       'get-property',

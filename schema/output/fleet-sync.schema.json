@@ -105,6 +105,18 @@
               "changes": { "type": "boolean" }
             }
           }
+        },
+        "removals": {
+          "type": "array",
+          "description": "What the sync removes from a worker whose features the fleet configuration turned off since it was last applied.",
+          "items": {
+            "type": "object",
+            "required": ["node", "removes"],
+            "properties": {
+              "node": { "type": "string" },
+              "removes": { "type": "array", "items": { "type": "string" } }
+            }
+          }
         }
       }
     }

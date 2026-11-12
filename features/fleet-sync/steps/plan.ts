@@ -9,6 +9,7 @@ import {
 import { selected } from '../../../src/cli/fleet-sync-remote';
 import { PLATFORM_PROBE } from '../../../src/machine/platform';
 import { failed, succeeded } from '../../support/commands';
+import example from '../../../examples/fleet.json';
 import type { DataTable } from '../../support/gherkin';
 import {
   fleetSync,
@@ -21,6 +22,41 @@ import {
 const { Given, When, Then } = fleetSync;
 
 const plans = new WeakMap<FleetSyncWorld, SyncPlan>();
+
+/** The fleet configuration last applied, and the one to apply: the example,
+ * with the features a scenario gives a worker. */
+const definitions = new WeakMap<
+  FleetSyncWorld,
+  { applied: Record<string, unknown>; selected: Record<string, unknown> }
+>();
+function withFeatures(
+  world: FleetSyncWorld,
+  which: 'applied' | 'selected',
+  id: string,
+  features: unknown
+): void {
+  const found = definitions.get(world) ?? {
+    applied: structuredClone(example) as Record<string, unknown>,
+    selected: structuredClone(example) as Record<string, unknown>,
+  };
+  const worker = (found[which]['workers'] as Record<string, unknown>[]).find(
+    (entry) => entry['id'] === id
+  )!;
+  worker['features'] = features;
+  definitions.set(world, found);
+}
+
+Given(
+  /^the fleet configuration (last applied|to apply) gives the worker "([^"]+)" the features (\{.*\})$/,
+  (world, which: string, id: string, features: string) => {
+    withFeatures(
+      world,
+      which === 'last applied' ? 'applied' : 'selected',
+      id,
+      JSON.parse(features)
+    );
+  }
+);
 const plan = (world: FleetSyncWorld): SyncPlan => {
   const found = plans.get(world);
   if (!found) throw new Error('No plan was made.');
@@ -66,6 +102,9 @@ When(
         state: 'in-sync',
         nodes: machines.split(',').map((node) => node.trim()),
         sources: ['/checkout'],
+        ...(definitions.has(world)
+          ? { definitions: definitions.get(world)! }
+          : {}),
       },
       world.commands.run
     );
@@ -98,6 +137,19 @@ Then('the plan restarts exactly:', (world, table: DataTable) => {
       restart.endsRunningTurns ? 'yes' : 'no',
     ])
   ).toEqual(table.rows());
+});
+
+Then(
+  'the plan removes from {string}:',
+  (world, node: string, table: DataTable) => {
+    expect(
+      plan(world).removals.find((removal) => removal.node === node)?.removes
+    ).toEqual(table.list());
+  }
+);
+
+Then('the plan removes nothing', (world) => {
+  expect(plan(world).removals).toEqual([]);
 });
 
 Then('the plan restarts nothing', (world) => {

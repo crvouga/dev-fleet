@@ -20,7 +20,8 @@ import {
   type Enrollment,
 } from '../machine/state';
 import { loadEnrollment } from '../state/enrollment';
-import { legacyHome } from '../state/paths';
+import { legacyHome, stateRoot } from '../state/paths';
+import { stateDefinition } from '../state/operator';
 import {
   appendRun,
   summarizeRun,
@@ -282,6 +283,10 @@ async function preview(
         .map((node) => node.node)
         .filter((node): node is string => typeof node === 'string'),
       sources: planSources(settings.workspace, context.root),
+      definitions: {
+        applied: appliedDefinition(),
+        selected: canonicalDefinition,
+      },
     },
     context.run
   );
@@ -290,6 +295,16 @@ async function preview(
     data: { ...(outcome.data as object), plan },
     text: [outcome.text, planText(plan)].filter(Boolean).join('\n'),
   };
+}
+
+/** The fleet configuration the fleet state records as last applied. */
+function appliedDefinition(): unknown {
+  try {
+    const body = stateDefinition(stateRoot());
+    return body === null ? null : (JSON.parse(body) as unknown);
+  } catch {
+    return null;
+  }
 }
 
 interface ApplyContext {

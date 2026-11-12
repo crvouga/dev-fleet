@@ -9,13 +9,20 @@ import type { Check, Runner } from './types';
 import { workerHostChecks } from './worker-host-checks';
 import { workerAccessChecks } from './worker-access-checks';
 import { record } from './config';
+import { notApplicable, offReason, workerFeatures } from './worker-features';
 
 export async function workerReadiness(
   run: Runner,
   nodeId = hostId(hostname()),
   root = process.cwd()
 ): Promise<Check[]> {
-  const host = await workerHostChecks(userInfo().username, run);
+  const features = workerFeatures(fleet, nodeId);
+  const host = await workerHostChecks(
+    userInfo().username,
+    run,
+    features,
+    fleet.workers.find((entry) => entry.id === nodeId)?.powerRecoveryNote
+  );
   const access = await workerAccessChecks(run, nodeId);
   const revision = await run(['git', 'rev-parse', 'HEAD']);
   const singleton = await run(
@@ -62,7 +69,9 @@ export async function workerReadiness(
     ...host,
     ...access,
     proxy,
-    await dockerRunCheck(run),
+    features.containers
+      ? await dockerRunCheck(run)
+      : notApplicable('worker:docker-run', offReason(features, 'docker')),
     await browserCheck(
       run,
       workerSelection(fleet, nodeId).profiles.includes('web')

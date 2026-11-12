@@ -113,6 +113,19 @@ Feature: The disk GC removes only what a worker can rebuild
         | t3-3.deb |
         | t3-4.deb |
 
+    Scenario: A worker with containers prunes Docker's old images and build cache
+      This is a dry run, so nothing is pruned.
+      When the disk GC dry-runs on the whole machine, with a docker command on its path
+      Then the run would prune these Docker steps:
+        | docker_images      |
+        | docker_build_cache |
+
+    Scenario: A worker without containers has no Docker to prune
+      A worker whose containers feature is off is given --no-docker.
+      When the disk GC dry-runs on the whole machine without containers, with a docker command on its path
+      Then the run would prune these Docker steps:
+        | (none) |
+
     Scenario: Tool versions no configuration uses are pruned by mise
       Given a stand-in for mise that records how it is run
       When the disk GC runs with the stand-in for mise

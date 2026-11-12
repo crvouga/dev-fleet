@@ -2,6 +2,8 @@ import { CAPABILITIES, record } from './config';
 import { FleetUsageError } from './errors';
 import type { Capability } from './types';
 import { TOOL_PROFILES, type ToolProfile } from '../bootstrap/worker-tools';
+import { featuresFault } from '../bootstrap/worker-features';
+import type { FeaturesDefinition } from './definition';
 
 export interface WorkerPolicy {
   requiredCapabilities: Capability[];
@@ -17,6 +19,8 @@ export interface WorkerPolicy {
   toolProfiles?: ToolProfile[];
   /** Single tools pinned in dev-fleet's mise.toml every worker installs. */
   tools?: string[];
+  /** Features every worker has unless its own `features` say otherwise. */
+  features?: FeaturesDefinition;
 }
 const REQUIRED = [
   'github',
@@ -47,6 +51,7 @@ const FIELDS: Record<string, (value: unknown) => boolean> = {
   neverSleep: (value) => value === true,
   toolProfiles: (value) => value === undefined || toolProfiles(value) !== null,
   tools: (value) => value === undefined || toolNames(value),
+  features: (value) => value === undefined || featuresFault(value) === null,
 };
 /** The first field of a worker policy that breaks its rule, or null. */
 export function policyFault(value: Record<string, unknown>): string | null {

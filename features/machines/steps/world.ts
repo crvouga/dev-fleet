@@ -52,8 +52,12 @@ export class MachinesWorld extends CommandWorld {
   adapter: Platform | undefined;
   baseline: PlatformBaseline | undefined;
   environment: PlatformBaseline | undefined;
+  size: PlatformBaseline | null | undefined;
   probeRoot: string | undefined;
   probeOutput: string | undefined;
+  /** What systemd-detect-virt answers in the stand-in root; nothing when
+   * the scenario does not say. */
+  hypervisor: string | undefined;
   pins: Record<string, string> | undefined;
 
   // The manager: its earlier enrollment, its lock and a local checkout.

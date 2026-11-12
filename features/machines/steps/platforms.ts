@@ -6,7 +6,9 @@ import example from '../../../examples/fleet.json';
 import { parseDefinition } from '../../../src/definition';
 import {
   evaluateEnvironment,
+  evaluateMachineClass,
   evaluatePlatform,
+  evaluateSize,
   platformProbe,
 } from '../../../src/machine/platform';
 import type { DataTable } from '../../support/gherkin';
@@ -122,6 +124,31 @@ Given(
   }
 );
 
+Given(
+  'systemd-detect-virt there reports {string}',
+  async (world, hypervisor: string) => {
+    const root = world.probeRoot!;
+    // A hypervisor is not a container; bare metal exits 1, as systemd does.
+    await writeFile(
+      join(root, 'bin/systemd-detect-virt'),
+      `#!/bin/sh\n[ "$1" = --container ] && exit 1\necho ${hypervisor}\n[ ${hypervisor} != none ]\n`,
+      { mode: 0o755 }
+    );
+    world.hypervisor = hypervisor;
+  }
+);
+
+Given(
+  'its memory reads {string} and its CPUs number {int}',
+  async (world, meminfo: string, cpus: number) => {
+    const root = world.probeRoot!;
+    await writeFile(join(root, 'proc/meminfo'), `${meminfo}\n`);
+    await writeFile(join(root, 'bin/nproc'), `#!/bin/sh\necho ${cpus}\n`, {
+      mode: 0o755,
+    });
+  }
+);
+
 When('the probe runs there', (world) => {
   const root = world.probeRoot!;
   const result = spawnSync('/bin/sh', ['-c', platformProbe(root)], {
@@ -133,6 +160,49 @@ When('the probe runs there', (world) => {
 
 Then('it prints the environment {string}', (world, environment: string) => {
   expect(world.probeOutput?.split('\n')[3]).toBe(environment);
+});
+
+Then('it prints the hypervisor {string}', (world, hypervisor: string) => {
+  expect(world.probeOutput?.split('\n')[4]).toBe(hypervisor);
+});
+
+Then(
+  'it prints {int} CPUs and {int} MiB of memory',
+  (world, cpus: number, memory: number) => {
+    const lines = world.probeOutput?.split('\n') ?? [];
+    expect([lines[5], lines[6]]).toEqual([String(cpus), String(memory)]);
+  }
+);
+
+Then('the machine class is recorded as {string}', (world, summary: string) => {
+  expect(evaluateMachineClass(world.probeOutput ?? '')).toEqual({
+    id: 'platform:machine-class',
+    summary,
+  });
+});
+
+When(
+  'a worker reports {int} CPUs, {int} MiB of memory and a {int} MiB root filesystem',
+  (world, cpus: number, memory: number, disk: number) => {
+    world.size = evaluateSize(
+      `ubuntu\n26.04\nx86_64\nmachine\nkvm\n${cpus}\n${memory}\n${disk}\n`
+    );
+  }
+);
+
+Then(
+  /^the "platform:worker-size" check says the worker is (supported|not supported), with "([^"]*)"$/,
+  (world, verdict: string, summary: string) => {
+    expect(world.size).toMatchObject({
+      id: 'platform:worker-size',
+      supported: verdict === 'supported',
+    });
+    expect(world.size?.summary).toStartWith(summary);
+  }
+);
+
+Then('a worker that reports no size gets no size check', () => {
+  expect(evaluateSize('ubuntu\n26.04\nx86_64\nmachine\n')).toBeNull();
 });
 
 Then(
