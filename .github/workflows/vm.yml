@@ -41,3 +41,16 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Run the VM test
         run: bun ansible/ubuntu/tests/run-vm.ts ${{ matrix.mode }}
+      # The evidence of a failed run, for whoever fixes it: the redacted
+      # results and the logs of the disposable guest. The fixture keys and
+      # the guest's disks stay on the runner.
+      - name: Keep the evidence of a failed run
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: vm-evidence-${{ matrix.mode }}
+          path: |
+            ~/.cache/fleet-vm-*/vm/*.json
+            ~/.cache/fleet-vm-*/vm/*.log
+          if-no-files-found: warn
+          retention-days: 14

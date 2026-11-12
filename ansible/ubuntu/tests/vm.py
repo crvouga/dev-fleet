@@ -24,7 +24,13 @@ IMAGE_SHA = '5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5'
 
 
 def run(args, **kwargs):
-    result = subprocess.run(args, capture_output=True, text=True, timeout=600, **kwargs)
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=600, **kwargs)
+    except subprocess.TimeoutExpired as expired:
+        # What the command printed before it was cut off is the evidence.
+        partial = ''.join(part.decode(errors='replace') if isinstance(part, bytes) else part or '' for part in (expired.stdout, expired.stderr))
+        (ROOT / 'last-failure.log').write_text(partial)
+        raise RuntimeError('Disposable VM command did not end within 600 seconds; inspect private artifact last-failure.log') from None
     if result.returncode:
         (ROOT / 'last-failure.log').write_text(result.stdout + result.stderr)
         raise RuntimeError('Disposable VM command failed; inspect private artifact last-failure.log')
