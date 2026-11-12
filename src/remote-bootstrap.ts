@@ -130,50 +130,63 @@ export async function bootstrapRemote(
   ]
     .map(shellQuote)
     .join(' ');
+  const checks = await bootstrapSessions(
+    node,
+    payload,
+    { command, input: bootstrapInput(payload.config, transfer.bundle) },
+    { run, follow: { ...follow, clock } }
+  );
+  return { node: node.id, checks };
+}
+
+/** Opens the bootstrap session, and again after a lost one unless the
+ * worker's own operation can be followed to its end instead.
+ */
+async function bootstrapSessions(
+  node: FleetNode,
+  payload: BootstrapPayload,
+  session: { command: string; input: string },
+  context: { run: Runner; follow: Follow & { clock: Clock } }
+): Promise<Check[]> {
+  const { run, follow } = context;
   let result: CommandResult | undefined;
   for (const pause of [0, ...RETRY_PAUSES_MS]) {
     if (result) {
       // The session was lost, not the operation: the worker keeps running
       // it, so the manager follows it rather than starting another.
-      await clock.pause(pause);
-      const followed = await followOperation(node, payload.revision, run, {
-        ...follow,
-        clock,
-      });
-      if (followed) return { node: node.id, checks: followed };
+      await follow.clock.pause(pause);
+      const followed = await followOperation(
+        node,
+        payload.revision,
+        run,
+        follow
+      );
+      if (followed) return followed;
     }
-    result = await run([...sshArgs(node), command], {
-      input: bootstrapInput(payload.config, transfer.bundle),
+    result = await run([...sshArgs(node), session.command], {
+      input: session.input,
       timeoutMs: 5_400_000,
     });
     const evidence = parseEvidence(result);
     if (evidence && locked(evidence))
-      return {
-        node: node.id,
-        checks:
-          (await followOperation(node, payload.revision, run, {
-            ...follow,
-            clock,
-          })) ?? evidence,
-      };
-    if (evidence) return { node: node.id, checks: evidence };
+      return (
+        (await followOperation(node, payload.revision, run, follow)) ?? evidence
+      );
+    if (evidence) return evidence;
     if (result.reason !== 'exit' || !transient(result)) break;
   }
-  if (!result!.ok) return { node: node.id, checks: [sshFailure(result!)] };
-  return {
-    node: node.id,
-    checks: [
-      {
-        id: 'bootstrap:protocol',
-        status: 'fail',
-        summary: 'REMOTE_BOOTSTRAP_EVIDENCE_INVALID',
-        remedy: {
-          action:
-            'Inspect the source-owned remote operation and lock. Do not assume a manager disconnect stopped installation.',
-        },
+  if (!result!.ok) return [sshFailure(result!)];
+  return [
+    {
+      id: 'bootstrap:protocol',
+      status: 'fail',
+      summary: 'REMOTE_BOOTSTRAP_EVIDENCE_INVALID',
+      remedy: {
+        action:
+          'Inspect the source-owned remote operation and lock. Do not assume a manager disconnect stopped installation.',
       },
-    ],
-  };
+    },
+  ];
 }
 
 /** Another operation holds the worker: its lock was the first thing tried. */
