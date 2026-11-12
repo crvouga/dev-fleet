@@ -310,6 +310,9 @@ def test_agent(ssh):
     # authenticated connection or fresh-metrics acceptance.
     run(ssh + ["grep -q 'fixture.fixture.ts.net' /etc/hosts || printf '127.0.0.1 fixture.fixture.ts.net\\n' | sudo tee -a /etc/hosts >/dev/null"])
     variables = json.dumps({'beszel_node': 'fixture-node', 'beszel_hub_url': 'https://fixture.fixture.ts.net:8443', 'beszel_public_key': (ROOT / 'host.pub').read_text().strip(), 'beszel_agent_token': 'disposable-fixture-not-a-live-credential'})
+    # The agent play, with the lock and the unit it reads beside it.
+    archive = subprocess.run(['tar', '-C', '/workspace/ansible/monitoring', '--exclude=./tests', '-cf', '-', '.'], capture_output=True, check=True).stdout
+    subprocess.run(ssh + ['mkdir -p beszel/monitoring && tar -C beszel/monitoring -xf -'], input=archive, capture_output=True, check=True, timeout=60)
     command = 'cd beszel/monitoring && ~/verify agent'
     first = run(ssh + [command], input=variables)
     (ROOT / 'agent-first.log').write_text(first.stdout + first.stderr)
