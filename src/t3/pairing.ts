@@ -1,6 +1,9 @@
 import { parseConfig } from '../config';
 import { STATE_ROSTER, readRosterText, writeRosterText } from '../state/roster';
 import { mutateState, stateContext, type StateContext } from '../state/sync';
+import { changeWorkers, readWorkerStates } from '../state/workers';
+import type { Check, FleetNode, Runner } from '../types';
+import { pairWorker, pairingCheck, type ManagerT3 } from './peer-link';
 
 /** Records the T3 environment a worker runs in the roster, the first time a
  * verified link from the manager reaches it. From then on the link check
@@ -28,4 +31,60 @@ export async function rememberEnvironment(
   };
   if (path !== STATE_ROSTER) return save();
   return (await mutateState(context(), save)).value;
+}
+
+/** What pairing a worker needs: where the roster is, how commands run, the
+ * manager's T3 and the fleet state. */
+export interface PairingServices {
+  roster: string;
+  run: Runner;
+  manager: ManagerT3;
+  context: () => StateContext;
+  now: () => Date;
+}
+
+/** Pairs the manager's T3 with the environment a worker runs now, without a
+ * person (src/t3/peer-link.ts), and records it in the roster. Until it is
+ * paired, the fleet state keeps the request, so the next fleet-sync pairs
+ * it once the worker's T3 runs; once paired, the request is forgotten.
+ */
+export async function pairAndRecord(
+  node: FleetNode,
+  services: PairingServices
+): Promise<Check> {
+  const pairing = await pairWorker(node, services.run, services.manager);
+  if ('paired' in pairing)
+    await rememberEnvironment(
+      services.roster,
+      node.id,
+      pairing.paired,
+      services.context
+    );
+  const requested = services.now().toISOString();
+  await changeWorkers(services.context(), (current) => {
+    const { t3PairingRequestedAt: earlier, ...rest } = current[node.id] ?? {};
+    return {
+      [node.id]:
+        'paired' in pairing
+          ? rest
+          : { ...rest, t3PairingRequestedAt: earlier ?? requested },
+    };
+  });
+  return pairingCheck(node.id, pairing);
+}
+
+/** fleet-sync's part: pairs a worker only when fleet-node-replace asked for
+ * it. A worker enrolled for the first time is paired by a person.
+ */
+export async function pairIfRequested(
+  node: FleetNode,
+  services: Omit<PairingServices, 'context' | 'now'> &
+    Partial<Pick<PairingServices, 'context'>>
+): Promise<Check | undefined> {
+  if (!readWorkerStates().workers[node.id]?.t3PairingRequestedAt) return;
+  return pairAndRecord(node, {
+    context: () => stateContext(services.run),
+    ...services,
+    now: () => new Date(),
+  });
 }

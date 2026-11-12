@@ -1,7 +1,8 @@
 ---
 # T3 Code on the manager reads the same administrator policy as on every
-# worker (ansible/ubuntu/t3/policy.json): updates off, so the manager's T3
-# changes only when the fleet's pin does. Provider instances are reconciled
+# worker (ansible/ubuntu/t3/policy.json): linked environments on, so the
+# manager pairs with a replaced worker's T3 by itself, and updates off, so
+# the manager's T3 changes only when the fleet's pin does. Provider instances are reconciled
 # by fleet-sync on every run and stay unlocked here: locking them needs an
 # administrator for each change of the account roster. fleet-sync measures
 # the result as t3:updates. Needs an administrator, once, through

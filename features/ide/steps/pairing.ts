@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { succeeded } from '../../support/commands';
 import { rememberEnvironment } from '../../../src/t3/pairing';
 import { t3Ide } from '../../../src/ide/t3';
-import type { FleetConfig, FleetNode } from '../../../src/types';
+import type { Check, FleetConfig, FleetNode } from '../../../src/types';
 import { ide, ROOT, type IdeWorld } from './world';
 
 const { Given, When, Then } = ide;
@@ -75,8 +75,40 @@ Given('the T3 of the manager has no links', (world) => {
   links(world, []);
 });
 
+/** What fleet-sync's pairing does in a scenario: nothing was asked for
+ * (undefined), or pairing links the environment and passes. */
+const pairings = new WeakMap<
+  IdeWorld,
+  (node: FleetNode) => Promise<Check | undefined>
+>();
+
+Given(
+  'the manager is asked to pair with the worker, and pairing links {string} for {int} days',
+  (world, environmentId: string, days: number) => {
+    pairings.set(world, async (node) => {
+      links(world, [
+        {
+          environmentId,
+          status: 'reachable',
+          expiresAt: new Date(Date.now() + days * 86_400_000).toISOString(),
+        },
+      ]);
+      return {
+        id: 't3:link',
+        status: 'pass',
+        summary: `The manager's T3 is paired with the T3 environment ${environmentId} of ${node.id}.`,
+      };
+    });
+  }
+);
+
+Given('the manager is not asked to pair with the worker', (world) => {
+  pairings.set(world, async () => undefined);
+});
+
 When('the manager checks the T3 of the worker', async (world) => {
   const node = enrolled(world, 'dev-one');
+  const pair = pairings.get(world);
   world.checks = await t3Ide().worker(node, {
     run: world.run,
     workspace: ROOT,
@@ -84,7 +116,12 @@ When('the manager checks the T3 of the worker', async (world) => {
     remember: async (id, identity) => {
       await rememberEnvironment(roster(world), id, identity);
     },
+    ...(pair ? { pair } : {}),
   });
+});
+
+Then('no check {string} was reported', (world, id: string) => {
+  expect(world.checks.map((check) => check.id)).not.toContain(id);
 });
 
 When(

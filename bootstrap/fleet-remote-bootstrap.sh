@@ -49,7 +49,7 @@ remedy() {
     APT_DNS_UNAVAILABLE) echo 'The worker cannot resolve the Ubuntu archive. Restore its DNS, then rerun fleet-sync.';;
     APT_REPOSITORY_UNAVAILABLE) echo 'The Ubuntu archive could not be reached. Check the network or archive status, then rerun fleet-sync.';;
     APT_DISK_FULL) echo 'Package installation ran out of disk space. Free space under /var and /usr, then rerun fleet-sync.';;
-    DPKG_INTERRUPTED) echo 'An earlier package installation that fleet-sync did not start was interrupted. Run sudo dpkg --configure -a once no package process is running, then rerun fleet-sync.';;
+    DPKG_INTERRUPTED) echo 'An interrupted package installation could not be finished: dpkg --configure -a, run once and bounded, left the package database inconsistent. Read sudo dpkg --audit on the worker, repair the packages it names, then rerun fleet-sync.';;
     APT_UPDATE_FAILED|APT_INSTALL_FAILED) echo 'Run sudo apt-get update and install the bootstrap packages by hand to see the error, then rerun fleet-sync.';;
     SOURCE_CACHE_CHANGED|SOURCE_STATUS_FAILED|SOURCE_CHECKOUT_CONFLICT) echo 'The fleet-owned checkout of this revision holds changes fleet-sync did not make. Inspect and remove that revisions directory, then rerun fleet-sync.';;
     CONFIGURATION_INSTALL_FAILED) echo 'The fleet configuration could not be written under ~/.config/dev-fleet. Check that directory, then rerun fleet-sync.';;
@@ -57,9 +57,12 @@ remedy() {
     *) echo 'Inspect the remote operation lock and rerun the approved revision. No success receipt advanced.';;
   esac
 }
+# apt-failure: begin
 # Names an APT failure by the fixed messages of the pinned Ubuntu release.
 apt_failure() {
-  if grep -q 'Could not get lock' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
+  # APT names a held lock in several ways: with the process that holds it,
+  # without one (it could not read the holder), or in dpkg's own words.
+  if grep -qE 'Could not get lock|Unable to acquire the dpkg frontend lock|Unable to lock the administration directory|locked by another process' "$apt_log" 2>/dev/null; then die APT_LOCK_CONTENDED
   elif grep -q 'No space left on device' "$apt_log" 2>/dev/null; then die APT_DISK_FULL
   elif grep -qE 'Temporary failure resolving|Could not resolve' "$apt_log" 2>/dev/null; then die APT_DNS_UNAVAILABLE
   elif grep -qE 'Failed to fetch|Unable to connect|Connection failed|Unable to locate package' "$apt_log" 2>/dev/null; then die APT_REPOSITORY_UNAVAILABLE
@@ -67,6 +70,7 @@ apt_failure() {
   else die "$1"
   fi
 }
+# apt-failure: end
 fail() {
   printf '{"version":1,"checks":[{"id":"bootstrap:%s","status":"fail","summary":"%s","remedy":{"action":"%s"}}]}\n' "$phase" "$failure_code" "$(remedy "$failure_code")"
 }
@@ -153,37 +157,60 @@ base64 -d >"$bundle"
 printf '%s  %s\n' "$bundle_sha" "$bundle" | sha256sum -c - >/dev/null 2>&1 || die SOURCE_DIGEST_MISMATCH
 fi
 phase=prerequisites
-missing=''
-for package in git curl ca-certificates unzip xz-utils build-essential python3 ansible-core; do
-  dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed || missing="$missing $package"
-done
+# prerequisites: begin
+missing_prerequisites() {
+  missing=''
+  for package in git curl ca-certificates unzip xz-utils build-essential python3 ansible-core; do
+    dpkg-query -W -f='${db:Status-Status}' "$package" 2>/dev/null | grep -qx installed || missing="$missing $package"
+  done
+}
+missing_prerequisites
 if [ -n "$missing" ]; then
   sudo -n true >/dev/null 2>&1 || die SUDO_AUTHORIZATION_REQUIRED
   # APT's own messages, in a private file read only for fixed patterns and
   # removed on exit: they tell a held lock, DNS, an unreachable archive and a
   # full disk apart. Nothing of them is reported.
   apt_log=$(mktemp "$root/apt.XXXXXX")
-  pending="$root/prerequisites-pending"
-  # An installation this script started and that was interrupted (the shell
-  # killed, the machine powered off) leaves dpkg half-configured. Finishing
-  # our own transaction is safe; one fleet-sync did not start is reported.
+  # A package run that was cut off (the shell killed, the machine powered
+  # off) leaves dpkg half-configured, whoever started it: this script, the
+  # Ubuntu baseline upgrading one of these very packages, or the release's
+  # own updates. Finishing it is the standard safe repair, the one the
+  # baseline makes (ansible/ubuntu/tasks/dpkg.yml): tried once, bounded,
+  # waiting while another package process holds the lock (never killing it).
+  # Only a database still inconsistent afterwards stops the run.
   # dpkg reads its database lock even to audit, which needs root.
   if [ -n "$(sudo -n dpkg --audit 2>/dev/null)" ]; then
-    [ -f "$pending" ] || die DPKG_INTERRUPTED
+    lock_waits=0
     # shellcheck disable=SC2024
-    sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C dpkg --configure -a >"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
+    until sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C dpkg --configure -a >"$apt_log" 2>&1; do
+      grep -q 'locked by another process' "$apt_log" 2>/dev/null && [ "$lock_waits" -lt 24 ] || break
+      lock_waits=$((lock_waits + 1))
+      sleep 5
+    done
+    if [ -n "$(sudo -n dpkg --audit 2>/dev/null)" ]; then
+      ! grep -q 'locked by another process' "$apt_log" 2>/dev/null || die APT_LOCK_CONTENDED
+      ! grep -q 'No space left on device' "$apt_log" 2>/dev/null || die APT_DISK_FULL
+      die DPKG_INTERRUPTED
+    fi
+    # The repair finishes the prerequisite a cut-off run was upgrading.
+    missing_prerequisites
   fi
-  : >"$pending"
-  # The log belongs to the developer account; sudo only runs the command.
-  # shellcheck disable=SC2024
-  # Never remove APT locks or kill package processes. Timeout keeps genuine
-  # transactions bounded; Ubuntu archive signatures/TLS remain enabled.
-  sudo -n timeout 300 env LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 update >"$apt_log" 2>&1 || apt_failure APT_UPDATE_FAILED
-  # shellcheck disable=SC2086,SC2024
-  sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >>"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
-  rm -f -- "$pending" "$apt_log"
+  # Earlier revisions marked their own installation here; the repair above
+  # no longer asks who started a run, so the marker is only removed.
+  rm -f -- "$root/prerequisites-pending"
+  if [ -n "$missing" ]; then
+    # The log belongs to the developer account; sudo only runs the command.
+    # Never remove APT locks or kill package processes. Timeout keeps genuine
+    # transactions bounded; Ubuntu archive signatures/TLS remain enabled.
+    # shellcheck disable=SC2024
+    sudo -n timeout 300 env LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 update >"$apt_log" 2>&1 || apt_failure APT_UPDATE_FAILED
+    # shellcheck disable=SC2086,SC2024
+    sudo -n timeout 600 env DEBIAN_FRONTEND=noninteractive LC_ALL=C apt-get -o DPkg::Lock::Timeout=120 --no-install-recommends install -y $missing >>"$apt_log" 2>&1 || apt_failure APT_INSTALL_FAILED
+  fi
+  rm -f -- "$apt_log"
   apt_log=''
 fi
+# prerequisites: end
 phase=source-verification
 deployment="$root/revisions/$revision"
 [ ! -L "$root/revisions" ] && [ ! -L "$deployment" ] || exit 1

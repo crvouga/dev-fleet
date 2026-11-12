@@ -8,14 +8,14 @@ rewrites them).
 
 ## Where credentials live
 
-| Credential                          | Lives in                                                                                                                      | Read by                                          |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------ |
-| The fleet's secrets (table below)   | The provider `secrets` names in `fleet.json`                                                                                  | The node that needs it, through `src/secrets.ts` |
-| The bucket's two keys               | The environment of the `devfleet` command; `~/.config/dev-fleet/bucket.json` (0600) on the manager after `fleet-state --init` | The manager only                                 |
-| A node's Vault token                | That node's own Vault session (`~/.vault-token`)                                                                              | That node only; never copied                     |
-| A node's GitHub login               | `gh`'s own store on that node                                                                                                 | `gh`, and git through its credential helper      |
-| Provider accounts (Claude, Codex …) | The CLI proxy's store on the manager                                                                                          | The proxy; nodes hold only the proxy client key  |
-| Tailscale and T3 pairing            | Each machine, signed in by a person                                                                                           | That machine                                     |
+| Credential                          | Lives in                                                                                                                       | Read by                                          |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------ |
+| The fleet's secrets (table below)   | The provider `secrets` names in `fleet.json`                                                                                   | The node that needs it, through `src/secrets.ts` |
+| The bucket's two keys               | The environment of the `devfleet` command; `~/.config/dev-fleet/bucket.json` (0600) on the manager after `fleet-state --init`  | The manager only                                 |
+| A node's Vault token                | That node's own Vault session (`~/.vault-token`)                                                                               | That node only; never copied                     |
+| A node's GitHub login               | `gh`'s own store on that node                                                                                                  | `gh`, and git through its credential helper      |
+| Provider accounts (Claude, Codex …) | The CLI proxy's store on the manager                                                                                           | The proxy; nodes hold only the proxy client key  |
+| Tailscale and T3 pairing            | Each machine, signed in by a person; a replaced worker's T3 is paired by the manager with a one-time code it never writes down | That machine                                     |
 
 ## How they reach each node
 
@@ -30,14 +30,19 @@ rewrites them).
   makes `gh` git's credential helper and writes the declared identity
   (`git` in `fleet.json`, `ansible/github/git.yml`) on every node.
 - **The proxy client key** is read by each node from its own secrets provider
-  whenever a launcher starts an agent.
+  whenever a launcher starts an agent. The node keeps the last key it read in
+  `~/.cache/dev-fleet/proxy-client-key` (0600) and uses it only while the
+  provider cannot answer, so an unreachable Vault or an expired session leaves
+  that node's agents working until the Vault checks below are fixed.
 - **The monitoring hub's backup storage keys** are read on the manager by
   `fleet-sync` and handed to the hub's playbook in a private variables file.
 
 ## Rotation and failure
 
-Rotate a secret where the provider keeps it; the next read uses it, nothing
-caches it. A Vault token that is not renewed expires: `worker:vault-renewal`
+Rotate a secret where the provider keeps it; the next read uses it. Only the
+proxy client key is remembered, and only as a fallback; a rotated key reaches
+every node at its next launch, and `retire-key` should wait until every node
+has launched an agent since the rotation. A Vault token that is not renewed expires: `worker:vault-renewal`
 fails and the fix is one login of that machine. A GitHub token that stops
 working fails `auth:github` and `worker:git-push-auth`; store the new one in
 Vault and the worker restores itself within ten minutes. During a proxy
@@ -73,6 +78,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | `auth:github`                 | `src/github/checks.ts`                     |
 | `auth:vault`                  | `src/cli/fleet-sync-vault.ts`              |
 | `auth:vault-isolation`        | `src/cli/fleet-sync-vault.ts`              |
+| `worker:credential-renewal`   | `src/worker-host-checks.ts`                |
 | `worker:git-identity`         | `src/git-identity.ts`                      |
 | `worker:git-push-auth`        | `src/definition.ts`, `src/git-identity.ts` |
 | `worker:git-signing`          | `src/definition.ts`, `src/git-identity.ts` |

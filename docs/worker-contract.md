@@ -97,15 +97,25 @@ installed and refuses a smaller machine with `WORKER_SIZE_BELOW_MINIMUM`
 (`platform:worker-size`); the baseline asserts the same before it installs a
 package.
 
-These numbers are an **estimate, not a measurement**. They were reasoned from
-the parts of a converged editing worker, not measured on one: Ubuntu Server
-itself (about 3 to 5 GiB), the base tools of `worker_tools` with the agent
-CLIs (about 3 to 4 GiB under `~/.local/share/mise`), the T3 server archive
-(under 0.5 GiB), the package cache and journal caps, and a swap file of half
-of memory. A tool profile adds its tools (Go, Rust and the JVM each take
-gigabytes), and `containers` adds the engine and its images. Measuring each
-profile on a converged worker is still to do (#124); until then, size a
-worker with room above the minimum.
+The disk dev-fleet itself installs is measured on every pull request: the
+fresh-box CI job converges a stock Ubuntu image of each accepted release on
+amd64 and arm64, measures what each part takes, and fails when a part
+outgrows its budget in `sizing.footprintMiB`
+(`features/fresh-box/fresh-box.feature`). Measured on Ubuntu 26.04:
+
+| Part                                         | amd64        | arm64        | Budget   |
+| -------------------------------------------- | ------------ | ------------ | -------- |
+| Base tools with the agent CLIs, and `go`     | 5184 MiB     | 4830 MiB     | 6144 MiB |
+| The fleet's checkouts (up to four revisions) | 189 MiB each | 189 MiB each | 1024 MiB |
+| Tool profile `web` (its tools)               |              | 135 MiB      | 256 MiB  |
+| Tool profile `rust`                          |              | 1562 MiB     | 2048 MiB |
+| Tool profile `jvm`                           | 437 MiB      | 303 MiB      | 640 MiB  |
+
+What is not measured there, and stays an estimate: Ubuntu Server itself
+(about 3 to 5 GiB), the system packages of the baseline, the headless
+Chromium the `web` profile installs as packages, the swap file (half of
+memory), and the engine and images of `containers`. The minimum adds those
+to the measured parts with room for the disk floors below.
 
 The disk and memory lines of the worker policy scale with the machine: each
 is a share of the root filesystem or of memory between a lower and an upper
@@ -152,7 +162,11 @@ one:
 A package run cut off by a power loss is finished by the next sync: the
 baseline waits for the APT lock, runs `dpkg --configure -a` once (bounded to
 ten minutes) and audits again; only a database still inconsistent stops with
-`APT_STATE_BROKEN`.
+`APT_STATE_BROKEN`. When the cut-off run left one of the bootstrap's own
+packages unconfigured (an upgrade of `python3` or `git`, say), the bootstrap
+makes the same repair before it installs what it lacks, whoever started the
+run, waiting up to two minutes for a package process that holds the lock;
+only a database still inconsistent stops it with `DPKG_INTERRUPTED`.
 
 Health does not mutate configuration, renew tokens, log in, install software, or
 make billable inference requests. It audits the immutable desired worker deployment,

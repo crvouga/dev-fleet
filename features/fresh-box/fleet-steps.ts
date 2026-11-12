@@ -499,33 +499,57 @@ Then(
   }
 );
 
+/** Unpacks the package's archive without configuring it: what dpkg leaves
+ * when a run is cut off between the two. */
+async function unpackOnly(world: FreshBoxWorld, name: string, pkg: string) {
+  const machine = named(world, name);
+  world.defer(async () => {
+    await asRoot(machine, 'dpkg --configure -a >/dev/null 2>&1; true');
+  });
+  const downloaded = await asRoot(
+    machine,
+    `cd /tmp && rm -f ${pkg}_*.deb && apt-get download ${pkg} >/dev/null 2>&1`,
+    300_000,
+    'fleettest'
+  );
+  expect(downloaded.ok).toBe(true);
+  const unpacked = await asRoot(
+    machine,
+    `dpkg --unpack /tmp/${pkg}_*.deb >/dev/null 2>&1 && test -n "$(dpkg --audit)"`
+  );
+  expect(unpacked.ok).toBe(true);
+}
+
+// Who started the run makes no difference to the next sync.
 Given(
-  /^a package installation (fleet-sync|someone else) started on "([^"]+)" was interrupted after unpacking "([^"]+)"$/,
-  async (world, starter: string, name: string, pkg: string) => {
+  /^a package installation (?:fleet-sync|someone else) started on "([^"]+)" was interrupted after unpacking "([^"]+)"$/,
+  async (world, name: string, pkg: string) => {
+    await unpackOnly(world, name, pkg);
+  }
+);
+
+Given(
+  'the upgrade of the bootstrap package {string} on {string} was cut off after unpacking it',
+  async (world, pkg: string, name: string) => {
     const machine = named(world, name);
-    world.defer(async () => {
-      await asRoot(machine, 'dpkg --configure -a >/dev/null 2>&1; true');
-    });
-    const downloaded = await asRoot(
-      machine,
-      `cd /tmp && rm -f ${pkg}_*.deb && apt-get download ${pkg} >/dev/null 2>&1`,
-      300_000,
-      'fleettest'
-    );
-    expect(downloaded.ok).toBe(true);
-    const unpacked = await asRoot(
-      machine,
-      `dpkg --unpack /tmp/${pkg}_*.deb >/dev/null 2>&1 && test -n "$(dpkg --audit)"`
-    );
-    expect(unpacked.ok).toBe(true);
-    // What the bootstrap leaves while its own installation is under way.
-    const marker = `${FLEET_ROOT}/prerequisites-pending`;
-    await asRoot(
-      machine,
-      starter === 'fleet-sync' ? `touch ${marker}` : `rm -f ${marker}`,
-      20_000,
-      'fleettest'
-    );
+    world.machine = machine;
+    expect(
+      (
+        await asRoot(
+          machine,
+          `dpkg-query -W -f='\${db:Status-Status}' ${pkg} | grep -qx installed`
+        )
+      ).ok
+    ).toBe(true);
+    await unpackOnly(world, name, pkg);
+    expect(
+      (
+        await asRoot(
+          machine,
+          `! dpkg-query -W -f='\${db:Status-Status}' ${pkg} | grep -qx installed`
+        )
+      ).ok
+    ).toBe(true);
   }
 );
 

@@ -91,9 +91,9 @@ export function agentGuide(release: Release) {
       errors:
         'schema/output/error.schema.json: {version:1,ok:false,code,error}; raw subprocess output and exception details are withheld',
       reports:
-        'Each output has a JSON schema in this package; parse by it and by its version. Diagnostic reports (fleet-status, fleet-state, fleet-repair): schema/output/report.schema.json, version 1. fleet-sync: schema/output/fleet-sync.schema.json, version 3 (a --dry-run adds plan). fleet-report: schema/output/fleet-report.schema.json, version 1.',
+        'These outputs have a JSON schema in this package; parse by it and by its version. Diagnostic reports of fleet-status, fleet-state and fleet-repair (whose report names its command repair): schema/output/report.schema.json, version 1. fleet-sync: schema/output/fleet-sync.schema.json, version 3 (a --dry-run adds plan). fleet-sync --schedule: schema/output/fleet-sync-schedule.schema.json, version 2. fleet-state --example and --export: schema/output/fleet-state-definition.schema.json, version 1. fleet-report: schema/output/fleet-report.schema.json, version 1. Any other --json document carries its version, and command and ok where it reports an outcome, but has no published schema yet.',
       checks:
-        'schema/check-ids.json lists every check ID with what a passing check means; * stands for a name. Each failing check carries its own remedy.',
+        'schema/check-ids.json (schema/check-ids.schema.json), generated from the code, lists every check ID: meaning, what a passing check means; severity, required (a failure blocks readiness unless the run marks the check out of scope) or advisory (a warning or not required, never blocking); repair, {recipe} the fleet-repair recipe that repairs it or {manual} why only a person can. A * stands for a name taken at run time (a node, a tool, an account). Each failing check also carries its own remedy.',
       statuses: ['pass', 'warn', 'fail', 'skip', 'not-applicable'],
       coverage:
         'Default fleet-status tests the manager and all configured nodes. --local tests only this manager; --tailnet and --workers cover Tailscale computers. A missing roster fails explicitly. T3/VS Code end-to-end checks remain manual.',

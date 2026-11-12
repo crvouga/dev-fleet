@@ -24,10 +24,11 @@ jobs:
           bun-version-file: package.json
       # The Python, restic and Vault every machine runs, from the same lock:
       # never the runner's own or the distribution's. Vault runs the worker
-      # credential scenarios against a development server.
+      # credential scenarios against a development server; uv runs the
+      # agents play with the locked Ansible (features/agents, @ansible).
       - uses: ./.github/actions/mise
         with:
-          install_args: python restic vault
+          install_args: python restic vault uv
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile
@@ -35,9 +36,10 @@ jobs:
       - run: bun run format
       - run: bun run tc
       - run: bun run lint
-      - run: mise exec python restic vault -- bun test
+      - run: mise exec python restic vault uv -- bun test
         env:
           DEVFLEET_TEST_VAULT: required
+          DEVFLEET_TEST_ANSIBLE: required
       - run: mise exec python restic -- bun run lint:cliproxy
       - run: mise exec python restic -- bun run test:cliproxy
   state:

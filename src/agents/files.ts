@@ -1,16 +1,6 @@
 import { AgentConfigurationError } from './errors';
-import {
-  lstat,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  writeFile,
-  copyFile,
-  chmod,
-} from 'node:fs/promises';
-import { dirname, join, parse } from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { lstat, readFile } from 'node:fs/promises';
+import { dirname, parse } from 'node:path';
 import { digest } from './registry';
 
 export async function safeParents(path: string): Promise<void> {
@@ -40,26 +30,6 @@ export async function readOwned(path: string): Promise<string | null> {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
     throw error;
   }
-}
-
-export async function atomicWrite(path: string, value: string): Promise<void> {
-  await safeParents(path);
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 });
-  const temp = `${path}.${randomUUID()}.tmp`;
-  try {
-    await writeFile(temp, value, { flag: 'wx', mode: 0o600 });
-    await rename(temp, path);
-  } finally {
-    await rm(temp, { force: true });
-  }
-}
-
-export async function backup(path: string, root: string): Promise<void> {
-  const dir = join(root, 'backups');
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  const target = join(dir, randomUUID());
-  await copyFile(path, target);
-  await chmod(target, 0o600);
 }
 
 export function fileState(

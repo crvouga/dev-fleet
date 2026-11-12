@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fleet-sync-schedule.schema.json",
+  "title": "The fleet-sync --schedule report, version 2",
+  "description": "What devfleet fleet-sync --schedule ACTION prints with --json. status names whether the schedule is installed, its interval, its last three runs and the manager:schedule check; enable, pause, resume and disable say whether the change was made.",
+  "type": "object",
+  "required": ["version", "command", "scheduling"],
+  "properties": {
+    "version": { "const": 2 },
+    "command": { "const": "fleet-sync" },
+    "execution": { "const": "manager-push" },
+    "ok": { "type": "boolean" },
+    "scheduling": {
+      "type": ["string", "object"],
+      "properties": {
+        "installed": { "type": "boolean" },
+        "supported": { "type": "boolean" }
+      }
+    },
+    "intervalSeconds": { "type": "integer" },
+    "revision": { "type": "string" },
+    "summary": { "type": "string" },
+    "runs": { "type": "array", "items": { "type": "object" } },
+    "checks": { "type": "array", "items": { "$ref": "check.schema.json" } }
+  }
+}

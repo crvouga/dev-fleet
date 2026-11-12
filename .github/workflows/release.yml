@@ -21,11 +21,13 @@ concurrency:
 jobs:
   # Choose the version, stamp it and the commit into the package, and pack it
   # once. Every later job tests or publishes this one tarball.
+  # CI on main runs on a push, or is dispatched by auto-merge.yml after a merge
+  # made with the workflow's own token (which starts no push workflow).
   pack:
     if: >-
       github.event_name == 'push' ||
       (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
+       contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event))
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:

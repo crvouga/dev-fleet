@@ -56,12 +56,16 @@
         group: root
         mode: '0644'
         timeout: 30
+    # The same one-line file apt_repository wrote and the first-boot seed
+    # writes, without apt_repository's need for gpg, which a minimal image
+    # does not have.
     - name: Declare the signed upstream package source
-      ansible.builtin.apt_repository:
-        repo: deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu {{ ubuntu_release.codename }} main
-        filename: tailscale
-        state: present
-        update_cache: false
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/tailscale.list
+        content: "deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu {{ ubuntu_release.codename }} main\n"
+        owner: root
+        group: root
+        mode: '0644'
       register: tailscale_source
     - name: Install the approved version only when absent
       ansible.builtin.apt:

@@ -18,14 +18,15 @@
         "docker-compose-v2": "2.40.3+ds1-0ubuntu1~24.04.1",
         "docker-buildx": "0.30.1-0ubuntu1~24.04.1",
         "build-essential": "12.10ubuntu1",
-        "ca-certificates": "20260816ubuntu0.24.04.1",
+        "ca-certificates": "20260816ubuntu0.24.04.2",
         "curl": "8.5.0-2ubuntu10.16",
         "git": "1:2.43.0-1ubuntu7.4",
         "python3": "3.12.3-0ubuntu2.1",
         "unzip": "6.0-28ubuntu4.1",
         "xz-utils": "5.6.1+really5.4.5-1ubuntu0.4",
         "ansible-core": "2.16.3-0ubuntu2",
-        "systemd-oomd": "255.4-1ubuntu8.18"
+        "systemd-oomd": "255.4-1ubuntu8.18",
+        "nftables": "1.0.9-1ubuntu0.1"
       },
       "browserPackages": {
         "fonts-liberation": "1:2.1.5-3",
@@ -96,6 +97,11 @@
       "memoryMiB": 3584,
       "diskMiB": 20480,
       "cpus": 2
+    },
+    "footprintMiB": {
+      "baseTools": 5120,
+      "checkouts": 1024,
+      "profiles": { "web": 256, "go": 1024, "rust": 2048, "jvm": 640 }
     },
     "agentSessionMiB": 1024,
     "t3ReservedMiB": 1536,
