@@ -107,6 +107,14 @@
                 "description": "The port the worker T3 server listens on, normally 3773."
               }
             }
+          },
+          "toolProfiles": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "enum": ["web", "go", "rust", "jvm"]
+            },
+            "description": "Tool profiles this worker installs on top of the fleet-wide ones: web (pnpm, Deno, Yarn), go, rust (with CMake and Ninja), jvm (Temurin). Each is a locked tool set dev-fleet ships."
           }
         }
       }
@@ -191,6 +199,49 @@
               "type": "string",
               "format": "email",
               "description": "Read-only Beszel account visitors are signed in as."
+            },
+            "backups": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["schedule", "keep", "storage"],
+              "description": "Scheduled off-machine backups of the monitoring hub. fleet-sync sets them through the hub's API, with the keys of the secrets monitoring-backup-access-key and monitoring-backup-secret-key; without this block the hub's backups are only read, and beszel:backup warns.",
+              "properties": {
+                "schedule": {
+                  "type": "string",
+                  "pattern": "^[0-9*/,-]+( [0-9*/,-]+){4}$",
+                  "description": "A cron expression in the hub's time zone, for example 0 3 * * *."
+                },
+                "keep": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 365,
+                  "description": "How many scheduled backups the hub keeps."
+                },
+                "storage": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["bucket", "endpoint", "region"],
+                  "description": "S3-compatible storage off the manager. Never its keys.",
+                  "properties": {
+                    "bucket": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$"
+                    },
+                    "endpoint": {
+                      "type": "string",
+                      "pattern": "^https://[A-Za-z0-9.-]+(:[0-9]+)?$"
+                    },
+                    "region": {
+                      "type": "string",
+                      "pattern": "^[a-z0-9-]{1,32}$"
+                    },
+                    "forcePathStyle": {
+                      "type": "boolean",
+                      "description": "Path-style requests, for services that need them (MinIO)."
+                    }
+                  }
+                }
+              }
             }
           }
         }
@@ -263,9 +314,26 @@
         },
         "neverSleep": {
           "const": true
+        },
+        "toolProfiles": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "enum": ["web", "go", "rust", "jvm"]
+          },
+          "description": "Tool profiles every worker installs on top of the base tools: web (pnpm, Deno, Yarn), go, rust (with CMake and Ninja), jvm (Temurin). Each worker passes a tool:<name> check for each of their tools."
+        },
+        "tools": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9@:/._-]{1,75}$"
+          },
+          "description": "Single tools every worker installs: names of tools dev-fleet's mise.toml pins (for example fd or ripgrep). A tool it does not pin is refused; ask for it in an issue."
         }
       },
-      "description": "Policy every worker must meet. All but the two logins and the capabilities are fixed."
+      "description": "Policy every worker must meet. All but the two logins, the capabilities and the tools are fixed."
     },
     "source": {
       "type": "object",
@@ -475,12 +543,67 @@
                       "pattern": "^[A-Za-z0-9_]+$"
                     }
                   }
+                },
+                "monitoring-backup-access-key": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  },
+                  "description": "Only with services.monitoring.backups: the access key of the hub's backup storage."
+                },
+                "monitoring-backup-secret-key": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  },
+                  "description": "Only with services.monitoring.backups: the secret key of the hub's backup storage."
                 }
               }
             }
           }
         }
       ]
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "email"],
+      "description": "The Git identity every node, the manager included, commits with, and the GitHub credential helper it pushes with. fleet-sync writes them in ~/.config/git/config and measures them as worker:git-identity and worker:git-push-auth.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[^\"\\\\\\n\\r]{1,100}$",
+          "description": "user.name of every commit."
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "user.email of every commit, for example the account's noreply address."
+        },
+        "verifyRepository": {
+          "type": "string",
+          "pattern": "^https://github\\.com/[A-Za-z0-9_.-]{1,100}/[A-Za-z0-9_.-]{1,100}$",
+          "description": "A GitHub repository the fleet's account can push to, ideally private. Each node lists it through git with its own credentials."
+        }
+      }
     }
   }
 }

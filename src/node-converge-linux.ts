@@ -22,6 +22,8 @@ import {
 import { userInfo } from 'node:os';
 import { resolve } from 'node:path';
 import { auditUbuntu } from './platform/ubuntu-audit';
+import { convergeGitIdentity } from './git-identity';
+import { workerSelection } from '../bootstrap/worker-tools';
 import {
   applyAgentProfiles,
   attempt,
@@ -59,12 +61,17 @@ export async function convergeLinux(
       await applyTailscale(root, run),
     ]))
   );
-  const { baseline, verified } = await baselineStep(root, run);
+  const { baseline, verified } = await baselineStep(root, run, node);
   checks.push(...baseline, ...verified);
   checks.push(...(await t3AfterBaseline(root, { node, baseline, run })));
   checks.push(
     ...(await attempt('workstation:configuration', () =>
       configureWorkstation(root, run)
+    ))
+  );
+  checks.push(
+    ...(await attempt('git:configuration', () =>
+      convergeGitIdentity(root, fleet.git, run)
     ))
   );
   checks.push(
@@ -110,7 +117,8 @@ export async function convergeLinux(
  */
 async function baselineStep(
   root: string,
-  run: Runner
+  run: Runner,
+  node: string
 ): Promise<{ baseline: Check[]; verified: Check[] }> {
   const measure = async () => [
     ...(await attempt('ubuntu:boot-policy', () =>
@@ -122,14 +130,14 @@ async function baselineStep(
   ];
   let cached = false;
   let baseline = await attempt('ubuntu:baseline', async () => {
-    const applied = await applyBaseline(root, run, false);
+    const applied = await applyBaseline(root, run, false, node);
     cached = applied.cached;
     return applied.checks;
   });
   let verified = await measure();
   if (cached && verified.some((check) => check.status === 'fail')) {
     baseline = await attempt('ubuntu:baseline', async () => {
-      return (await applyBaseline(root, run, true)).checks;
+      return (await applyBaseline(root, run, true, node)).checks;
     });
     verified = await measure();
   }
@@ -139,7 +147,8 @@ async function baselineStep(
 async function applyBaseline(
   root: string,
   run: Runner,
-  force: boolean
+  force: boolean,
+  node: string
 ): Promise<{ cached: boolean; checks: Check[] }> {
   const user = userInfo();
   const ubuntu = resolve(root, 'ansible/ubuntu');
@@ -154,6 +163,8 @@ async function applyBaseline(
         development_user: user.username,
         development_uid: user.uid,
         development_home: user.homedir,
+        // The web profile brings headless Chromium (tasks/browser.yml).
+        worker_tool_profiles: workerSelection(fleet, node).profiles,
       }),
     },
     {

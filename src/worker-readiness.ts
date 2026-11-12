@@ -1,7 +1,10 @@
 import { workerCapacity } from './worker-capacity';
 import { userInfo, hostname } from 'node:os';
 import { hostId } from './topology';
-import { configPath } from './fleet-config';
+import { configPath, fleet } from './fleet-config';
+import { workerSelection } from '../bootstrap/worker-tools';
+import { browserCheck, dockerRunCheck } from './worker-capability-checks';
+import { gitChecks } from './git-identity';
 import type { Check, Runner } from './types';
 import { workerHostChecks } from './worker-host-checks';
 import { workerAccessChecks } from './worker-access-checks';
@@ -59,6 +62,12 @@ export async function workerReadiness(
     ...host,
     ...access,
     proxy,
+    await dockerRunCheck(run),
+    await browserCheck(
+      run,
+      workerSelection(fleet, nodeId).profiles.includes('web')
+    ),
+    ...(await gitChecks(fleet.git, run)),
     ...(await workerCapacity(root, nodeId, run)),
   ];
 }

@@ -8,6 +8,7 @@ import { publicViewerIdentity, fleetAccount } from './hub-access';
 import { ensurePublicViewer, type HubLogin } from './hub-viewer';
 import { verifyHubBackups } from './hub-backup';
 import type { FleetDefinition } from '../definition';
+import { secretVia } from '../fleet-config';
 import { hostId, hubUrl } from '../topology';
 import { publicHubUrl, privateHub } from './beszel';
 import type { Check, Runner } from '../types';
@@ -56,6 +57,9 @@ export interface ManagerHubOptions {
   receipts?: string;
   /** Ensures the read-only AUTO_LOGIN user; defaults to the loopback hub API. */
   viewer?: (login: HubLogin | null) => Promise<Check>;
+  /** The declared backups for the hub's playbook; defaults to the fleet
+   * configuration and its secrets. */
+  backupStorage?: () => Promise<Record<string, string | number | boolean>>;
   /** Reads the hub's backup settings; defaults to the loopback hub API. */
   backups?: (login: HubLogin | null) => Promise<Check>;
 }
@@ -78,13 +82,19 @@ export async function convergeManagerHub(
   const paths = managerHubPaths(options.home);
   const tunnel = await tunnelToken(run);
   const account = await (options.account ?? fleetAccount)();
+  const backups = await (
+    options.backupStorage ?? (() => backupVariables(definition, run))
+  )();
   const monitoring = resolve(root, 'ansible/monitoring');
   const result = await runAnsibleWithReceipt(
     run,
     'hub-darwin.yml',
     {
       cwd: monitoring,
-      input: JSON.stringify(hubVariables(hub, paths, tunnel, account)),
+      input: JSON.stringify({
+        ...hubVariables(hub, paths, tunnel, account),
+        ...backups,
+      }),
       timeoutMs: 300_000,
     },
     {
@@ -127,7 +137,13 @@ export async function convergeManagerHub(
     },
     publicEndpointCheck(tunnel !== null),
     await ensureViewer(options, account),
-    await (options.backups ?? verifyHubBackups)(account),
+    await (
+      options.backups ??
+      ((login) =>
+        verifyHubBackups(login, fetch, LOCAL_HUB, {
+          declared: definition.services.monitoring.backups,
+        }))
+    )(account),
   ];
 }
 
@@ -150,6 +166,32 @@ function hubVariables(
           beszel_fleet_password: account.password,
         }
       : {}),
+  };
+}
+
+/** The declared backup schedule and storage, with the storage's keys from
+ * the fleet's secrets; nothing when no backups are declared or a key is
+ * missing (beszel:backup then says so).
+ */
+export async function backupVariables(
+  definition: FleetDefinition,
+  run: Runner
+): Promise<Record<string, string | number | boolean>> {
+  const declared = definition.services.monitoring.backups;
+  if (!declared) return {};
+  const secret = secretVia(run);
+  const accessKey = await secret('monitoring-backup-access-key');
+  const secretKey = await secret('monitoring-backup-secret-key');
+  if (!accessKey || !secretKey) return {};
+  return {
+    beszel_backup_schedule: declared.schedule,
+    beszel_backup_keep: declared.keep,
+    beszel_backup_bucket: declared.storage.bucket,
+    beszel_backup_endpoint: declared.storage.endpoint,
+    beszel_backup_region: declared.storage.region,
+    beszel_backup_force_path_style: declared.storage.forcePathStyle ?? false,
+    beszel_backup_access_key: accessKey,
+    beszel_backup_secret_key: secretKey,
   };
 }
 

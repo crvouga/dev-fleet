@@ -22,6 +22,8 @@ Feature: A fresh Ubuntu machine becomes a worker over SSH
       | node             |
 
   Scenario: The first fleet-sync bootstraps the machine
+    The example configuration adds the "go" tool profile to every worker, so
+    a profile beyond the base tools is installed here too.
     When the manager bootstraps the machine at the commit under test
     Then the bootstrap reaches node convergence
     And the machine holds the commit under test, checked out without its history
@@ -39,6 +41,7 @@ Feature: A fresh Ubuntu machine becomes a worker over SSH
       | vault  | vault version    |
       | codex  | codex --version  |
       | claude | claude --version |
+      | go     | go version       |
     And these packages are installed at the exact version the Ubuntu policy pins:
       | git             |
       | curl            |

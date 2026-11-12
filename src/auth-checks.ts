@@ -5,6 +5,7 @@ import { record } from './config';
 import { codingAuth, serviceAuth } from './service-auth';
 import { workstationChecks } from './workstation-checks';
 import { toolchainChecks } from './toolchain-checks';
+import { workerSelection } from '../bootstrap/worker-tools';
 import type { Capability, Check, Runner, CommandResult } from './types';
 
 export async function authCheck(
@@ -24,6 +25,8 @@ export async function authCheck(
       root,
       run,
       definition.workers.some((node) => node.id === nodeId)
+        ? workerSelection(definition, nodeId)
+        : undefined
     );
   return basicAuth(capability, run, root);
 }

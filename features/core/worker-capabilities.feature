@@ -1,0 +1,143 @@
+# ␊ stands for a line break.
+Feature: A worker proves it can do what agents do on it
+  A version number and an answering daemon are not proof. The worker starts a
+  container, builds an image, launches a headless browser and authenticates a
+  Git remote the way an agent would, in the agent's own session. Each check
+  reports a code and a remedy, never what a command printed.
+
+  Rule: worker:docker-run starts a pinned container and builds an image, offline
+
+    Scenario: A container that runs and an image that builds pass
+      Given every command prints ""
+      When the worker's Docker is tried
+      Then the check "worker:docker-run" passes
+      And the first "docker" command run was:
+        | docker | run | --rm | --network | none | --pull | never | busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec | true |
+      And the command "docker build" was given "FROM busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec␊RUN true␊" on standard input
+
+    Scenario Outline: A container that cannot start because <cause> fails with <code>
+      Given the command "docker run" fails with the error "<error>"
+      When the worker's Docker is tried
+      Then the check "worker:docker-run" fails
+      And the summary of the check "worker:docker-run" mentions "<code>"
+      And the remedy of the check "worker:docker-run" mentions "<remedy>"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | cause                                    | error                                                                                                          | code                        | remedy           |
+        | the user lacks access to the socket      | permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock PRIVATE_SENTINEL | DOCKER_SOCKET_ACCESS_DENIED | docker group     |
+        | the engine is down                       | Cannot connect to the Docker daemon at unix:///var/run/docker.sock. PRIVATE_SENTINEL                           | DOCKER_DAEMON_UNREACHABLE   | docker.service   |
+        | the image was never cached               | Unable to find image 'busybox' locally: No such image PRIVATE_SENTINEL                                         | DOCKER_SMOKE_IMAGE_MISSING  | works offline    |
+        | the image store is full                  | write /var/lib/docker/tmp: no space left on device PRIVATE_SENTINEL                                            | DOCKER_DISK_FULL            | /var/lib/docker  |
+        | of anything else                         | OCI runtime create failed: cgroup PRIVATE_SENTINEL                                                             | DOCKER_RUN_FAILED           | cgroups          |
+
+    Scenario: A container that runs while an image does not build fails with DOCKER_BUILD_FAILED
+      Given every command prints ""
+      And the command "docker build" fails with the error "ERROR: failed to solve PRIVATE_SENTINEL"
+      When the worker's Docker is tried
+      Then the check "worker:docker-run" fails
+      And the summary of the check "worker:docker-run" mentions "DOCKER_BUILD_FAILED"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+  Rule: worker:browser launches the pinned headless Chromium on workers with the web profile
+
+    Scenario: A worker without the web profile has no browser to check
+      When the worker's browser is tried without the web profile
+      Then the check "worker:browser" is skipped
+      And exactly 0 commands were run
+
+    Scenario Outline: The headless shell of <arch> loads a blank page
+      Given every command prints "<html><head></head><body></body></html>"
+      When the worker's browser is tried with the web profile on "<arch>"
+      Then the check "worker:browser" passes
+      And the first "<executable>" command run was:
+        | <executable> | --headless | --no-sandbox | --disable-gpu | --dump-dom | about:blank |
+
+      Examples:
+        | arch  | executable                                                                                  |
+        | x64   | /opt/personal-fleet/browser/158.0.8127.18/chrome-headless-shell-linux64/chrome-headless-shell     |
+        | arm64 | /opt/personal-fleet/browser/158.0.8127.18/chrome-headless-shell-linux-arm64/chrome-headless-shell |
+
+    Scenario Outline: A browser that <how> fails with <code>
+      Given <situation>
+      When the worker's browser is tried with the web profile on "x64"
+      Then the check "worker:browser" fails
+      And the summary of the check "worker:browser" mentions "<code>"
+      And the remedy of the check "worker:browser" mentions "fleet-sync"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | how                      | situation                                                                                                                  | code                    |
+        | is not installed         | every command could not be started                                                                                         | BROWSER_NOT_INSTALLED   |
+        | lacks a system library   | every command fails with the error "error while loading shared libraries: libnss3.so: cannot open PRIVATE_SENTINEL"         | BROWSER_LIBRARY_MISSING |
+        | never exits              | every command ran out of time                                                                                              | BROWSER_LAUNCH_TIMEOUT  |
+        | crashes                  | every command fails with the error "Trace/breakpoint trap PRIVATE_SENTINEL"                                                | BROWSER_LAUNCH_FAILED   |
+
+  Rule: A worker commits as the declared identity and pushes through git, not through gh
+
+    Background:
+      Given the fleet declares the Git identity "Example User" <example-user@users.noreply.github.com>
+
+    Scenario: The declared identity and a credential for github.com pass both checks
+      Given these commands print:
+        | command                                    | prints                                                    |
+        | git config --global --get-all user.name    | Example User                                              |
+        | git config --global --get-all user.email   | example-user@users.noreply.github.com                     |
+        | git credential fill                        | protocol=https␊host=github.com␊username=x␊password=PRIVATE_SENTINEL␊ |
+      When the worker's Git is checked
+      Then the check "worker:git-identity" passes
+      And the check "worker:git-push-auth" passes
+      And the command "git credential fill" was given "protocol=https␊host=github.com␊␊" on standard input
+      And no "gh" command was run
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+    Scenario: Removing the credential helper fails worker:git-push-auth
+      Git with prompts off fails at once when no helper answers.
+      Given these commands print:
+        | command                                    | prints                                |
+        | git config --global --get-all user.name    | Example User                          |
+        | git config --global --get-all user.email   | example-user@users.noreply.github.com |
+      And the command "git credential fill" fails with the error "fatal: could not read Username for 'https://github.com': terminal prompts disabled"
+      When the worker's Git is checked
+      Then the check "worker:git-push-auth" fails
+      And the summary of the check "worker:git-push-auth" mentions "GIT_CREDENTIAL_HELPER_MISSING"
+      And the remedy of the check "worker:git-push-auth" mentions "fleet-sync"
+      And every "git" command ran with git's prompts turned off
+
+    Scenario Outline: An identity that is <how> fails worker:git-identity with <code>
+      Given these commands print:
+        | command                                    | prints   |
+        | git config --global --get-all user.name    | <name>   |
+        | git config --global --get-all user.email   | <email>  |
+        | git credential fill                        | password=PRIVATE_SENTINEL |
+      When the worker's Git is checked
+      Then the check "worker:git-identity" fails
+      And the summary of the check "worker:git-identity" mentions "<code>"
+      And the remedy of the check "worker:git-identity" mentions "~/.gitconfig"
+
+      Examples:
+        | how                         | name          | email                                   | code                  |
+        | missing                     |               |                                         | GIT_IDENTITY_MISSING  |
+        | overridden by another file  | Someone Else  | example-user@users.noreply.github.com   | GIT_IDENTITY_MISMATCH |
+
+    Scenario: A declared repository is listed through git with the node's own credentials
+      Given the fleet declares that pushes are proven against "https://github.com/example-user/private-check"
+      And these commands print:
+        | command                                    | prints                                |
+        | git config --global --get-all user.name    | Example User                          |
+        | git config --global --get-all user.email   | example-user@users.noreply.github.com |
+        | git credential fill                        | password=PRIVATE_SENTINEL             |
+      And the command "git ls-remote" fails with the error "remote: Repository not found. PRIVATE_SENTINEL"
+      When the worker's Git is checked
+      Then the check "worker:git-push-auth" fails
+      And the summary of the check "worker:git-push-auth" mentions "GIT_REMOTE_REFUSED"
+      And the first "git" command run was:
+        | git | config | --global | --get-all | user.name |
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+    Scenario: Without a declared identity the fleet is warned, not blocked
+      Given the fleet declares no Git identity
+      And every command prints "password=PRIVATE_SENTINEL"
+      When the worker's Git is checked
+      Then the check "worker:git-identity" warns
+      And the summary of the check "worker:git-identity" mentions "GIT_IDENTITY_UNDECLARED"

@@ -1,4 +1,4 @@
-import type { FleetDefinition } from '../../../src/definition';
+import type { FleetDefinition, HubBackups } from '../../../src/definition';
 import type { BeszelEvidence } from '../../../src/monitoring/beszel';
 import type { AgentEnrollment } from '../../../src/monitoring/enroll';
 import type { HubLogin } from '../../../src/monitoring/hub-viewer';
@@ -16,6 +16,8 @@ export class MonitoringWorld extends CommandWorld {
   hubError: string | undefined;
   asked: string[] = [];
   now: number | undefined;
+  /** The hub backups the fleet configuration declares. */
+  declaredBackups: HubBackups | undefined;
   evidence: BeszelEvidence | undefined;
   body = '';
   request: RequestInit | undefined;

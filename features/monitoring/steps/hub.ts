@@ -450,7 +450,10 @@ When(
         { identity, password: 'never-output-password' },
         backupHub(world),
         'http://127.0.0.1:8090',
-        world.now
+        {
+          ...(world.now === undefined ? {} : { now: world.now }),
+          ...(world.declaredBackups ? { declared: world.declaredBackups } : {}),
+        }
       ),
     ];
   }
@@ -458,12 +461,9 @@ When(
 
 When("the hub's backups are read without a fleet login", async (world) => {
   world.checks = [
-    await verifyHubBackups(
-      null,
-      backupHub(world),
-      'http://127.0.0.1:8090',
-      world.now
-    ),
+    await verifyHubBackups(null, backupHub(world), 'http://127.0.0.1:8090', {
+      ...(world.now === undefined ? {} : { now: world.now }),
+    }),
   ];
 });
 

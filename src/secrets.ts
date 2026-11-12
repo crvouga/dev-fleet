@@ -12,7 +12,17 @@ export const SECRET_NAMES = [
   'monitoring-tunnel-token',
   'proxy-tunnel-token',
 ] as const;
-export type SecretName = (typeof SECRET_NAMES)[number];
+/** Secrets only a feature the fleet declares needs: a Vault location may
+ * leave them out, and they are then unavailable.
+ */
+export const OPTIONAL_SECRET_NAMES = [
+  // The off-machine storage of the monitoring hub's backups
+  // (services.monitoring.backups).
+  'monitoring-backup-access-key',
+  'monitoring-backup-secret-key',
+] as const;
+export type SecretName =
+  (typeof SECRET_NAMES)[number] | (typeof OPTIONAL_SECRET_NAMES)[number];
 
 /** A secret's location in a Vault KV v2 mount. */
 export type VaultLocation = { path: string; field: string };
@@ -24,8 +34,13 @@ export type SecretsConfig =
       provider: 'vault';
       address: string;
       mount: string;
-      locations: Record<SecretName, VaultLocation>;
+      locations: VaultLocations;
     };
+export type VaultLocations = Record<
+  (typeof SECRET_NAMES)[number],
+  VaultLocation
+> &
+  Partial<Record<(typeof OPTIONAL_SECRET_NAMES)[number], VaultLocation>>;
 
 /** Runs a command and returns its stdout, or null when it fails. */
 export type SecretCommand = (
@@ -79,6 +94,7 @@ export function secretsProvider(
       );
   return async (name) => {
     const location = config.locations[name];
+    if (!location) return null;
     return present(
       await run([
         'vault',
@@ -142,13 +158,12 @@ const PARSERS: Record<string, (value: Fields) => SecretsConfig | null> = {
   },
 };
 
-function vaultLocations(
-  value: unknown
-): Record<SecretName, VaultLocation> | null {
+function vaultLocations(value: unknown): VaultLocations | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
   const fields = value as Fields;
-  if (!only(fields, [...SECRET_NAMES])) return null;
-  const valid = SECRET_NAMES.every((name) => {
+  if (!only(fields, [...SECRET_NAMES, ...OPTIONAL_SECRET_NAMES])) return null;
+  const optional = OPTIONAL_SECRET_NAMES.filter((name) => name in fields);
+  const valid = [...SECRET_NAMES, ...optional].every((name) => {
     const location = fields[name] as Fields | undefined;
     return (
       location !== null &&
@@ -158,7 +173,7 @@ function vaultLocations(
       text(location['field'])
     );
   });
-  return valid ? (fields as Record<SecretName, VaultLocation>) : null;
+  return valid ? (fields as VaultLocations) : null;
 }
 
 /** The `secrets` block of a fleet configuration, or null when it is invalid. */

@@ -211,6 +211,11 @@ ready_file="$root/toolchain-ready"
 # are still checked (and reinstalled on drift) by node convergence.
 toolchain_key=$(git rev-parse HEAD:mise.toml HEAD:mise.lock HEAD:.mise HEAD:bun.lock HEAD:package.json HEAD:bootstrap 2>/dev/null | tr '\n' ' ')
 [ -n "$toolchain_key" ] || toolchain_key=$revision
+# The tool profiles of the fleet configuration choose what is installed, so a
+# changed configuration runs the setup again.
+if [ -f "$HOME/.config/dev-fleet/fleet.json" ]; then
+  toolchain_key="$toolchain_key$(cksum <"$HOME/.config/dev-fleet/fleet.json" | cut -d' ' -f1)"
+fi
 if [ "$(cat "$ready_file" 2>/dev/null)" = "$toolchain_key" ] && [ -n "$(find "$ready_file" -mmin -1440 2>/dev/null)" ]; then
   toolchain_warm=1
 else
@@ -219,7 +224,7 @@ else
 fi
 if command -v timeout >/dev/null 2>&1; then bounded='timeout 1800'; else bounded=''; fi
 # shellcheck disable=SC2086
-if [ -z "$toolchain_warm" ] && ! $bounded bash bootstrap/bootstrap.sh --worker --non-interactive --status-file "$status_file" >/dev/null 2>&1; then
+if [ -z "$toolchain_warm" ] && ! $bounded bash bootstrap/bootstrap.sh --worker --node "$node" --non-interactive --status-file "$status_file" >/dev/null 2>&1; then
   tool_phase=$(sed -n 's/.*"phase":"\([a-z0-9-]*\)".*/\1/p' "$status_file" 2>/dev/null) || tool_phase=''
   case "$tool_phase" in
     managed-config) die TOOLCHAIN_CONFIG_CONFLICT;;

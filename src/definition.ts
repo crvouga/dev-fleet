@@ -1,4 +1,9 @@
-import { parseWorkerPolicy, type WorkerPolicy } from './worker-policy';
+import {
+  parseWorkerPolicy,
+  toolProfiles,
+  type WorkerPolicy,
+} from './worker-policy';
+import type { ToolProfile } from '../bootstrap/worker-tools';
 import { readFileSync } from 'node:fs';
 import { FleetUsageError } from './errors';
 import { parseConfig, record } from './config';
@@ -16,6 +21,8 @@ export interface MachineDefinition {
   id: string;
   ssh: string;
   os: 'linux' | 'macOS' | 'windows';
+  /** Tool profiles this worker adds to the fleet-wide ones. */
+  toolProfiles?: ToolProfile[];
   network?: {
     tailscaleName: string;
     user: string;
@@ -55,6 +62,8 @@ export interface FleetDefinition {
       managerAccount: string;
       /** Read-only Beszel account visitors are signed in as. */
       viewerAccount: string;
+      /** Scheduled off-machine backups fleet-sync sets on the hub. */
+      backups?: HubBackups;
     };
   };
   worker?: WorkerPolicy;
@@ -62,6 +71,10 @@ export interface FleetDefinition {
   ides?: IdeId[];
   /** What every machine's T3 holds beyond its provider instances. */
   t3?: T3Definition;
+  /** The Git identity and GitHub credential helper every node, manager
+   * included, commits and pushes with.
+   */
+  git?: GitIdentity;
   ubuntu: { release: '26.04'; architectures: ['amd64', 'arm64'] };
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
@@ -79,6 +92,29 @@ export interface AccountSelection {
    * follow in the order of their routing prefix.
    */
   order?: string[];
+}
+export interface HubBackups {
+  /** Cron expression of the hub's backup schedule. */
+  schedule: string;
+  /** How many scheduled backups the hub keeps. */
+  keep: number;
+  /** S3-compatible storage off the manager; its keys are secrets. */
+  storage: {
+    bucket: string;
+    endpoint: string;
+    region: string;
+    forcePathStyle?: boolean;
+  };
+}
+export interface GitIdentity {
+  /** `user.name` of every commit. */
+  name: string;
+  /** `user.email` of every commit. */
+  email: string;
+  /** A repository each node must reach through git with its own
+   * credentials, proving it can push (`worker:git-push-auth`).
+   */
+  verifyRepository?: string;
 }
 const ID = /^[a-z][a-z0-9-]{0,62}$/;
 const HOST = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/;
@@ -116,7 +152,10 @@ function validPort(value: unknown): boolean {
   );
 }
 function worker(value: unknown): MachineDefinition {
-  if (!record(value) || !keys(value, ['id', 'ssh', 'os', 'network']))
+  if (
+    !record(value) ||
+    !keys(value, ['id', 'ssh', 'os', 'network', 'toolProfiles'])
+  )
     return fail();
   if (typeof value['id'] !== 'string' || !ID.test(value['id'])) return fail();
   if (typeof value['ssh'] !== 'string' || !HOST.test(value['ssh']))
@@ -128,6 +167,9 @@ function worker(value: unknown): MachineDefinition {
     ssh: value['ssh'],
     os: 'linux',
     ...(value['network'] ? { network: network(value['network']) } : {}),
+    ...(value['toolProfiles'] === undefined
+      ? {}
+      : { toolProfiles: toolProfiles(value['toolProfiles']) ?? fail() }),
   };
 }
 function manager(value: unknown): ManagerDefinition {
@@ -176,6 +218,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'worker',
       'ides',
       't3',
+      'git',
     ])
   )
     return fail();
@@ -200,6 +243,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
     // Kept only when named: an earlier revision must still read the copy.
     ...(value['ides'] === undefined ? {} : { ides: parseIdes(value['ides']) }),
     ...(value['t3'] === undefined ? {} : { t3: parseT3(value['t3']) }),
+    ...(value['git'] === undefined ? {} : { git: gitIdentity(value['git']) }),
   };
 }
 /** Singleton services name no host: they always run on the manager. */
@@ -271,19 +315,96 @@ function accountSelection(entry: unknown): AccountSelection {
 function monitoringService(
   value: unknown
 ): FleetDefinition['services']['monitoring'] {
-  const fields = ['hubPort', 'publicUrl', 'managerAccount', 'viewerAccount'];
+  const fields = [
+    'hubPort',
+    'publicUrl',
+    'managerAccount',
+    'viewerAccount',
+    'backups',
+  ];
   if (!record(value) || !keys(value, fields) || value['hubPort'] !== 8443)
     return fail();
   const { publicUrl, managerAccount, viewerAccount } = value;
   if (!origin(publicUrl) || !account(managerAccount) || !account(viewerAccount))
     return fail();
-  return { hubPort: 8443, publicUrl, managerAccount, viewerAccount };
+  return {
+    hubPort: 8443,
+    publicUrl,
+    managerAccount,
+    viewerAccount,
+    ...(value['backups'] === undefined
+      ? {}
+      : { backups: hubBackups(value['backups']) }),
+  };
+}
+const text = (value: unknown, pattern: RegExp): value is string =>
+  typeof value === 'string' && pattern.test(value);
+function hubBackups(value: unknown): HubBackups {
+  if (!record(value) || !keys(value, ['schedule', 'keep', 'storage']))
+    return fail();
+  const { schedule, keep } = value;
+  if (
+    !text(schedule, /^[0-9*/,-]+( [0-9*/,-]+){4}$/) ||
+    !Number.isInteger(keep) ||
+    Number(keep) < 1 ||
+    Number(keep) > 365
+  )
+    return fail();
+  return {
+    schedule,
+    keep: Number(keep),
+    storage: backupStorage(value['storage']),
+  };
+}
+function backupStorage(value: unknown): HubBackups['storage'] {
+  if (
+    !record(value) ||
+    !keys(value, ['bucket', 'endpoint', 'region', 'forcePathStyle'])
+  )
+    return fail();
+  const { bucket, endpoint, region, forcePathStyle } = value;
+  if (
+    !text(bucket, /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/) ||
+    !text(endpoint, /^https:\/\/[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/) ||
+    !text(region, /^[a-z0-9-]{1,32}$/) ||
+    (forcePathStyle !== undefined && typeof forcePathStyle !== 'boolean')
+  )
+    return fail();
+  return {
+    bucket,
+    endpoint,
+    region,
+    ...(forcePathStyle === undefined ? {} : { forcePathStyle }),
+  };
 }
 const origin = (value: unknown): value is string =>
   typeof value === 'string' && /^https:\/\/[A-Za-z0-9.-]{1,253}$/.test(value);
 const account = (value: unknown): value is string =>
   typeof value === 'string' &&
   /^[^\s@]{1,64}@[A-Za-z0-9.-]{1,253}$/.test(value);
+function gitIdentity(value: unknown): GitIdentity {
+  if (!record(value) || !keys(value, ['name', 'email', 'verifyRepository']))
+    return fail();
+  const { name, email, verifyRepository } = value;
+  // Written into a quoted Git configuration value: no quote, backslash or
+  // line break.
+  if (typeof name !== 'string' || !/^[^"\\\n\r]{1,100}$/.test(name))
+    return fail();
+  if (!account(email)) return fail();
+  if (
+    verifyRepository !== undefined &&
+    (typeof verifyRepository !== 'string' ||
+      !/^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(
+        verifyRepository
+      ))
+  )
+    return fail();
+  return {
+    name,
+    email,
+    ...(verifyRepository === undefined ? {} : { verifyRepository }),
+  };
+}
 function secrets(value: unknown): SecretsConfig {
   return parseSecretsConfig(value) ?? fail();
 }

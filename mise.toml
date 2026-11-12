@@ -110,3 +110,10 @@ docker_desktop_amd64_sha256 = "96b53f9a4a807b6be6207d18f360b9778ff481e1d94b5027b
 
 # Minimal remote development baseline; versions are resolved exclusively by tools + mise.lock.
 worker_tools = "bun,node,gh,python,uv,docker-cli,vault,jq,codex,claude,aqua:anomalyco/opencode,gemini,copilot,http:grok,http:antigravity"
+# Tool profiles a fleet adds to its workers (`worker.toolProfiles` in
+# fleet.json, fleet-wide or per worker): one `worker_profile_<name>` each,
+# naming tools pinned above. bootstrap/worker-tools.ts lists the names.
+worker_profile_web = "pnpm,deno,npm:@yarnpkg/cli-dist"
+worker_profile_go = "go"
+worker_profile_rust = "rust,cmake,ninja"
+worker_profile_jvm = "java"
