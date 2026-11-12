@@ -21,7 +21,7 @@ export async function bundleProbe(): Promise<string> {
 export interface RemoteOptions {
   source: string;
   timeoutMs: number;
-  action: 'probe' | 'sync' | 'repair' | 'configure';
+  action: 'probe' | 'sync' | 'repair' | 'configure' | 'accounts';
   configuration?: ConfigurationRequest;
   repairs?: AutomatedRepair[];
   expected?: Fingerprint;
@@ -41,7 +41,8 @@ export async function inspectRemote(
       return { node: node.id, checks: [sshFailure(preflight)] };
   }
   const target =
-    options.action === 'probe' && options.expected
+    (options.action === 'probe' || options.action === 'accounts') &&
+    options.expected
       ? await managedProbeTarget(node, options.expected.head, run)
       : { node, checks: [] };
   const command = remoteCommand(target.node, {

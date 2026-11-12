@@ -210,6 +210,19 @@ Then('these checks are skipped, in this order:', (world, table: DataTable) => {
   ).toEqual(table.list());
 });
 
+Then(
+  'every skipped check says {string} and where its access is proven',
+  (world, code: string) => {
+    const skipped = checks(world).filter((check) => check.status === 'skip');
+    expect(skipped.length).toBeGreaterThan(0);
+    for (const check of skipped) {
+      expect(check.summary).toStartWith(`${code}: `);
+      expect(check.summary.length).toBeGreaterThan(code.length + 20);
+      expect(check.required).toBe(false);
+    }
+  }
+);
+
 Then('the checks are, in this order:', (world, table: DataTable) => {
   expect(
     checks(world).map((check) => ({ id: check.id, status: check.status }))

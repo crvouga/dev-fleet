@@ -126,6 +126,41 @@
               "type": "string",
               "pattern": "^https://[A-Za-z0-9.-]+$",
               "description": "Public HTTPS origin of the CLI proxy every node uses."
+            },
+            "accounts": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "How provider accounts signed in on the proxy are watched and chosen. See docs/accounts.md.",
+              "properties": {
+                "minimumUsable": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "description": "proxy:account:<provider> warns when a provider has fewer usable accounts than this (default 2) and fails when it has none."
+                },
+                "selection": {
+                  "type": "object",
+                  "description": "Per provider (claude, codex, antigravity): which account an unpinned request goes to first. Accounts cooling down are always skipped.",
+                  "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["strategy"],
+                    "properties": {
+                      "strategy": {
+                        "enum": [
+                          "fill-first",
+                          "round-robin",
+                          "least-recently-limited"
+                        ]
+                      },
+                      "order": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Account labels (sign-in emails) first, in this order; the others follow in the order of their routing prefix."
+                      }
+                    }
+                  }
+                }
+              }
             }
           }
         },

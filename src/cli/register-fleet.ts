@@ -7,6 +7,7 @@ import { executeFleet } from './fleet';
 import { fleetSync, type FleetSyncOptions } from './fleet-sync';
 import { syncNode, type NodeSyncOptions } from './node-sync';
 import { fleetState, type FleetStateOptions } from './fleet-state';
+import { fleetAccounts, type FleetAccountsOptions } from './fleet-accounts';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -198,6 +199,10 @@ function registerSync({ program, defaults, complete }: Registration) {
       '--schedule <action>',
       'Manager-only schedule: enable, pause, resume, disable, status'
     )
+    .option(
+      '--only <scope>',
+      'accounts: only the account-derived configuration, on every node at once, without a full sync'
+    )
     .action(async (_options, command: Command) => {
       const options = command.optsWithGlobals<
         FleetSyncOptions & Partial<Settings>
@@ -293,4 +298,34 @@ export function registerFleet(
   registerState(registration);
   registerRepair(registration);
   registerNodes(registration);
+  registerAccounts(registration);
+}
+
+function registerAccounts({ program, defaults, complete }: Registration) {
+  program
+    .command('fleet-accounts [args...]')
+    .description(
+      'List the provider accounts signed in on the CLI proxy and their state; add, sign in again or remove one'
+    )
+    .option('--diff', 'Also compare what this machine offers with the roster')
+    .option('--add', 'Sign a new account in: --add PROVIDER')
+    .option('--relogin', 'Sign one account in again: --relogin PROVIDER INDEX')
+    .option('--remove', 'Remove one account: --remove PROVIDER INDEX')
+    .option(
+      '--remove-native-logins',
+      'Remove provider logins agent CLIs keep outside the proxy on this machine; needs --yes'
+    )
+    .option('--yes', 'Confirm --remove-native-logins')
+    .action(async (args: string[], _options, command: Command) => {
+      const options = command.optsWithGlobals<
+        FleetAccountsOptions & CliOptions
+      >();
+      complete(
+        await fleetAccounts(
+          options,
+          args,
+          await withSettings(defaults, options)
+        )
+      );
+    });
 }

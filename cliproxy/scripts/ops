@@ -8,6 +8,7 @@ import pathlib as _pathlib
 sys.path.insert(0, str(_pathlib.Path(__file__).resolve().parent))
 import accounts
 import cliproxy_host
+import clientkeys
 
 import fcntl, json, os, pathlib, shutil, subprocess, sys, tempfile, time, urllib.request, urllib.error
 
@@ -203,6 +204,92 @@ def apply_prefixes(prefixes):
             return
         time.sleep(2)
     sys.exit("The proxy did not record the declared account prefixes.")
+
+
+LOGIN_FLAGS = {
+    "codex": "-codex-device-login",
+    "claude": "-claude-login",
+    "antigravity": "-antigravity-login",
+    "kimi": "-kimi-login",
+    "xai": "-xai-login",
+    "meta": "-meta-login",
+    "devin": "-devin-login",
+}
+
+
+def login(provider, replace=None):
+    """Runs the proxy's own login into a staging directory, then moves the
+    complete credential in with one rename: an interrupted login leaves no
+    half-written auth file. `replace` is the credential a re-login renews."""
+    import yaml
+
+    if provider not in LOGIN_FLAGS:
+        sys.exit(
+            "This release has no login flag for that provider. Use the official dashboard OAuth/API key configuration."
+        )
+    auths = root / "state/runtime/auths"
+    stage = accounts.begin(auths)
+    config = yaml.safe_load((root / "state/runtime/config.yaml").read_text())
+    config.setdefault("oauth", {})["auth-dir"] = "/state/" + stage.name
+    login_config = root / "state/runtime/login-config.yaml"
+    login_config.write_text(yaml.safe_dump(config))
+    try:
+        compose(
+            "exec",
+            "proxy",
+            "/CLIProxyAPI/CLIProxyAPI",
+            "-config",
+            "/state/" + login_config.name,
+            LOGIN_FLAGS[provider],
+            "-no-browser",
+        )
+        if not accounts.adopt(stage, auths, replace=replace):
+            sys.exit("The login wrote no credential; nothing was changed.")
+    finally:
+        login_config.unlink(missing_ok=True)
+        shutil.rmtree(stage, ignore_errors=True)
+
+
+def account_roster():
+    """The roster with each account's state, from the credential files and
+    the management API (which knows cooldowns and refresh failures)."""
+    entries = []
+    try:
+        admin = (root / "state/secrets/management-key").read_text().strip()
+        code, body = request("/v0/management/auth-files", admin)
+        if code == 200:
+            entries = json.loads(body).get("files") or []
+    except Exception:
+        entries = []
+    roster = accounts.roster(root / "state/runtime/auths", entries)
+    return {
+        "version": 1,
+        "rosterVersion": accounts.version(roster),
+        "managementApi": bool(entries),
+        "accounts": accounts.public(roster),
+    }
+
+
+def key_ring():
+    return clientkeys.load(root / "state/secrets/client-keys.json")
+
+
+def apply_keys(ring):
+    """The proxy accepts exactly the shared key and the ring's keys."""
+    import yaml
+
+    live = yaml.safe_load((root / "state/runtime/config.yaml").read_text())
+    shared = (root / "state/secrets/client-key").read_text().strip()
+    live.setdefault("access", {})["api-keys"] = clientkeys.api_keys(ring, [shared])
+    with tempfile.NamedTemporaryFile(
+        "w", dir=root / "state/runtime", suffix=".yaml", delete=False
+    ) as file:
+        file.write(yaml.safe_dump(live, sort_keys=False))
+    try:
+        os.chmod(file.name, 0o600)
+        apply_config(pathlib.Path(file.name), restart=False)
+    finally:
+        pathlib.Path(file.name).unlink(missing_ok=True)
 
 
 def lock():
@@ -414,33 +501,58 @@ try:
         sys.exit(
             "Install a reviewed Git revision with bun run cliproxy install --revision REV; use --rollback for the recorded previous revision."
         )
-    elif command == "add-account":
+    elif command in ["add-account", "relogin"]:
+        # `add-account PROVIDER` signs in a new account; `relogin PROVIDER
+        # INDEX` signs that one account in again. Prefixes follow at once.
         operation_lock = lock()
         provider = sys.argv[2]
-        flags = {
-            "codex": "-codex-device-login",
-            "claude": "-claude-login",
-            "gemini": "-login",
-            "antigravity": "-antigravity-login",
-            "kimi": "-kimi-login",
-            "xai": "-xai-login",
-            "meta": "-meta-login",
-            "devin": "-devin-login",
-        }
-        if provider == "gemini":
-            sys.exit(
-                "This release has no Gemini CLI login flag. Use official dashboard OAuth/API key configuration."
+        replace = None
+        if command == "relogin":
+            account = accounts.find(
+                accounts.roster(root / "state/runtime/auths"), provider, int(sys.argv[3])
             )
-        flag = flags[provider]
-        compose(
-            "exec",
-            "proxy",
-            "/CLIProxyAPI/CLIProxyAPI",
-            "-config",
-            "/state/config.yaml",
-            flag,
-            "-no-browser",
-        )
+            if account is None:
+                sys.exit("No such account. List them with: devfleet fleet-accounts")
+            replace = account["file"]
+        login(provider, replace)
+        prefixes = pending_prefixes()
+        if prefixes:
+            apply_prefixes(prefixes)
+    elif command == "remove-account":
+        # Deletes the credential; the proxy stops serving it, and the next
+        # account propagation removes its instances from every node.
+        operation_lock = lock()
+        accounts.remove(root / "state/runtime/auths", sys.argv[2], int(sys.argv[3]))
+    elif command == "accounts":
+        report = account_roster()
+        if "--json" in sys.argv[2:]:
+            print(json.dumps(report))
+        else:
+            print("Roster version:", report["version"])
+            for account in report["accounts"]:
+                print(
+                    account["provider"],
+                    account["index"],
+                    account["state"],
+                    account["until"] or "",
+                )
+    elif command == "client-keys":
+        print(json.dumps({"version": 1, "nodes": clientkeys.report(key_ring())}))
+    elif command in ["issue-key", "rotate-key", "retire-key", "revoke-key"]:
+        # Per-node client keys. A rotation keeps the old key accepted until
+        # retire-key, so no running agent fails while nodes move over.
+        operation_lock = lock()
+        ring = key_ring()
+        node = sys.argv[2]
+        {
+            "issue-key": clientkeys.issue,
+            "rotate-key": clientkeys.rotate,
+            "retire-key": clientkeys.retire,
+            "revoke-key": clientkeys.revoke,
+        }[command](ring, node)
+        clientkeys.save(root / "state/secrets/client-keys.json", ring)
+        apply_keys(ring)
+        print(json.dumps({"version": 1, "nodes": clientkeys.report(ring)}))
     elif command == "inference":
         protocol, model = sys.argv[2:4]
         key = (root / "state/secrets/client-key").read_text().strip()
@@ -519,7 +631,7 @@ try:
         )
     else:
         sys.exit(
-            "Commands: start stop restart status health models logs validate apply FILE declared [--apply] add-account PROVIDER inference PROTOCOL MODEL portable-login activate drain"
+            "Commands: start stop restart status health models logs validate apply FILE declared [--apply] add-account PROVIDER relogin PROVIDER INDEX remove-account PROVIDER INDEX accounts [--json] client-keys issue-key|rotate-key|retire-key|revoke-key NODE inference PROTOCOL MODEL portable-login activate drain"
         )
 except Exception:
     sys.exit(

@@ -22,6 +22,7 @@ Rules for an agent working in a project that uses dev-fleet:
 - [Fleet state](https://github.com/crvouga/dev-fleet/blob/main/docs/state.md): the bucket, replication, replacing the manager, what the bucket does not hold yet
 - [Topology](https://github.com/crvouga/dev-fleet/blob/main/docs/topology.md): the manager and worker roles and the canary
 - [What is declared, and where](https://github.com/crvouga/dev-fleet/blob/main/docs/declared.md): what is pinned on a machine and what is not
+- [Provider accounts](https://github.com/crvouga/dev-fleet/blob/main/docs/accounts.md): the account roster, its states and checks, adding or removing an account, propagation to every node, account selection
 - [CLI proxy](https://github.com/crvouga/dev-fleet/blob/main/cliproxy/README.md): the CLIProxyAPI service on the manager that every coding agent uses
 - [Monitoring](https://github.com/crvouga/dev-fleet/blob/main/ansible/monitoring/README.md): the Beszel hub on the manager and the agent on every machine
 

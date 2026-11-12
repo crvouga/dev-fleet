@@ -4,6 +4,13 @@ import { join } from 'node:path';
 import type { Check, Runner } from '../types';
 import { pinnedPath } from './toolchain';
 import { registry } from './registry';
+import type { Account } from './accounts';
+import { accountSlug } from './accounts';
+import {
+  accountSessionChecks,
+  sessionResult,
+  type Instance,
+} from '../accounts/sessions';
 import {
   cacheKey,
   cachedCheck,
@@ -98,6 +105,11 @@ export async function verifyNativeAgents(
     outOfQuota?: Set<string>;
     cache?: VerifyCache;
     t3Service?: boolean;
+    /** The proxy's accounts and what this node offers. Every cached result
+     * is keyed on the roster version and the client key's version, so any
+     * account change or key rotation re-verifies at once.
+     */
+    accounts?: AccountContext;
   } = {}
 ): Promise<Check[]> {
   const { outOfQuota = new Set<string>(), cache = {} } = options;
@@ -122,7 +134,9 @@ export async function verifyNativeAgents(
                   agent,
                   pins[agent.pin] ?? '',
                   registry,
-                  await sourceKey(launcherSources(workspace, agent))
+                  await sourceKey(launcherSources(workspace, agent)),
+                  options.accounts?.rosterVersion ?? '',
+                  options.accounts?.keyVersion ?? ''
                 ),
                 () =>
                   sessionCheck(agent, { node, workspace, cwd, launch }, run),
@@ -130,10 +144,122 @@ export async function verifyNativeAgents(
               ),
       ])
     );
-    return [...environment.checks, ...results.flat()];
+    const accounts =
+      options.accounts && launch.kind !== 'incomplete'
+        ? await accountSessionChecks(
+            options.accounts.live,
+            options.accounts.exposed,
+            (instance) =>
+              accountSession(instance, options.accounts!, {
+                node,
+                workspace,
+                cwd,
+                launch,
+                cache,
+                run,
+              })
+          )
+        : [];
+    return [...environment.checks, ...results.flat(), ...accounts];
   } finally {
     await rm(cwd, { recursive: true, force: true });
   }
+}
+
+export interface AccountContext {
+  live: Account[];
+  exposed: Instance[];
+  rosterVersion: string;
+  keyVersion: string;
+}
+
+/** How a per-account instance is launched: its tool's launcher, pinned to
+ * the account as T3 pins it.
+ */
+const ACCOUNT_LAUNCH: Record<
+  string,
+  { wrapper: string; launcher: string; args: string[] }
+> = {
+  claude: {
+    wrapper: 'claude-proxy.ts',
+    launcher: 'claude-proxy',
+    args: ['-p', PROMPT],
+  },
+  codex: {
+    wrapper: 'codex-proxy.ts',
+    launcher: 'codex-proxy.ts',
+    args: ['exec', '--skip-git-repo-check', PROMPT],
+  },
+  opencode: {
+    wrapper: 'opencode-proxy.ts',
+    launcher: 'opencode-proxy.ts',
+    args: ['run', PROMPT],
+  },
+};
+
+async function accountSession(
+  instance: Instance,
+  accounts: AccountContext,
+  context: {
+    node: string;
+    workspace: string;
+    cwd: string;
+    launch: Launch;
+    cache: VerifyCache;
+    run: Runner;
+  }
+): Promise<'ok' | 'cooling-down' | 'failed'> {
+  const spec = ACCOUNT_LAUNCH[instance.tool];
+  if (!spec) return 'failed';
+  const check = await cachedCheck(
+    `account-${context.node}-${instance.tool}-${accountSlug(instance.account)}`,
+    cacheKey(
+      context.node,
+      instance,
+      spec,
+      accounts.rosterVersion,
+      accounts.keyVersion
+    ),
+    async () => {
+      const agents = join(context.workspace, 'agents');
+      const service = context.launch.kind === 'service';
+      const result = await context.run(
+        service
+          ? [join(agents, spec.launcher), ...spec.args]
+          : ['bun', join(agents, spec.wrapper), ...spec.args],
+        {
+          cwd: context.cwd,
+          env: {
+            ...(context.launch.kind === 'service'
+              ? context.launch.env
+              : { PATH: pinnedPath() }),
+            WS_AGENT_NODE: context.node,
+            WS_AGENT_ACCOUNT: instance.account,
+          },
+          ...(service ? { isolatedEnv: true } : {}),
+          input: '',
+          timeoutMs: 150_000,
+        }
+      );
+      const outcome = sessionResult(result.ok, result.stdout + result.stderr);
+      return {
+        id: 'account-session',
+        status:
+          outcome === 'ok'
+            ? 'pass'
+            : outcome === 'cooling-down'
+              ? 'warn'
+              : 'fail',
+        summary: outcome,
+      };
+    },
+    context.cache
+  );
+  return check.status === 'pass'
+    ? 'ok'
+    : check.status === 'warn'
+      ? 'cooling-down'
+      : 'failed';
 }
 
 /** Reads `tool = "x"` and `"tool" = { version = "x", ... }` pins. */

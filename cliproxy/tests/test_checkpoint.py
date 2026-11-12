@@ -316,3 +316,56 @@ class Checkpoint(unittest.TestCase):
         )
         env["RESTIC_PASSWORD"] = "wrong-password"
         self.assertNotEqual(restic("snapshots").returncode, 0)
+
+
+class RefreshTokenRotation(unittest.TestCase):
+    """A stub provider rotates refresh tokens between checkpoints."""
+
+    def setUp(self):
+        self.temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporary.cleanup)
+        self.directory = pathlib.Path(self.temporary.name)
+        self.root = self.directory / "source"
+        state = self.root / "state"
+        (state / "runtime/auths").mkdir(parents=True)
+        (state / "runtime/static").mkdir()
+        (state / "runtime/static/management.html").write_text("synthetic panel")
+        (state / "runtime/config.yaml").write_text(
+            (PACKAGE / "config.template.yaml")
+            .read_text()
+            .replace("REPLACE_CLIENT_KEY", "c" * 32)
+            .replace("REPLACE_MANAGEMENT_KEY", "m" * 32)
+        )
+        (self.root / "INSTALLATION.json").write_text('{"revision":"synthetic"}')
+        self.auths = state / "runtime/auths"
+
+    def sign_in(self, name, provider, token):
+        (self.auths / name).write_text(
+            json.dumps({"type": provider, "email": name + "@example.com", "refresh_token": token})
+        )
+
+    def checkpoint(self, name):
+        target = self.directory / name
+        checkpoint.capture(self.root, target, sleep=lambda seconds: None)
+        return target
+
+    def test_restoring_the_latest_checkpoint_keeps_every_account_working(self):
+        self.sign_in("claude-a.json", "claude", "r1")
+        self.sign_in("codex-a.json", "codex", "s1")
+        self.sign_in("claude-a.json", "claude", "r2")  # the provider rotated it
+        latest = self.checkpoint("latest")
+        self.assertEqual(checkpoint.stale_accounts(latest, latest), [])
+
+    def test_restoring_an_older_checkpoint_names_exactly_the_rotated_accounts(self):
+        self.sign_in("claude-a.json", "claude", "r1")
+        self.sign_in("claude-b.json", "claude", "q1")
+        self.sign_in("codex-a.json", "codex", "s1")
+        older = self.checkpoint("older")
+        self.sign_in("claude-b.json", "claude", "q2")
+        self.sign_in("codex-a.json", "codex", "s2")
+        latest = self.checkpoint("latest")
+        self.assertEqual(
+            checkpoint.stale_accounts(older, latest), [("claude", 2), ("codex", 1)]
+        )
+        manifest = (latest / "CHECKPOINT.json").read_text()
+        self.assertNotIn('"q2"', manifest)  # a digest, never the token
