@@ -26,12 +26,13 @@
     },
     "summary": {
       "type": "object",
-      "required": ["pass", "warn", "fail", "skip"],
+      "required": ["pass", "warn", "fail", "skip", "not-applicable"],
       "properties": {
         "pass": { "type": "integer" },
         "warn": { "type": "integer" },
         "fail": { "type": "integer" },
-        "skip": { "type": "integer" }
+        "skip": { "type": "integer" },
+        "not-applicable": { "type": "integer" }
       }
     }
   }

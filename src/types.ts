@@ -1,4 +1,4 @@
-export type Status = 'pass' | 'warn' | 'fail' | 'skip';
+export type Status = 'pass' | 'warn' | 'fail' | 'skip' | 'not-applicable';
 export type Capability =
   | 'github'
   | 'vault'
@@ -40,7 +40,9 @@ export interface Check {
 
 /** Only a required failure blocks readiness. Warnings (conditions outside the
  * fleet, such as a provider quota) and skips (not observable here) are shown
- * but never fail a run.
+ * but never fail a run. A not-applicable check (the summary says why: a
+ * virtual machine has no firmware power setting) never fails, not even under
+ * --strict.
  */
 export function blocking(check: Check): boolean {
   return check.status === 'fail' && check.required !== false;
