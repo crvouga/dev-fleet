@@ -66,3 +66,13 @@
   bootstrap changes with `DEVFLEET_TEST_FRESH_BOX=1 bun test
 features/fresh-box`, which bootstraps a disposable Ubuntu machine over SSH
   from the `HEAD` commit; CI runs it on every pull request.
+- **A pull request merges itself and is released; what breaks on `main` is an
+  issue.** Open the pull request ready (a draft is never merged), with a
+  Conventional Commits title: it becomes the squash commit and picks the
+  version. It merges when the one required check passes, CI runs again on
+  `main` and the release follows (`features/rules/pull-requests.feature`).
+  Before starting work, read the open issues labelled `ci-failure`: each is a
+  workflow failing on `main` now, kept current by `failures.yml` and closed
+  by the first passing run. Never close one by hand; fix it with a pull
+  request that says `Fixes #<issue>`. Something you find and do not fix is an
+  issue too, not a note in a pull request.

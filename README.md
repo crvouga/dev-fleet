@@ -428,6 +428,30 @@ Every pull request runs these checks ([`ci.yml`](.github/workflows/ci.yml)):
 | Playbooks             | Every playbook passes `ansible-lint` (production profile) and `--syntax-check`                                                    |
 | Manager on macOS      | Every feature on macOS, launchd jobs linted by macOS, and the manager playbook converged, then re-run and checked with no change  |
 
+The ruleset of `main` requires one check, **Required checks**, which passes
+only when every job above passed: a job that is added, renamed or split is
+required from the pull request that does it. The two fresh worker features
+run side by side, each in a job of its own for every release and
+architecture.
+
+A pull request needs nobody attending
+([`pull-requests.feature`](features/rules/pull-requests.feature)):
+
+- A pull request from a branch of this repository is squash-merged as soon as
+  **Required checks** passes ([`auto-merge.yml`](.github/workflows/auto-merge.yml)).
+  A draft is left alone until it is marked ready; a fork's is left to a person.
+- The merge is checked again on `main` and then released. A merge made with
+  the workflow's own token starts no workflow, so `auto-merge.yml` starts CI
+  on `main` itself when the newest commit there has no run.
+- A workflow that fails on `main` (CI, the release, the weekly VM and tailnet
+  tests, the pins) has one open issue labelled
+  [`ci-failure`](https://github.com/crvouga/dev-fleet/issues?q=is%3Aissue+is%3Aopen+label%3Aci-failure)
+  for as long as it fails ([`failures.yml`](.github/workflows/failures.yml)):
+  the run, the commit, the jobs and steps that failed. Each failing run
+  rewrites it and the first passing run closes it, so those issues are what is
+  broken on `main` now. Start there; fix with a pull request that says
+  `Fixes #<issue>`.
+
 Some scenarios need something a laptop may not have, and are skipped there:
 
 ```sh
