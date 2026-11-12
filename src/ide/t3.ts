@@ -89,9 +89,19 @@ export function t3Ide(inputs: T3Inputs = {}): Ide {
       const restarted = context.earlier.some(
         (check) => check.summary === T3_RESTARTED_SUMMARY
       );
-      const linked = await verifyT3Linked(node, context.run, {
+      let linked = await verifyT3Linked(node, context.run, {
         reconnectMs: restarted ? 180_000 : 0,
       });
+      // A replaced worker: the manager pairs with its new environment.
+      const paired =
+        linked.status === 'fail' && context.pair
+          ? await context.pair(node)
+          : undefined;
+      if (paired) {
+        checks.push(paired);
+        if (paired.status === 'pass')
+          linked = await verifyT3Linked(node, context.run);
+      }
       checks.push(linked);
       if (
         linked.status !== 'fail' &&

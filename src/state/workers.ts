@@ -17,6 +17,12 @@ export interface WorkerState {
    * retired by itself once its record disappears.
    */
   origin?: 'records';
+  /** When fleet-node-replace put a new machine in the worker's place: the
+   * manager pairs its T3 with the new machine's T3 environment as soon as
+   * it runs, then forgets this. A worker enrolled for the first time is
+   * paired by a person.
+   */
+  t3PairingRequestedAt?: string;
 }
 
 /** The `workers` document of the fleet state. */
@@ -34,6 +40,7 @@ const RULES: Record<keyof WorkerState, (value: unknown) => boolean> = {
   hostKeyPinnedAt: isTime,
   parkedAt: isTime,
   origin: (value) => value === 'records',
+  t3PairingRequestedAt: isTime,
 };
 
 function workerState(value: unknown): WorkerState | null {
@@ -42,12 +49,14 @@ function workerState(value: unknown): WorkerState | null {
     ([field, valid]) => value[field] !== undefined && !valid(value[field])
   );
   if (broken) return null;
-  const { hostKey, hostKeyPinnedAt, parkedAt, origin } = value;
+  const { hostKey, hostKeyPinnedAt, parkedAt, origin, t3PairingRequestedAt } =
+    value;
   return {
     ...(typeof hostKey === 'string' ? { hostKey } : {}),
     ...(isTime(hostKeyPinnedAt) ? { hostKeyPinnedAt } : {}),
     ...(isTime(parkedAt) ? { parkedAt } : {}),
     ...(origin === 'records' ? { origin } : {}),
+    ...(isTime(t3PairingRequestedAt) ? { t3PairingRequestedAt } : {}),
   };
 }
 

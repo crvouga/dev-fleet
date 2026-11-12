@@ -15,6 +15,7 @@ import {
   loadedT3Policy,
   stableWorkspace,
   verifyT3Policy,
+  workerPolicy,
 } from '../../../src/platform/t3-policy';
 import { convergeT3Route } from '../../../src/platform/t3-route';
 import {
@@ -162,6 +163,30 @@ Then(
     expect(content).not.toContain(text);
   }
 );
+
+const composed = new WeakMap<object, ReturnType<typeof workerPolicy>>();
+
+When(
+  'the policy for a worker with the provider instance {string} is composed',
+  (world, instance: string) => {
+    composed.set(world, workerPolicy({ [instance]: { driver: instance } }));
+  }
+);
+
+Then('the policy sets these settings:', (world, table: DataTable) => {
+  const settings = composed.get(world)!.settings as Record<string, unknown>;
+  expect(settings).toEqual(
+    Object.fromEntries(
+      table.hashes().map((row) => [
+        row['setting']!,
+        {
+          value: JSON.parse(row['value']!) as unknown,
+          locked: row['locked'] === 'true',
+        },
+      ])
+    )
+  );
+});
 
 Then('the policy was not staged', (world) => {
   expect(world.staged).toBe(false);
