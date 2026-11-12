@@ -17,7 +17,20 @@
       ansible.builtin.command:
         argv: [/usr/bin/pmset, -g, custom]
       changed_when: false
+      check_mode: false
       register: pmset_custom
+    # pmset accepts a setting this Mac does not have and keeps nothing (a
+    # virtual Mac has no Wake-on-LAN, so no womp): applying it again on every
+    # run would never converge. It is reported instead of applied.
+    - name: Report the declared AC power settings this Mac does not have
+      ansible.builtin.debug:
+        msg: 'pmset on this Mac has no AC setting {{ item.key }}; it is not applied.'
+      loop: '{{ pmset | dict2items }}'
+      loop_control:
+        label: '{{ item.key }}'
+      vars:
+        ac_section: "{{ pmset_custom.stdout.split('AC Power:') | last }}"
+      when: ac_section is not search('^\\s*' ~ item.key ~ '\\s', multiline=True)
     - name: Apply the declared AC power settings
       ansible.builtin.command:
         argv:
@@ -35,7 +48,7 @@
       vars:
         ac_section: "{{ pmset_custom.stdout.split('AC Power:') | last }}"
         observed: "{{ ac_section | regex_findall('^\\s*' ~ item.key ~ '\\s+(\\S+)', multiline=True) | first | default('') }}"
-      when: observed != item.value
+      when: observed not in ['', item.value]
       changed_when: true
 
 # Docker Desktop hosts the CLI proxy and the monitoring hub, so it starts at
@@ -72,7 +85,7 @@
       # Docker Desktop writes the file the first time it runs.
       when:
         - docker_settings_file.stat.exists
-        - (current[dockerDesktop.key] | default(false)) != true
+        - not (current[dockerDesktop.key] | default(false) | bool)
 
 - name: Stage the fleet's T3 policy
   ansible.builtin.import_playbook: t3-policy.yml

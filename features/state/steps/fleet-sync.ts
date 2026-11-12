@@ -69,7 +69,7 @@ Given(
  */
 function run(
   world: StateWorld,
-  request: { revision: string; dryRun?: boolean }
+  request: { revision?: string; dryRun?: boolean; rollback?: boolean }
 ): Promise<CommandOutcome> {
   const manager = world.manager();
   const settings = { workspace: '/no-checkout', config: STATE_ROSTER };
@@ -95,6 +95,10 @@ When(
   /^fleet-sync previews revision "([a-f0-9]{40})"$/,
   (world, revision: string) =>
     world.attempt(() => run(world, { revision, dryRun: true }))
+);
+
+When('fleet-sync rolls back', (world) =>
+  world.attempt(() => run(world, { rollback: true }))
 );
 
 Then('the run started over {int} time(s)', (world, count: number) => {

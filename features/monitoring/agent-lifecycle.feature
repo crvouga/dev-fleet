@@ -15,6 +15,22 @@ Feature: The agent's playbook converges a real machine and repairs it
     Then it changed nothing
     And the agent kept its process
 
+  Scenario: A dry run on the installed agent reports no change
+    "Always configured correctly" rests on this: a machine that is what the
+    playbook declares shows nothing to do, so any change a dry run reports is
+    drift.
+    When "agent.yml" is checked with --check --diff
+    Then it changed nothing
+
+  Scenario: A dry run reports what someone changed, and only that
+    Given someone changed "RestartSec=20" to "RestartSec=1" in the agent's unit
+    When "agent.yml" is checked with --check --diff
+    Then the tasks it reports as changing are:
+      | Install source-owned systemd service |
+      | Restart agent                        |
+    And its diff shows "RestartSec=20"
+    And the agent's unit still says "RestartSec=1"
+
   Scenario: An edited unit is put back and the agent restarted on it
     Given someone changed "RestartSec=20" to "RestartSec=1" in the agent's unit
     When "agent.yml" applies again

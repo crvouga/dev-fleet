@@ -199,6 +199,10 @@ function registerSync({ program, defaults, complete }: Registration) {
       'Converge to an exact source commit; defaults to the commit the dev-fleet package you run was published from'
     )
     .option(
+      '--rollback',
+      'Converge to the revision applied before the current one (fleet state); the revision, tools and T3 go back, system packages roll forward only'
+    )
+    .option(
       '--node <id>',
       'Explicit enrolled remote target; repeatable',
       collect,

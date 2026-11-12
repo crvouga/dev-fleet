@@ -4,7 +4,8 @@
 # package Ubuntu's security updates moved past its pin is left as it is and
 # reported as a warning (docs/worker-contract.md). `install_pins` maps each
 # package to its pinned version.
-- ansible.builtin.import_tasks: snapshot.yml
+- name: Point APT at the pinned snapshot
+  ansible.builtin.import_tasks: snapshot.yml
 - name: Read the installed package versions
   ansible.builtin.package_facts:
     manager: apt

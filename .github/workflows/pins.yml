@@ -1,0 +1,60 @@
+name: Pins
+# The pins Renovate cannot move because a digest is written beside each
+# version: mise itself and T3 Code. bootstrap/pins.ts moves one to its newest
+# release, digests included, and this opens the pull request; CI, the fresh
+# workers and the VM test then decide like for any other change. Pull requests
+# opened with the workflow's own token do not start CI: set the PINS_TOKEN
+# secret (a fine-grained token or an app's, with contents and pull requests
+# write) so they do.
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch: {}
+permissions:
+  contents: write
+  pull-requests: write
+concurrency:
+  group: pins
+  cancel-in-progress: false
+jobs:
+  pin:
+    name: Update ${{ matrix.pin }}
+    strategy:
+      fail-fast: false
+      matrix:
+        pin: [mise, t3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          token: ${{ secrets.PINS_TOKEN || github.token }}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - name: Move the pin to its newest release
+        id: update
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PIN: ${{ matrix.pin }}
+        run: echo "summary=$(bun bootstrap/pins.ts "$PIN")" >> "$GITHUB_OUTPUT"
+      - name: Open the pull request
+        env:
+          GH_TOKEN: ${{ secrets.PINS_TOKEN || github.token }}
+          PIN: ${{ matrix.pin }}
+          SUMMARY: ${{ steps.update.outputs.summary }}
+        run: |
+          git diff --quiet && { echo "$SUMMARY"; exit 0; }
+          branch="pins/$PIN"
+          # GitHub's own Actions account, by its public id.
+          bot='github-actions[bot]'
+          git config user.name "$bot"
+          git config user.email "41898282+${bot}@users.noreply.github.com"
+          git switch -C "$branch"
+          git commit --all --message "chore(deps): $SUMMARY"
+          git push --force origin "$branch"
+          gh pr view "$branch" >/dev/null 2>&1 ||
+            gh pr create --head "$branch" --label deps --title "chore(deps): $SUMMARY" \
+              --body "Moves the $PIN pin, with every digest, to its newest release: $SUMMARY (bootstrap/pins.ts)."

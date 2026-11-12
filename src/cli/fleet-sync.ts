@@ -58,6 +58,8 @@ import {
 
 export interface FleetSyncOptions {
   revision?: string;
+  /** Converge to the revision applied before the current one. */
+  rollback?: boolean;
   dryRun?: boolean;
   apply?: boolean;
   yes?: boolean;
@@ -186,17 +188,8 @@ export async function managerSync(
 ): Promise<CommandOutcome> {
   await ensurePrivateRoot(root);
   const state = await loadEnrollment(legacyHome() ? root : null);
-  const revision = await selectedRevision(
-    options.revision,
-    state?.approvedRevision,
-    settings,
-    run
-  );
-  if (!isRevision(revision))
-    return actionRequired(
-      'FLEET_REVISION_REQUIRED',
-      'No revision to converge to. Run the published dev-fleet package (it names the commit it was built from), or select a full commit SHA with --revision.'
-    );
+  const revision = await managerRevision(options, state, settings, run);
+  if (typeof revision !== 'string') return revision;
   if (options.schedule)
     return scheduleRequest(options, revision, settings, run);
   const rehomed = await rehome(
@@ -236,6 +229,33 @@ export async function managerSync(
     revision,
     standing: fresh.standing,
   });
+}
+
+/** The revision the manager converges to, or why there is none. */
+async function managerRevision(
+  options: FleetSyncOptions,
+  state: { approvedRevision?: string; previousRevision?: string } | null,
+  settings: Settings,
+  run: Runner
+): Promise<string | CommandOutcome> {
+  const explicit = requestedRevision(options, state);
+  if (explicit === null)
+    return actionRequired(
+      'FLEET_ROLLBACK_UNAVAILABLE',
+      'Nothing was changed: the fleet state records no revision applied before the current one. Install the dev-fleet version to go back to and run fleet-sync.'
+    );
+  const revision = await selectedRevision(
+    explicit,
+    state?.approvedRevision,
+    settings,
+    run
+  );
+  if (!isRevision(revision))
+    return actionRequired(
+      'FLEET_REVISION_REQUIRED',
+      'No revision to converge to. Run the published dev-fleet package (it names the commit it was built from), or select a full commit SHA with --revision.'
+    );
+  return revision;
 }
 
 /** The preview: the read-only report of every machine, and the plan of what
@@ -358,6 +378,12 @@ async function offManager(
   forward: ForwardSpawn | undefined
 ): Promise<CommandOutcome> {
   const definition = canonicalDefinition;
+  // Only the manager's fleet state knows the revision applied before.
+  if (options.rollback)
+    return actionRequired(
+      'FLEET_NOT_MANAGER',
+      `fleet-sync --rollback runs only on the manager (${definition.manager.id}); nothing was changed.`
+    );
   const revision =
     options.revision ??
     packageRevision() ??
@@ -414,11 +440,24 @@ function validate(options: FleetSyncOptions): void {
       '--revision requires an exact lowercase 40-character commit SHA.'
     );
   validateOnly(options);
+  validateRollback(options);
   if (options.dryRun && (options.apply || options.yes))
     throw new FleetUsageError(
       '--dry-run cannot be combined with apply confirmation.'
     );
 }
+function validateRollback(options: FleetSyncOptions): void {
+  if (!options.rollback) return;
+  if (options.revision !== undefined || options.schedule)
+    throw new FleetUsageError(
+      '--rollback chooses the revision itself: drop --revision and --schedule.'
+    );
+  if (options.only)
+    throw new FleetUsageError(
+      '--rollback converges the whole fleet; it takes no --only.'
+    );
+}
+
 function validateOnly(options: FleetSyncOptions): void {
   if (options.only !== undefined && options.only !== 'accounts')
     throw new FleetUsageError('--only takes one scope: accounts.');
@@ -514,6 +553,17 @@ function validateSchedule(schedule: unknown): void {
     )
   )
     throw new FleetUsageError('Unknown manager schedule action.');
+}
+
+/** The revision a request names: --revision, or for --rollback the one
+ * applied before the current one (null when the fleet state records none).
+ */
+function requestedRevision(
+  options: FleetSyncOptions,
+  state: { previousRevision?: string } | null
+): string | undefined | null {
+  if (!options.rollback) return options.revision;
+  return state?.previousRevision ?? null;
 }
 
 async function selectedRevision(

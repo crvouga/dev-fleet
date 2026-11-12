@@ -55,11 +55,15 @@ Feature: What a machine becomes is declared, once
     Scenario: The Windows bootstrap installs the same mise
       Then "bootstrap/bootstrap.ps1" sets $MiseVersion to the mise version mise.toml pins
 
-    Scenario: CI installs the mise version every machine gets
+    Scenario: CI installs the mise version every machine gets, named only in mise.toml
+      A workflow that wrote the version again would drift from the pin, and
+      an update would have to find every copy.
       When the steps of the "CI" workflow that install mise are read
       Then there is at least one
-      And each installs the mise version mise.toml pins
+      And each installs mise through ".github/actions/mise"
       And each names the tools it installs
+      And ".github/actions/mise/action.yml" installs the mise version it reads from mise.toml
+      And no workflow names a mise release number
 
     Scenario: The Ansible the manager runs is one locked release on one Python
       Then "ansible/pyproject.toml" requires one exact Python version
@@ -130,9 +134,12 @@ Feature: What a machine becomes is declared, once
       And each is pinned to a full commit, with its release in a comment
 
       Examples:
-        | workflow                      |
-        | .github/workflows/ci.yml      |
-        | .github/workflows/release.yml |
+        | workflow                         |
+        | .github/workflows/ci.yml         |
+        | .github/workflows/release.yml    |
+        | .github/workflows/pins.yml       |
+        | .github/workflows/vm.yml         |
+        | .github/actions/mise/action.yml  |
 
     Scenario Outline: <workflow> takes nothing from the runner's distribution
       Then "<workflow>" does not contain "apt-get install"
@@ -145,3 +152,28 @@ Feature: What a machine becomes is declared, once
 
     Scenario: The package manager is the Bun that mise pins
       Then package.json names the Bun version mise.toml pins as its package manager
+
+  Rule: A pin is moved by a machine, or says why a person moves it
+    A pin moved only by hand goes stale and is then moved in a large batch,
+    the riskiest way to change a fleet.
+
+    Scenario: The pins that carry digests are moved by the Pins workflow
+      Renovate bumps a version but cannot compute the digests beside it.
+      Then the "Pins" workflow runs on "schedule"
+      And its "pin" job runs "bun bootstrap/pins.ts"
+      And its "pin" job runs once for each of:
+        | pin  |
+        | mise |
+        | t3   |
+
+    Scenario: Renovate moves the tunnel image of the monitoring hub by tag and digest
+      Then a custom manager of Renovate reads the tag and digest of "tunnelImage" in "ansible/monitoring/lock.json"
+
+    Scenario Outline: <pin> says why a person moves it
+      Then docs/declared.md says "<pin>" is moved by a person, and why
+
+      Examples:
+        | pin                                      |
+        | Beszel (hub image and agents)            |
+        | Docker Desktop on the manager            |
+        | The Ubuntu snapshot and package versions |

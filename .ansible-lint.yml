@@ -1,0 +1,17 @@
+# ansible-lint for every playbook in ansible/, run by the Ansible job of CI:
+#   uv run --project ansible --locked --group lint ansible-lint
+profile: production
+offline: true
+exclude_paths:
+  - ansible/monitoring/compose.yml
+  - .github/
+  - cliproxy/
+  - examples/
+  - features/
+  - schema/
+skip_list:
+  # These tasks act in the same run, right after the change they follow:
+  # a later task in the play depends on the restarted service or reloaded
+  # configuration, which a handler at the end of the play would come too late
+  # for.
+  - no-handler

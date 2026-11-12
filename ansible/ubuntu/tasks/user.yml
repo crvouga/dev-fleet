@@ -97,6 +97,7 @@
         }
   when: gnome_schema.stat.exists
   changed_when: false
+  check_mode: false
   register: gnome_settings
 - name: Repair only changed designated-user settings
   become: true

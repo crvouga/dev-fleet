@@ -39,10 +39,12 @@
   ansible.builtin.command:
     argv: [mkswap, /swap.fleet]
   when: active_swap.stdout | trim == ''
+  changed_when: true
 - name: Activate the fleet swap file
   ansible.builtin.command:
     argv: [swapon, /swap.fleet]
   when: active_swap.stdout | trim == ''
+  changed_when: true
 - name: Activate the fleet swap file at boot
   ansible.builtin.lineinfile:
     path: /etc/fstab

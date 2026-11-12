@@ -39,6 +39,7 @@
       ansible.builtin.command:
         argv: [docker, compose, version]
       changed_when: false
+      check_mode: false
     - name: Inspect an existing hub image before any upgrade
       ansible.builtin.command:
         argv:
@@ -50,6 +51,7 @@
             personal-beszel-hub-1,
           ]
       changed_when: false
+      check_mode: false
       failed_when: false
       register: existing_hub
     - name: Require explicit maintenance for a different existing image
@@ -221,6 +223,7 @@
         argv:
           [/bin/launchctl, print, '{{ watchdog_domain }}/{{ watchdog_label }}']
       changed_when: false
+      check_mode: false
       failed_when: false
       register: watchdog_loaded
     # launchd caches a loaded definition: a changed plist needs a reload.

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import lock from '../../../ansible/monitoring/lock.json';
 import { runCommand } from '../../../src/runner';
+import type { DataTable } from '../../support/gherkin';
 import { monitoring, type MonitoringWorld } from './world';
 
 const { Given, When, Then } = monitoring;
@@ -109,12 +110,17 @@ async function variables(container: string, hub: string): Promise<void> {
   }
 }
 
-async function apply(world: MonitoringWorld, playbook: string): Promise<void> {
+async function apply(
+  world: MonitoringWorld,
+  playbook: string,
+  flags = ''
+): Promise<void> {
   const result = await on(
     world.box,
-    `cd /m && ANSIBLE_NOCOLOR=1 ansible-playbook ${playbook} --extra-vars @/m/vars.json`
+    `cd /m && ANSIBLE_NOCOLOR=1 ansible-playbook ${playbook} ${flags} --extra-vars @/m/vars.json`
   );
   expect(result.ok).toBe(true);
+  world.output = result.stdout;
   const recap = /changed=(\d+)/.exec(result.stdout.split('PLAY RECAP').at(-1)!);
   world.changed = Number(recap?.[1]);
 }
@@ -179,6 +185,13 @@ When('{string} applies again', async (world, playbook: string) => {
   await apply(world, playbook);
 });
 
+When(
+  '{string} is checked with --check --diff',
+  async (world, playbook: string) => {
+    await apply(world, playbook, '--check --diff');
+  }
+);
+
 When('the machine restarts', async (world) => {
   await must(['docker', 'restart', world.box]);
   await booted(world.box);
@@ -186,6 +199,22 @@ When('the machine restarts', async (world) => {
 
 Then('it changed nothing', (world) => {
   expect(world.changed).toBe(0);
+});
+
+Then('the tasks it reports as changing are:', (world, table: DataTable) => {
+  const changing = world.output
+    .split(/^(?:TASK|RUNNING HANDLER) \[/m)
+    .filter((block) => /^changed: /m.test(block))
+    .map((block) => block.slice(0, block.indexOf(']')));
+  expect(changing).toEqual(table.list());
+});
+
+Then('its diff shows {string}', (world, text: string) => {
+  expect(world.output).toContain(text);
+});
+
+Then("the agent's unit still says {string}", async (world, text: string) => {
+  expect((await on(world.box, `cat ${UNIT}`)).stdout).toContain(text);
 });
 
 Then('the agent kept its process', async (world) => {

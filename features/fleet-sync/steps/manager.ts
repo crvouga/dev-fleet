@@ -206,6 +206,15 @@ Given(
   }
 );
 
+Given(
+  "pmset reports on AC power every setting the manager's power policy declares except {string}",
+  (world, absent: string) => {
+    manager(world).power = Object.fromEntries(
+      Object.entries(policy.pmset).filter(([key]) => key !== absent)
+    );
+  }
+);
+
 When('the power settings of the manager are measured', async (world) => {
   pmset(world, manager(world).power);
   world.checks = [await managerPower(world.commands.run)];

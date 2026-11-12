@@ -5,6 +5,16 @@ network access to the official release archives, and enough disk for a 12 GiB
 sparse guest. This uses an isolated Ubuntu 26.04 VM; it never targets fleet hosts.
 The test image is tooling, not a replacement OS image for development machines.
 
+One command runs either test, the way the Ubuntu VM workflow runs it weekly
+and before every release:
+
+```sh
+bun ansible/ubuntu/tests/run-vm.ts baseline    # the baseline tests below
+bun ansible/ubuntu/tests/run-vm.ts bootstrap   # the full SSH bootstrap of HEAD
+```
+
+By hand, with a T3 archive as well:
+
 ```sh
 fleet_test_dir=$(mktemp -d)
 mkdir -p "$fleet_test_dir/vm" "$fleet_test_dir/t3" "$fleet_test_dir/verification"

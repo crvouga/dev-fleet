@@ -52,6 +52,7 @@
         argv: [cat, '{{ t3_desktop_dir }}/.personal-fleet-version']
       register: t3_desktop_installed
       changed_when: false
+      check_mode: false
       failed_when: false
     - name: Check whether the desktop app is running before an update
       become: true
@@ -62,6 +63,7 @@
         argv: [systemctl, --user, is-active, --quiet, t3code-desktop.service]
       register: t3_desktop_was_active
       changed_when: false
+      check_mode: false
       failed_when: false
     - name: Unpack the pinned app when its version differs
       when: t3_desktop_installed.stdout | default('') != t3_desktop_name
@@ -193,7 +195,8 @@
           WantedBy=graphical-session.target
     # Repoint recovery now: a timer still running an older revision's script
     # would restart the headless server right after its approved migration.
-    - ansible.builtin.import_tasks: tasks/recovery.yml
+    - name: Repoint recovery to this revision
+      ansible.builtin.import_tasks: tasks/recovery.yml
     - name: Enable the desktop app for every graphical login
       become: true
       become_user: '{{ development_user }}'
@@ -233,7 +236,8 @@
     # just installed, only while it runs no agent turn. Otherwise
     # personal-worker-recovery restarts it at the first idle check, and
     # t3:running-version reports T3_RESTART_PENDING until then.
-    - ansible.builtin.import_tasks: tasks/t3-restart.yml
+    - name: Restart T3 when it is idle
+      ansible.builtin.import_tasks: tasks/t3-restart.yml
       when:
         - t3_desktop_was_active.rc == 0
         - t3_desktop_updated is changed

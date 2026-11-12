@@ -1,5 +1,8 @@
 import { diskGc } from './disk-gc';
 import { installer } from './installer';
+import { packageSmoke } from './package-smoke';
+import { pins } from './pins';
+import { notes } from './release-notes';
 import { publishing } from './publishing';
 import { toolchain } from './toolchain';
 import { worker } from './worker';
@@ -14,4 +17,7 @@ export const bootstrap = [
   toolchain,
   worker,
   diskGc,
+  pins,
+  packageSmoke,
+  notes,
 ];

@@ -166,6 +166,8 @@
       ansible.builtin.command:
         argv: [systemctl, is-active, beszel-agent.service]
       changed_when: false
+      # Verifies a change a dry run does not make.
+      when: not ansible_check_mode
   handlers:
     - name: Restart agent
       ansible.builtin.systemd_service:

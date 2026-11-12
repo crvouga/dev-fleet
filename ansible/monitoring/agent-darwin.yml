@@ -137,6 +137,7 @@
       ansible.builtin.command:
         argv: [/bin/launchctl, print, '{{ beszel_domain }}/{{ beszelDaemon }}']
       changed_when: false
+      check_mode: false
       failed_when: false
       register: agent_loaded
     - name: Load the agent at login and now
@@ -156,6 +157,8 @@
       ansible.builtin.command:
         argv: [/bin/launchctl, print, '{{ beszel_domain }}/{{ beszelDaemon }}']
       changed_when: false
+      # Verifies a change a dry run does not make.
+      when: not ansible_check_mode
       register: agent_state
       retries: 5
       delay: 2

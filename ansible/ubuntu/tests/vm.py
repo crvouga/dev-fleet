@@ -28,7 +28,7 @@ def main():
     ROOT.mkdir(exist_ok=True)
     image = ROOT / 'ubuntu.img'
     if not image.exists():
-        with urllib.request.urlopen('https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img', timeout=60) as response, image.open('wb') as target:
+        with urllib.request.urlopen('https://cloud-images.ubuntu.com/releases/resolute/release-20261016/ubuntu-26.04-server-cloudimg-amd64.img', timeout=60) as response, image.open('wb') as target:
             while chunk := response.read(1024 * 1024):
                 target.write(chunk)
     assert hashlib.file_digest(image.open('rb'), 'sha256').hexdigest() == IMAGE_SHA

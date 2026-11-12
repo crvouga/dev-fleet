@@ -80,13 +80,36 @@ moving to it entirely means NixOS workers and nix-darwin on the manager, which
 replaces every unit and path that exists today. The one thing above that Nix
 would settle and the current tools do not is the rest of a worker's packages.
 
+## Keeping pins current
+
+A pin that is only moved by hand goes stale and is then moved in a large
+batch, the riskiest way to change a fleet. Each pin is moved by a machine,
+one pull request at a time, which CI, the fresh workers and the VM test then
+judge like any change, unless it says below why a person moves it.
+
+| Pin                                      | Moved by                                                                                      |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Tools in `mise.toml` and `mise.lock`     | Renovate (`mise`), one pull request per tool                                                  |
+| JavaScript and Python dependencies       | Renovate, with lock file maintenance                                                          |
+| Actions and CI service images            | Renovate, each action at a commit                                                             |
+| mise itself                              | The [Pins workflow](../.github/workflows/pins.yml): `bun bootstrap/pins.ts mise`, weekly      |
+| T3 Code (nightly)                        | The Pins workflow: `bun bootstrap/pins.ts t3`, weekly, every artifact hashed                  |
+| The tunnel image of the monitoring hub   | Renovate, by tag and digest (a custom manager in `renovate.json`)                             |
+| Beszel (hub image and agents)            | A person, because the agents' binary digests need the archives unpacked; `pins.ts` cannot yet |
+| Docker Desktop on the manager            | A person, because a person installs it and dev-fleet only measures the version                |
+| The Ubuntu snapshot and package versions | A person, because a new snapshot moves every package at once and each needs its exact version |
+
+The workflows never name the mise release: they install it through
+[`.github/actions/mise`](../.github/actions/mise/action.yml), which reads
+`min_version` from `mise.toml`.
+
 ## Changing a pin
 
-| To change               | Edit                                                                 | Then                                             |
-| ----------------------- | -------------------------------------------------------------------- | ------------------------------------------------ |
-| A tool                  | Its version in `mise.toml`                                           | Update `mise.lock` with `mise lock`              |
-| mise                    | `min_version` and the four `mise_*_sha256` in `mise.toml`            | Copy the digests from the release's `SHASUMS256` |
-| An Ubuntu package       | `packages` in `ansible/ubuntu/policy.json`, and `snapshot` if needed | The VM test in `ansible/ubuntu/tests`            |
-| Ansible on the manager  | `ansible/pyproject.toml`                                             | `uv lock` in `ansible/`                          |
-| Beszel                  | `ansible/monitoring/lock.json`, `compose.yml`, the agent unit        | `bun test features/rules`                        |
-| A manager power setting | `pmset` in `ansible/macos/policy.json`                               | The next `fleet-sync` applies it                 |
+| To change               | Edit                                                                 | Then                                  |
+| ----------------------- | -------------------------------------------------------------------- | ------------------------------------- |
+| A tool                  | Its version in `mise.toml`                                           | Update `mise.lock` with `mise lock`   |
+| mise                    | `bun bootstrap/pins.ts mise` moves `min_version` and the digests     | The fresh-box run                     |
+| An Ubuntu package       | `packages` in `ansible/ubuntu/policy.json`, and `snapshot` if needed | The VM test in `ansible/ubuntu/tests` |
+| Ansible on the manager  | `ansible/pyproject.toml`                                             | `uv lock` in `ansible/`               |
+| Beszel                  | `ansible/monitoring/lock.json`, `compose.yml`, the agent unit        | `bun test features/rules`             |
+| A manager power setting | `pmset` in `ansible/macos/policy.json`                               | The next `fleet-sync` applies it      |

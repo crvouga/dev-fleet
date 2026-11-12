@@ -10,3 +10,8 @@ dependencies = ["ansible-core==2.19.9"]
 
 [tool.uv]
 package = false
+
+# The linter CI runs on every playbook (`uv run --locked --group lint
+# ansible-lint`). A separate group: the manager never installs it.
+[dependency-groups]
+lint = ["ansible-lint==26.11.0"]

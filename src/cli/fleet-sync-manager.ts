@@ -231,19 +231,24 @@ export async function managerIdentity(
 
 /** Workers depend on the manager's services, so it never sleeps on AC power.
  * Measures every setting `ansible/macos/manager.yml` declares, from the same
- * policy file the playbook applies.
+ * policy file the playbook applies. A setting pmset does not list on AC power
+ * is one this Mac does not have (a virtual Mac has no womp): the playbook
+ * skips it, so it is not applicable here either.
  */
 export async function managerPower(
   run: Runner,
   workspace = '.',
   host: ManagerHost = MACOS_MANAGER
 ): Promise<Check> {
-  const drifted = await host.powerDrift(run);
+  const { drifted, notApplicable } = await host.powerDrift(run);
   return drifted.length === 0
     ? {
         id: 'manager:power',
         status: 'pass',
-        summary: 'The manager never sleeps on AC power.',
+        summary:
+          notApplicable.length === 0
+            ? 'The manager never sleeps on AC power.'
+            : `The manager never sleeps on AC power; not applicable on this Mac: ${notApplicable.join(' ')}.`,
       }
     : {
         id: 'manager:power',
