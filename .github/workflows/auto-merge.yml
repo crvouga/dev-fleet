@@ -1,0 +1,28 @@
+name: Auto-merge
+# Every pull request from a branch of this repository is squash-merged as
+# soon as the required checks pass; the branch is deleted by the repository
+# setting. A merge made with the workflow's own token would not start CI on
+# main, and so no release: the AUTO_MERGE_TOKEN secret is a token of a
+# maintainer that may merge, and without it nothing is enabled.
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+permissions:
+  contents: read
+jobs:
+  enable:
+    name: Enable auto-merge
+    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Enable squash auto-merge
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::warning::AUTO_MERGE_TOKEN is not set; auto-merge was not enabled."
+            exit 0
+          fi
+          gh pr merge --auto --squash "$PR_URL"
