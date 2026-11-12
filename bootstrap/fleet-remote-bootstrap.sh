@@ -41,7 +41,7 @@ remedy() {
     BOOTSTRAP_LOCK_TOOL_REQUIRED) echo 'Install python3 so the operation lock can be taken, then rerun fleet-sync.';;
     SOURCE_CACHE_CHANGED|SOURCE_STATUS_FAILED|SOURCE_CHECKOUT_CONFLICT) echo 'The fleet-owned checkout of this revision holds changes fleet-sync did not make. Inspect and remove that revisions directory, then rerun fleet-sync.';;
     CONFIGURATION_INSTALL_FAILED) echo 'The fleet configuration could not be written under ~/.config/dev-fleet. Check that directory, then rerun fleet-sync.';;
-    TOOLCHAIN_*) echo 'The pinned toolchain did not converge. Rerun fleet-sync; it resumes where it stopped. If it repeats, run devfleet doctor on the worker.';;
+    TOOLCHAIN_*) echo 'The pinned toolchain did not converge. Rerun fleet-sync; it resumes where it stopped. If it repeats, run devfleet fleet-status --node for this worker.';;
     *) echo 'Inspect the remote operation lock and rerun the approved revision. No success receipt advanced.';;
   esac
 }

@@ -1,5 +1,5 @@
 import { expect } from 'bun:test';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse } from 'yaml';
 import macos from '../../ansible/macos/policy.json';
@@ -858,5 +858,222 @@ Then(
           !sources.some(({ text }) => new RegExp(`\\b${code}\\b`).test(text))
       )
     ).toEqual([]);
+  }
+);
+
+// ── Runbooks ─────────────────────────────────────────────────────────────
+
+/** The last word of a failure code: what went wrong. */
+const FAILURE =
+  /^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:FAILED|FAILING|REQUIRED|MISSING|MISMATCH|CONFLICT|UNVERIFIED|UNAVAILABLE|UNREACHABLE|INVALID|REJECTED|INCOMPLETE|STALE|DRIFT|PENDING|DENIED|TIMEOUT|FULL|UNSUPPORTED|LOCKED|OFFLINE|UNSCHEDULED|UNDECLARED|OVERRIDDEN|REFUSED|UNHEALTHY|BROKEN|CONTENDED|INTERRUPTED|UNSAFE|DIVERGED|BLOCKED|STOPPED|EXHAUSTED|INACTIVE|CHANGED|UNREADABLE|LIMIT|LIMITED|UNSERVED|UNOBSERVED|UNPROVISIONED|REPLACED|INSTALLED|RUNNING|ENABLED|POLICY|BUSY|FLOOR|ENROLLED|DISCONNECTED|PROTOCOL|DAEMON|RESPONSE|UNRESTRICTED|PREVIEW|ERROR|ROLE|HUB|MANAGER|CONVERGED|POWER)$/;
+
+async function failureCodes(): Promise<string[]> {
+  const codes = new Set<string>();
+  const sources: [string, RegExp][] = [
+    ['src/**/*.ts', /['"`]([A-Z][A-Z0-9_]+)['"`]/g],
+    ['bootstrap/*.ts', /['"`]([A-Z][A-Z0-9_]+)['"`]/g],
+    ['bootstrap/*.sh', /\bdie ([A-Z][A-Z0-9_]+)/g],
+    ['ansible/**/*.sh', /\bdie ([A-Z][A-Z0-9_]+)/g],
+    ['ansible/**/*.yml', /(?:fail_msg:\s*['"]?|\()([A-Z][A-Z0-9_]+)[;)]/g],
+  ];
+  for (const [pattern, code] of sources)
+    for (const path of await files(pattern))
+      for (const match of read(path).matchAll(code))
+        if (FAILURE.test(match[1]!)) codes.add(match[1]!);
+  return [...codes].sort();
+}
+
+const entries = (path: string): string[] =>
+  [...read(path).matchAll(/^- `([A-Z][A-Z0-9_]+)`:/gm)].map(
+    (match) => match[1]!
+  );
+
+When('the failure codes of the source are collected', async (world) => {
+  world.found = await failureCodes();
+});
+
+Then('there are more than {int} of them', (world, count: number) => {
+  expect(world.found.length).toBeGreaterThan(count);
+});
+
+Then('each has an entry in {string}', (world, path: string) => {
+  const listed = new Set(entries(path));
+  expect(world.found.filter((code) => !listed.has(code))).toEqual([]);
+});
+
+Then(
+  '{string} has no entry for a code the source does not report',
+  (world, path: string) => {
+    const reported = new Set(world.found);
+    expect(entries(path).filter((code) => !reported.has(code))).toEqual([]);
+  }
+);
+
+Then(
+  '{string} states how many codes there are and how many need a person',
+  (world, path: string) => {
+    const text = read(path);
+    const person = text
+      .split('\n')
+      .filter(
+        (line) => /^- `[A-Z]/.test(line) && line.includes('**Needs a person.**')
+      );
+    expect(text).toContain(
+      `There are ${world.found.length} codes; ${person.length} need a person.`
+    );
+  }
+);
+
+/** The documents an operator follows. */
+async function documents(): Promise<string[]> {
+  return [...(await files('docs/*.md')), 'README.md', 'llms.txt'];
+}
+
+/** Only what is quoted as code: a span or a fenced block. */
+function quoted(text: string): string[] {
+  const blocks = [...text.matchAll(/```[a-z]*\n([\s\S]*?)```/g)].map(
+    (match) => match[1]!
+  );
+  const prose = text.replace(/```[a-z]*\n[\s\S]*?```/g, '');
+  const spans = [...prose.matchAll(/`([^`\n]+)`/g)].map((match) => match[1]!);
+  return [...blocks, ...spans];
+}
+
+When(
+  'the devfleet commands quoted in the documents are read',
+  async (world) => {
+    world.found = [];
+    for (const path of await documents())
+      for (const code of quoted(read(path)))
+        for (const match of code.matchAll(/\bdevfleet ([a-z][a-z0-9-]*)/g))
+          world.found.push(`${path}: ${match[1]!}`);
+  }
+);
+
+Then('each is a command of the devfleet CLI', async (world) => {
+  const { COMMANDS } = await import('../../src/cli/registry');
+  const known = new Set(COMMANDS.map((command) => command.args[0]));
+  expect(
+    world.found.filter((entry) => !known.has(entry.split(': ')[1]!))
+  ).toEqual([]);
+});
+
+When(
+  'the documents are searched for an earlier executable or package',
+  async (world) => {
+    world.found = [];
+    for (const path of await documents())
+      for (const code of quoted(read(path)))
+        if (/(^|\s)personal [a-z]|@pkgs\/|packages\/fleet/m.test(code))
+          world.found.push(`${path}: ${code.split('\n')[0]}`);
+  }
+);
+
+Then('nothing is found', (world) => {
+  expect(world.found).toEqual([]);
+});
+
+// ── Generated tables of the authentication document ──────────────────────
+
+function table(header: string[], rows: string[][]): string {
+  const widths = header.map((cell, index) =>
+    Math.max(cell.length, ...rows.map((row) => row[index]!.length))
+  );
+  const line = (cells: string[]) =>
+    `| ${cells.map((cell, index) => cell.padEnd(widths[index]!)).join(' | ')} |`;
+  return [
+    line(header),
+    line(widths.map((width) => '-'.repeat(width))),
+    ...rows.map(line),
+  ].join('\n');
+}
+
+const GENERATED: Record<string, () => Promise<string>> = {
+  secrets: async () => {
+    const { SECRET_NAMES, OPTIONAL_SECRET_NAMES, envName } =
+      await import('../../src/secrets');
+    const rows = [
+      ...SECRET_NAMES.map((name) => [name, 'yes']),
+      ...OPTIONAL_SECRET_NAMES.map((name) => [
+        name,
+        'when its feature is declared',
+      ]),
+    ].map(([name, required]) => [
+      `\`${name}\``,
+      required!,
+      `\`${envName(name as never)}\``,
+      `\`~/.config/dev-fleet/secrets/${name}\``,
+    ]);
+    return table(
+      ['Secret', 'Required', '`env` provider variable', '`file` provider file'],
+      rows
+    );
+  },
+  checks: async () => {
+    const found = new Map<string, Set<string>>();
+    for (const path of await files('src/**/*.ts'))
+      for (const match of read(path).matchAll(
+        /['`]((?:auth|worker):[a-z0-9-]*(?:auth|github|vault|git-|credential)[a-z0-9-]*)['`]/g
+      )) {
+        const paths = found.get(match[1]!) ?? new Set<string>();
+        paths.add(`\`${path}\``);
+        found.set(match[1]!, paths);
+      }
+    return table(
+      ['Check', 'Measured in'],
+      [...found]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([id, paths]) => [`\`${id}\``, [...paths].sort().join(', ')])
+    );
+  },
+  timers: async () => {
+    const rows: string[][] = [];
+    for (const path of await files('ansible/**/*.yml'))
+      for (const match of read(path).matchAll(
+        /(personal-[a-z0-9-]+\.timer)'?\n[\s\S]*?\[Timer\]\n([\s\S]*?)\[Install\]/g
+      ))
+        rows.push([
+          `\`${match[1]!}\``,
+          `\`${path}\``,
+          match[2]!
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => /^On[A-Za-z]+=/.test(line))
+            .join(', '),
+        ]);
+    return table(
+      ['Timer', 'Declared in', 'Schedule'],
+      rows.sort((a, b) => a[0]!.localeCompare(b[0]!))
+    );
+  },
+};
+
+const generatedTables = new WeakMap<RulesWorld, string>();
+
+When(
+  'the table {string} is generated from the code',
+  async (world, name: string) => {
+    generatedTables.set(world, await GENERATED[name]!());
+  }
+);
+
+Then(
+  'it is the table {string} in {string}',
+  (world, name: string, path: string) => {
+    const pattern = new RegExp(
+      `(<!-- generated: ${name} -->\\n)([\\s\\S]*?)(<!-- end: ${name} -->)`
+    );
+    const text = read(path);
+    const expected = `\n${generatedTables.get(world)!}\n\n`;
+    if (process.env['DEVFLEET_UPDATE_DOCS'])
+      writeFileSync(
+        resolve(root, path),
+        text.replace(
+          pattern,
+          (_all, open: string, _old, close: string) =>
+            `${open}${expected}${close}`
+        )
+      );
+    else expect(pattern.exec(text)?.[2]).toBe(expected);
   }
 );
