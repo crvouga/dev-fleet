@@ -1,0 +1,134 @@
+---
+# One agent CLI's dedicated profile (src/agents/converge.ts): its
+# configuration files, rendered from templates/, and the receipt that records
+# them. Written as the developer: no become. These files already exist on
+# running machines and every byte of them is an interface; the templates
+# render exactly what src/agents/render.ts specifies
+# (features/agents/agent-configuration-templates.feature proves it).
+#
+# TypeScript decides beforehand: it refuses a file someone edited unless the
+# person adopts it, names the files to back up first, and passes the SHA-256
+# of each file as it must be written. A rendered file without that digest
+# never replaces the one in place, the play measures every file again before
+# it writes the receipt, so a receipt never vouches for a file it does not
+# describe, and TypeScript measures the profile once more afterwards. A
+# profile with nothing to change is not played at all. Variables arrive
+# through a private 0600
+# variables file, never argv; none of them is a secret (a profile names the
+# variable that holds the proxy key, never the key).
+- name: Render an agent CLI's dedicated profile
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars:
+    # Where each CLI reads its configuration, relative to its profile.
+    agent_templates:
+      codex:
+        directories: []
+        files:
+          - { dest: config.toml, src: codex.config.toml.j2 }
+      claude:
+        directories: []
+        files:
+          - { dest: settings.json, src: claude.settings.json.j2 }
+      grok:
+        directories: []
+        files:
+          - { dest: config.toml, src: grok.config.toml.j2 }
+      antigravity:
+        directories: [.gemini, .gemini/antigravity-cli]
+        files:
+          - {
+              dest: .gemini/antigravity-cli/settings.json,
+              src: antigravity.settings.json.j2,
+            }
+      gemini:
+        directories: [.gemini]
+        files:
+          - { dest: .gemini/settings.json, src: gemini.settings.json.j2 }
+      opencode:
+        directories: []
+        files:
+          - { dest: opencode.json, src: opencode.json.j2 }
+    agent_profile_directory: '{{ agent_root }}/{{ agent_node }}/{{ agent_tool }}/{{ agent_profile }}'
+    agent_spec: '{{ agent_templates[agent_tool] }}'
+  tasks:
+    - name: Require one known profile of one plain machine name
+      ansible.builtin.assert:
+        that:
+          - agent_root is match('^/')
+          - agent_node is match('^[a-z0-9][a-z0-9-]{0,62}$')
+          - agent_tool in agent_templates
+          - agent_profile in ['direct', 'proxy']
+          - agent_model is match('^[a-zA-Z0-9_./:+-]+$')
+          - agent_revision is match('^[a-f0-9]{40}$')
+          - agent_fingerprint is match('^[a-f0-9]{64}$')
+          - agent_profile == 'direct' or agent_proxy_endpoint is match('^https?://')
+          - agent_files.keys() | sort == agent_spec.files | map(attribute='dest') | sort
+        fail_msg: AGENT_PROFILE_REQUEST_INVALID; dev-fleet passes a validated selection and the digest of every file it renders.
+    - name: Create the profile directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop: "{{ [agent_root ~ '/' ~ agent_node, agent_root ~ '/' ~ agent_node ~ '/' ~ agent_tool, agent_profile_directory] + (agent_spec.directories | map('regex_replace', '^', agent_profile_directory ~ '/') | list) }}"
+    # Only what TypeScript names: a file someone edited and the person
+    # adopted, or a managed file that changes.
+    - name: Create the backup directory
+      ansible.builtin.file:
+        path: '{{ agent_root }}/backups'
+        state: directory
+        mode: '0700'
+      when: agent_backups | length > 0
+    - name: Back up a file before it is replaced
+      ansible.builtin.copy:
+        src: '{{ item.source }}'
+        dest: '{{ item.dest }}'
+        remote_src: true
+        force: false
+        mode: '0600'
+      loop: '{{ agent_backups }}'
+      loop_control:
+        label: '{{ item.dest | basename }}'
+    # A rendered file replaces the one in place only when it has the digest
+    # dev-fleet specified: a template that drifted never reaches a machine.
+    - name: Render the configuration files
+      ansible.builtin.template:
+        src: '{{ item.src }}'
+        dest: '{{ agent_profile_directory }}/{{ item.dest }}'
+        mode: '0600'
+        validate: >-
+          {{ ansible_playbook_python | quote }} -c 'import hashlib, sys;
+          sys.exit(None if hashlib.sha256(open(sys.argv[1], "rb").read()).hexdigest() == sys.argv[2]
+          else "AGENT_PROFILE_RENDER_MISMATCH; the template and src/agents/render.ts disagree.")'
+          %s {{ agent_files[item.dest] | quote }}
+      loop: '{{ agent_spec.files }}'
+      loop_control:
+        label: '{{ item.dest }}'
+    - name: Measure what was written
+      ansible.builtin.stat:
+        path: '{{ agent_profile_directory }}/{{ item.dest }}'
+        checksum_algorithm: sha256
+      loop: '{{ agent_spec.files }}'
+      loop_control:
+        label: '{{ item.dest }}'
+      register: agent_written
+      when: not ansible_check_mode
+    - name: Require every file to be byte for byte what dev-fleet specifies
+      ansible.builtin.assert:
+        that:
+          - item.stat.checksum == agent_files[item.item.dest]
+        fail_msg: AGENT_PROFILE_RENDER_MISMATCH; the template and src/agents/render.ts disagree. No receipt was written.
+        quiet: true
+      loop: '{{ agent_written.results }}'
+      loop_control:
+        label: '{{ item.item.dest }}'
+      when: not ansible_check_mode
+    # A template, not copy's content: before 2.19, Ansible turns a task
+    # argument that reads as JSON into data and writes it back reformatted.
+    - name: Record the receipt of the profile
+      ansible.builtin.template:
+        src: receipt.json.j2
+        dest: '{{ agent_profile_directory }}/receipt.json'
+        mode: '0600'

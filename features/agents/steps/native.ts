@@ -9,6 +9,7 @@ import {
   NATIVE_AGENTS,
   parsePins,
   verifyNativeAgents,
+  type AccountContext,
 } from '../../../src/agents/native-verify';
 import type { VerifyCache } from '../../../src/agents/verify-cache';
 import type { Check } from '../../../src/types';
@@ -58,6 +59,8 @@ const machine = part(() => ({
   profiles: '/dev/null/profiles',
   /** Commands already run before the step that is observed. */
   before: 0,
+  /** The proxy's account roster, when a step names one. */
+  accounts: undefined as AccountContext | undefined,
 }));
 
 // ── Pins ─────────────────────────────────────────────────────────────────
@@ -154,7 +157,7 @@ When(
 );
 
 async function verify(world: AgentsWorld, id: string): Promise<Check[]> {
-  const { cache, commands, outOfQuota, profiles } = machine(world);
+  const { accounts, cache, commands, outOfQuota, profiles } = machine(world);
   if (!cache)
     throw new Error('Say what is remembered of earlier verification.');
   return verifyNativeAgents(id, checkout, commands.run, {
@@ -162,8 +165,21 @@ async function verify(world: AgentsWorld, id: string): Promise<Check[]> {
     cache,
     t3Service: machine(world).service,
     profiles,
+    ...(accounts ? { accounts } : {}),
   });
 }
+
+Given(
+  'the proxy account roster now has the version {string}',
+  (world, version: string) => {
+    machine(world).accounts = {
+      live: [],
+      exposed: [],
+      rosterVersion: version,
+      keyVersion: '',
+    };
+  }
+);
 
 Given('verified sessions are remembered', async (world) => {
   const directory = await mkdtemp(join(tmpdir(), 'verify-cache-'));
@@ -214,6 +230,12 @@ const launchedAgain = (world: AgentsWorld): string[] =>
 
 Then('no launcher was run again', (world) => {
   expect(launchedAgain(world)).toEqual([]);
+});
+
+Then('every launcher was run again', (world) => {
+  expect(launchedAgain(world).sort()).toEqual(
+    NATIVE_AGENTS.map((agent) => agent.wrapper).sort()
+  );
 });
 
 Then('only the launcher {string} was run again', (world, launcher: string) => {

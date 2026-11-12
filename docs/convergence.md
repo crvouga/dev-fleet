@@ -11,27 +11,28 @@ is missing from it.
 
 ## Ansible
 
-| Playbook                                  | Converges                                                                  |
-| ----------------------------------------- | -------------------------------------------------------------------------- |
-| `ansible/ubuntu/baseline.yml`             | A worker's packages, Docker, services, power, user, SSH, disk              |
-| `ansible/ubuntu/tailscale.yml`            | Tailscale on a worker                                                      |
-| `ansible/ubuntu/t3-desktop.yml`           | The T3 desktop app on a desktop worker                                     |
-| `ansible/ubuntu/t3-headless.yml`          | The T3 server as a lingering user service on a headless worker             |
-| `ansible/ubuntu/t3-policy.yml`            | T3's administrator policy                                                  |
-| `ansible/ubuntu/t3-route.yml`             | T3's private tailnet route                                                 |
-| `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app or server                             |
-| `ansible/ubuntu/worker-account.yml`       | The declared account on an image that lets only root in, from the manager  |
-| `ansible/ubuntu/reboot.yml`               | One worker's first-converge or maintenance reboot, from the manager        |
-| `ansible/monitoring/agent.yml`            | The Beszel agent on a worker                                               |
-| `ansible/monitoring/agent-darwin.yml`     | The Beszel agent on the manager                                            |
-| `ansible/monitoring/hub-darwin.yml`       | The Beszel hub and its tunnel on the manager                               |
-| `ansible/monitoring/hub-route-darwin.yml` | The hub's private tailnet route                                            |
-| `ansible/macos/manager.yml`               | The manager's power settings, network time and fleet-watch job, unattended |
-| `ansible/macos/t3-policy.yml`             | T3's administrator policy on the manager                                   |
-| `ansible/macos/manager-privilege.yml`     | The one administrator grant: sudoers, job log rotation and the T3 policy   |
-| `ansible/macos/worker-host-key.yml`       | A worker's pinned SSH host key in the manager's known_hosts                |
-| `ansible/macos/vault-renew.yml`           | The launch agent that renews the manager's own Vault session               |
-| `ansible/github/git.yml`                  | The Git identity and GitHub credentials of every node                      |
+| Playbook                                  | Converges                                                                     |
+| ----------------------------------------- | ----------------------------------------------------------------------------- |
+| `ansible/ubuntu/baseline.yml`             | A worker's packages, Docker, services, power, user, SSH, disk                 |
+| `ansible/ubuntu/tailscale.yml`            | Tailscale on a worker                                                         |
+| `ansible/ubuntu/t3-desktop.yml`           | The T3 desktop app on a desktop worker                                        |
+| `ansible/ubuntu/t3-headless.yml`          | The T3 server as a lingering user service on a headless worker                |
+| `ansible/ubuntu/t3-policy.yml`            | T3's administrator policy                                                     |
+| `ansible/ubuntu/t3-route.yml`             | T3's private tailnet route                                                    |
+| `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app or server                                |
+| `ansible/ubuntu/worker-account.yml`       | The declared account on an image that lets only root in, from the manager     |
+| `ansible/ubuntu/reboot.yml`               | One worker's first-converge or maintenance reboot, from the manager           |
+| `ansible/monitoring/agent.yml`            | The Beszel agent on a worker                                                  |
+| `ansible/monitoring/agent-darwin.yml`     | The Beszel agent on the manager                                               |
+| `ansible/monitoring/hub-darwin.yml`       | The Beszel hub and its tunnel on the manager                                  |
+| `ansible/monitoring/hub-route-darwin.yml` | The hub's private tailnet route                                               |
+| `ansible/macos/manager.yml`               | The manager's power settings, network time and fleet-watch job, unattended    |
+| `ansible/macos/t3-policy.yml`             | T3's administrator policy on the manager                                      |
+| `ansible/macos/manager-privilege.yml`     | The one administrator grant: sudoers, job log rotation and the T3 policy      |
+| `ansible/macos/worker-host-key.yml`       | A worker's pinned SSH host key in the manager's known_hosts                   |
+| `ansible/macos/vault-renew.yml`           | The launch agent that renews the manager's own Vault session                  |
+| `ansible/github/git.yml`                  | The Git identity and GitHub credentials of every node                         |
+| `ansible/agents/agents.yml`               | Each agent CLI's dedicated profile, rendered from `ansible/agents/templates/` |
 
 Every playbook passes `ansible-lint` in the production profile, every command
 in it says when it changes something and runs, or is skipped, in a dry run

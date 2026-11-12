@@ -1,0 +1,14 @@
+{
+  "model": {
+    "name": {{ agent_model | to_json }}
+{% if agent_profile == 'proxy' %}
+  },
+  "security": {
+    "auth": {
+      "selectedType": "gateway"
+    }
+  }
+{% else %}
+  }
+{% endif %}
+}
