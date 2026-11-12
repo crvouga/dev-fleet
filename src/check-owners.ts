@@ -114,6 +114,7 @@ export const CHECK_OWNERS: CheckOwner[] = [
   },
   { pattern: 'fleet:*', manual: DECLARATION },
   { pattern: 'enrollment:*', manual: DECLARATION },
+  { pattern: 'notify:*', manual: DECLARATION },
   {
     pattern: 'proxy:*',
     manual:
