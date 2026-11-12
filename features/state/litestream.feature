@@ -81,6 +81,31 @@ Feature: The pinned Litestream replicates the fleet state and a new manager rest
       Then its copy was replaced
       And the fleet state of manager "b" holds the configuration "five"
 
+  @litestream @slow
+  Rule: Two managers and a damaged replica, with the pinned Litestream
+
+    Background:
+      Given managers "a" and "b" replicate to one directory with the pinned Litestream
+
+    Scenario: A second writer is refused before it writes
+      Given managers "a" and "b" are told apart by the manager lease
+      And manager "a" changed the configuration to "from a"
+      When manager "b" changes the configuration to "from b"
+      Then it is refused with "FLEET_MANAGER_LEASE_HELD"
+      And manager "b" has nothing waiting for the bucket
+      And the fleet state of manager "b" holds the configuration "from a"
+
+    Scenario: The version the bucket held at an earlier time is restored and read
+      Given manager "a" changed the configuration to "one"
+      And a second passed
+      And the time was noted
+      And a second passed
+      And manager "a" changed the configuration to "two"
+      When manager "b" restores the version the bucket held at the noted time
+      Then it reports "in-sync"
+      And the fleet state of manager "b" holds the configuration "one"
+      And manager "a" stands "bucket-ahead" with the bucket
+
   @litestream @s3 @slow
   Rule: fleet-state keeps a fleet in an S3 bucket
     In a command, `$S3` is the origin DEVFLEET_TEST_S3 names, `$S3_BUCKET` is a

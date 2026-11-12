@@ -4,6 +4,7 @@ import './command';
 import './common';
 import './hand-off';
 import './manager';
+import './manager-host';
 import './monitoring';
 import './project';
 import './report';

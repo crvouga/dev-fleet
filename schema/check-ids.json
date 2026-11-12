@@ -219,6 +219,10 @@
       "meaning": "A native per-machine login is in place."
     },
     {
+      "id": "manager:boot-recovery",
+      "meaning": "The manager comes back by itself after a power cut or reboot."
+    },
+    {
       "id": "manager:docker",
       "meaning": "The manager runs the pinned Docker Desktop."
     },

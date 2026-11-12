@@ -14,6 +14,9 @@ import {
   renderSupportMatrix,
   supportMatrix,
 } from '../../src/machine/support-matrix';
+import { checkOwner } from '../../src/check-owners';
+import { REPAIR_RECIPES } from '../../src/repair-catalog';
+import { manualReason, repairId, repairPlan } from '../../src/repair-plan';
 import { World, scenariosOf, steps, type DataTable } from '../support/gherkin';
 
 const root = resolve(import.meta.dir, '../..');
@@ -98,6 +101,7 @@ const KEYWORDS = new Set([
   'block',
   'rescue',
   'always',
+  'tags',
 ]);
 const NESTED = ['pre_tasks', 'tasks', 'handlers', 'block', 'rescue', 'always'];
 
@@ -1062,7 +1066,10 @@ const GENERATED: Record<string, () => Promise<string>> = {
   },
   checks: async () => {
     const found = new Map<string, Set<string>>();
-    for (const path of await files('src/**/*.ts'))
+    // The owners of the checks name them; they measure nothing.
+    for (const path of (await files('src/**/*.ts')).filter(
+      (path) => path !== 'src/check-owners.ts'
+    ))
       for (const match of read(path).matchAll(
         /['`]((?:auth|worker):[a-z0-9-]*(?:auth|github|vault|git-|credential)[a-z0-9-]*)['`]/g
       )) {
@@ -1197,3 +1204,136 @@ Then(
     expect(unlisted(world)).toEqual([platform]);
   }
 );
+
+// ── Who repairs a check ──────────────────────────────────────────────────
+
+const CHECK_ID =
+  /\bid: (?:'([a-z0-9-]+(?::[a-z0-9.-]+)+|dependencies)'|`([a-z0-9-]+:[^`]+)`)/g;
+
+When(
+  'the check IDs the TypeScript sources report are listed',
+  async (world) => {
+    const ids = new Set<string>();
+    for (const path of await files('src/**/*.ts')) {
+      // The recipes and the owners themselves are not checks.
+      if (['src/repair-catalog.ts', 'src/check-owners.ts'].includes(path))
+        continue;
+      for (const match of read(path).matchAll(CHECK_ID))
+        ids.add((match[1] ?? match[2]!).replace(/\$\{[^}]+\}/g, 'x'));
+    }
+    world.found = [...ids].sort();
+  }
+);
+Then('more than {int} check IDs were found', (world, count: number) => {
+  expect(world.found.length).toBeGreaterThan(count);
+});
+Then(
+  'every check ID found maps to a repair recipe or to a documented manual reason',
+  (world) => {
+    const unowned = world.found.filter((id) => {
+      const owner = checkOwner(id);
+      if (!owner) return true;
+      if (owner.repair === 'login:*') return false;
+      if (owner.repair)
+        return !REPAIR_RECIPES.some((entry) => entry.id === owner.repair);
+      return !owner.manual || owner.manual.length < 20;
+    });
+    expect(unowned).toEqual([]);
+  }
+);
+Then(
+  'the check {string} is repaired by {string}',
+  (_world, id: string, repair: string) => {
+    const check = { id, status: 'fail' as const, summary: '' };
+    if (repair === 'a person') {
+      expect(repairId(check)).toBe('operator');
+      expect(manualReason(check)).toBeTruthy();
+    } else {
+      expect(repairId(check)).toBe(repair);
+      expect(REPAIR_RECIPES.map((entry) => entry.id)).toContain(repair);
+    }
+  }
+);
+Then(
+  'every recipe that repairs a machine names a playbook, a tag and nothing else',
+  async () => {
+    for (const entry of REPAIR_RECIPES.filter((recipe) =>
+      recipe.owner.includes('(tag ')
+    )) {
+      const [command] = entry.commands;
+      expect(command?.[0]).toBe('ansible-playbook');
+      expect(command).toHaveLength(4);
+      const [, path, flag, tag] = command!;
+      expect(flag).toBe('--tags');
+      expect(read(path!)).toContain(tag!);
+    }
+  }
+);
+Then(
+  'a plan for a worker failing {string} and {string} says why the second is left to a person',
+  (_world, repaired: string, manual: string) => {
+    const steps = repairPlan(
+      [
+        {
+          node: 'worker-one',
+          checks: [repaired, manual].map((id) => ({
+            id,
+            status: 'fail' as const,
+            summary: id,
+          })),
+        } as never,
+      ],
+      []
+    );
+    const owner = steps.find((step) => step.checks.includes(repaired))!;
+    expect(owner.id).not.toBe('operator');
+    expect(owner.manual).toBeUndefined();
+    const person = steps.find((step) => step.checks.includes(manual))!;
+    expect(person.id).toBe('operator');
+    expect(person.manual).toEqual([
+      { check: manual, reason: checkOwner(manual)!.manual! },
+    ]);
+  }
+);
+
+// ── The manager runbook ──────────────────────────────────────────────────
+
+const RUNBOOK = 'docs/manager-recovery.md';
+const REPLACING =
+  /replac(e|ing) the manager|replacement manager|manager is lost/i;
+
+async function fleetDocuments(): Promise<string[]> {
+  // The fleet's own documents; a service's runbook (cliproxy/) is linked
+  // from the manager's.
+  return ['README.md', ...(await files('docs/*.md'))].filter(
+    (path) => path !== RUNBOOK
+  );
+}
+
+When(
+  'the tracked documents that mention replacing the manager are read',
+  async (world) => {
+    world.found = (await fleetDocuments()).filter((path) =>
+      REPLACING.test(read(path))
+    );
+  }
+);
+Then('there are at least {int} of them', (world, count: number) => {
+  expect(world.found.length).toBeGreaterThanOrEqual(count);
+});
+Then('every one links to {string}', (world, target: string) => {
+  expect(
+    world.found.filter((path) => !read(path).includes(`${target})`))
+  ).toEqual([]);
+});
+When(
+  'the tracked documents are searched for {string}',
+  async (world, text: string) => {
+    world.found = [...(await fleetDocuments()), RUNBOOK].filter((path) =>
+      read(path).includes(text)
+    );
+  }
+);
+Then('only these documents contain it:', (world, table: DataTable) => {
+  expect(world.found.sort()).toEqual(table.list().sort());
+});

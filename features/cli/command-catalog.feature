@@ -43,6 +43,7 @@ Feature: The command catalog
         | fleet-state --init    |
         | fleet-state --push    |
         | fleet-state --restore |
+        | fleet-restore         |
         | fleet-node-sync       |
         | fleet-repair          |
         | fleet-node-add        |

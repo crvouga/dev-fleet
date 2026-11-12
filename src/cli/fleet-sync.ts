@@ -31,6 +31,8 @@ import {
   DIVERGED_REMEDY,
   mutateState,
   refresh,
+  leaseConflict,
+  leaseHeldMessage,
   stateContext,
   type Standing,
 } from '../state/sync';
@@ -72,6 +74,8 @@ export interface FleetSyncOptions {
   /** Internal: set for interactive terminal runs (sudo enrollment prompts). */
   interactiveAuthorization?: boolean;
   expectedPlanFingerprint?: string;
+  /** Take the manager lease from another manager before it expired. */
+  takeOver?: boolean;
 }
 export function machineRoot(): string {
   const root = join(homedir(), '.local/share/personal/fleet/manager');
@@ -140,6 +144,31 @@ export interface ManagerSync {
   restart: () => Promise<CommandOutcome>;
 }
 
+/** Why the fleet state stops this run before any machine or the state is
+ * changed, if it does.
+ */
+function stateRefusal(
+  standing: Standing,
+  options: FleetSyncOptions,
+  run: Runner,
+  revision: string
+): CommandOutcome | null {
+  if (standing === 'diverged')
+    return actionRequired('FLEET_STATE_DIVERGED', DIVERGED_REMEDY, revision);
+  // One manager at a time: another one's lease stops this run.
+  const held = leaseConflict({
+    ...stateContext(run),
+    takeOver: options.takeOver === true,
+  });
+  return held
+    ? actionRequired(
+        'FLEET_MANAGER_LEASE_HELD',
+        leaseHeldMessage(held),
+        revision
+      )
+    : null;
+}
+
 /** fleet-sync on the machine already known to be the manager. */
 export async function managerSync(
   options: FleetSyncOptions,
@@ -177,8 +206,8 @@ export async function managerSync(
   // version of the configuration, the roster and the approval, not from a
   // stale local copy. Refreshing never uploads.
   const fresh = await refresh(stateContext(run));
-  if (fresh.standing === 'diverged')
-    return actionRequired('FLEET_STATE_DIVERGED', DIVERGED_REMEDY, revision);
+  const refused = stateRefusal(fresh.standing, options, run, revision);
+  if (refused) return refused;
   if (fresh.replaced) {
     // Everything read so far came from the stale copy, the manager's own
     // identity included.
@@ -274,7 +303,7 @@ function applyLocked(
 ): Promise<CommandOutcome> {
   const { settings, run, revision } = context;
   const record = runRecord(state, revision, {
-    context: stateContext(run),
+    context: { ...stateContext(run), takeOver: request.takeOver === true },
     standing: context.standing,
     ...(definitionSource().kind === 'file'
       ? { definition: JSON.stringify(canonicalDefinition, null, 2) + '\n' }

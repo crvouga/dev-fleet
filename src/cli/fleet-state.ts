@@ -25,6 +25,7 @@ import {
   type Connection,
 } from '../state/connection';
 import { adoptEarlier, legacyPath, readLegacy } from '../state/legacy';
+import { managerHolder } from '../state/holder';
 import { bucketPath, databasePath, stateRoot } from '../state/paths';
 import {
   DOCUMENTS,
@@ -36,7 +37,11 @@ import {
 import {
   mutateState,
   pending,
+  leaseConflict,
+  leaseHeldMessage,
   pull,
+  pullAt,
+  refresh,
   push,
   standing,
   type Standing,
@@ -58,6 +63,8 @@ export interface FleetStateOptions {
   push?: boolean;
   restore?: boolean;
   yes?: boolean;
+  timestamp?: string;
+  takeOver?: boolean;
   json?: boolean;
   nonInteractive?: boolean;
 }
@@ -68,6 +75,10 @@ export interface FleetStateServices {
   home: string;
   /** Asks for one hidden value on the terminal; null when there is none. */
   ask: ((question: string) => Promise<string>) | null;
+  /** This machine, as the manager lease names it; without one the lease is
+   * neither checked nor taken.
+   */
+  holder?: string | null;
 }
 
 function terminalAsk(
@@ -84,11 +95,16 @@ function terminalAsk(
 const reach = (services: FleetStateServices): Connection =>
   connection(services.env, services.home);
 
-function context(services: FleetStateServices): StateContext {
+function context(
+  services: FleetStateServices,
+  options: FleetStateOptions = {}
+): StateContext {
   return {
     root: stateRoot(services.env, services.home),
     bucket: reach(services).bucket,
     run: services.run,
+    holder: services.holder ?? null,
+    takeOver: options.takeOver === true,
   };
 }
 
@@ -109,6 +125,8 @@ function action(options: FleetStateOptions): Action | 'status' {
       'Choose one of --init, --import, --export, --example, --push or --restore.'
     );
   const settings = ['bucket', 'endpoint', 'region', 'prefix', 'directory'];
+  if (options.timestamp !== undefined && chosen[0] !== 'restore')
+    throw new FleetUsageError('--timestamp belongs to --restore.');
   if (
     chosen[0] !== 'init' &&
     settings.some((name) => options[name as keyof FleetStateOptions])
@@ -367,8 +385,22 @@ async function init(
       `Saved the bucket settings to ${bucketPath(services.env, services.home)}.`
     );
   }
-  const target = context(services);
+  const target = context(services, options);
   const had = listDocuments(databasePath(target.root)).length > 0;
+  // A replacement connects to restore. While another manager holds the
+  // lease this one only takes the bucket's version and writes nothing.
+  const fresh = await refresh(target);
+  const held = leaseConflict(target);
+  if (held) {
+    if (!had && fresh.replaced)
+      done.push('Restored the fleet state from the bucket.');
+    done.push(leaseHeldMessage(held));
+    return report(services, {
+      standing: fresh.standing,
+      done,
+      missing: 'warn',
+    });
+  }
   const { value, standing: after } = await mutateState(target, (before) => {
     // A state the bucket already holds is the fleet's; this machine's
     // earlier files only ever seed an empty one.
@@ -388,7 +420,8 @@ async function init(
 
 async function importDefinition(
   path: string,
-  services: FleetStateServices
+  services: FleetStateServices,
+  options: FleetStateOptions
 ): Promise<CommandOutcome> {
   let value: unknown;
   try {
@@ -399,7 +432,7 @@ async function importDefinition(
     );
   }
   const body = JSON.stringify(parseDefinition(value), null, 2) + '\n';
-  const target = context(services);
+  const target = context(services, options);
   const { standing: after } = await mutateState(target, () => {
     adoptEarlier(services.env, services.home);
     return writeDocument(databasePath(target.root), 'definition', body);
@@ -458,6 +491,23 @@ async function restore(
     throw new FleetUsageError(
       'No bucket is configured, so there is nothing to restore from. Name it under "state" in fleet.json, or run devfleet fleet-state --init --bucket NAME --endpoint https://HOST.'
     );
+  if (options.timestamp !== undefined) {
+    // The bucket's current version is replaced too: --yes is the consent.
+    if (!options.yes)
+      throw new FleetUsageError(
+        '--restore --timestamp replaces the fleet state in the bucket and on this machine with an earlier version. Repeat with --yes.'
+      );
+    const after = await pullAt(target, options.timestamp);
+    return report(services, {
+      standing: after,
+      done:
+        after === 'in-sync'
+          ? [
+              `This machine and the bucket now hold the fleet state as it was at ${options.timestamp}.`,
+            ]
+          : [],
+    });
+  }
   if (pending(target) && !options.yes)
     throw new FleetUsageError(
       'This machine has fleet state the bucket does not hold, and --restore discards it. Upload it with --push, or repeat with --yes to discard it.'
@@ -477,6 +527,7 @@ const DEFAULTS = (options: FleetStateOptions): FleetStateServices => ({
   env: process.env,
   home: homedir(),
   ask: terminalAsk(options),
+  holder: managerHolder(process.env),
 });
 
 /** `fleet-state` alone is read-only. Each flag is one explicit action on the
@@ -488,7 +539,8 @@ export async function fleetState(
 ): Promise<CommandOutcome> {
   const chosen = action(options);
   if (chosen === 'init') return init(options, services);
-  if (chosen === 'import') return importDefinition(options.import!, services);
+  if (chosen === 'import')
+    return importDefinition(options.import!, services, options);
   if (chosen === 'export') return exportDefinition(services);
   if (chosen === 'example') return exampleDefinition();
   if (chosen === 'restore') return restore(options, services);

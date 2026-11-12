@@ -49,6 +49,13 @@ const FINDINGS: Record<
     action:
       'Check the network, the bucket named under "state" in fleet.json (or saved in bucket.json) and its credentials: DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY for this command, or the ones devfleet fleet-state --init saved on this machine. Then run devfleet fleet-state --push, which also installs the pinned Litestream when it is missing (that needs mise, which the first fleet-sync on a machine installs). Details are withheld to protect credentials.',
   },
+  corrupt: {
+    status: 'fail',
+    summary:
+      'The bucket answered, but the fleet state it holds cannot be read: the replica is damaged.',
+    action:
+      'The network and the credentials work; the latest version in the bucket does not. Restore the last good version from before the damage, which also uploads it as the current one: devfleet fleet-state --restore --timestamp 2026-11-01T00:00:00Z --yes (a time before the damage; Litestream keeps thirty days). See docs/state.md.',
+  },
   diverged: {
     status: 'fail',
     summary: 'This machine and the bucket hold different fleet states.',

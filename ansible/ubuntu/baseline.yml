@@ -8,24 +8,30 @@
     - policy.json
   pre_tasks:
     - ansible.builtin.import_tasks: tasks/release.yml
+      tags: [always]
     - name: Require an explicit non-root user
       ansible.builtin.assert:
         that:
           - development_user is match('^[a-z_][a-z0-9_-]{0,31}$')
           - development_user != 'root'
         fail_msg: Unsupported user; name the non-root developer account.
+      tags: [always]
     - name: Read the designated existing account
       ansible.builtin.getent:
         database: passwd
         key: '{{ development_user }}'
+      tags: [always]
     - name: Refuse a different user identity or home
       ansible.builtin.assert:
         that:
           - ansible_facts.getent_passwd[development_user][1] | int == development_uid | int
           - ansible_facts.getent_passwd[development_user][4] == development_home
+      tags: [always]
     - ansible.builtin.import_tasks: tasks/dpkg.yml
     # Memory and disk safety must land even when the disk is nearly full.
+    # fleet-repair re-applies them alone (--tags disk) for worker:capacity:*.
     - ansible.builtin.import_tasks: tasks/resources.yml
+      tags: [disk]
     - name: Inspect capacity before package and service changes
       ansible.builtin.command:
         argv:

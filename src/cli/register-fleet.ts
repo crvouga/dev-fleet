@@ -12,6 +12,7 @@ import { fleetReport, type FleetReportOptions } from './fleet-report';
 import { fleetWatch, watchServices } from './fleet-watch';
 import type { NodeReport } from '../types';
 import { registerGithubVerify } from './github-verify';
+import { fleetRestore, type FleetRestoreOptions } from './fleet-restore';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -200,6 +201,10 @@ function registerSync({ program, defaults, complete }: Registration) {
     )
     .option('--yes', 'Accepted for compatibility with --apply')
     .option(
+      '--take-over',
+      'Make this machine the manager while another one still holds the manager lease'
+    )
+    .option(
       '--schedule <action>',
       'Manager-only schedule: enable, pause, resume, disable, status'
     )
@@ -277,6 +282,14 @@ function registerState({ program, complete }: Registration) {
       'Replace this machine’s copy with the bucket’s version'
     )
     .option('--yes', 'With --restore: discard changes the bucket does not hold')
+    .option(
+      '--timestamp <time>',
+      'With --restore: the version the bucket held at this time, uploaded again as the current one (a damaged replica)'
+    )
+    .option(
+      '--take-over',
+      'With --init or --import: change the fleet state while another manager still holds the manager lease'
+    )
     .addHelpText(
       'after',
       '\nRead-only without a flag. The bucket is the one named under "state" in fleet.json. Every command reads its credentials from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY; --init also asks on the terminal. They are never taken from arguments.'
@@ -332,6 +345,23 @@ function registerWatch({ program, defaults, complete }: Registration) {
     });
 }
 
+function registerRestore({ program, complete }: Registration) {
+  program
+    .command('fleet-restore')
+    .description(
+      'Bring a replacement manager back from the bucket (docs/manager-recovery.md)'
+    )
+    .option(
+      '--dry-run',
+      'Verify every prerequisite and list what would be restored; change nothing'
+    )
+    .action(async (_options, command: Command) => {
+      complete(
+        await fleetRestore(command.optsWithGlobals<FleetRestoreOptions>())
+      );
+    });
+}
+
 export function registerFleet(
   program: Command,
   defaults: Settings,
@@ -348,6 +378,7 @@ export function registerFleet(
   registerState(registration);
   registerReport(registration);
   registerWatch(registration);
+  registerRestore(registration);
   registerRepair(registration);
   registerNodes(registration);
   registerAccounts(registration);

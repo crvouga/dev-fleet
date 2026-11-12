@@ -1,6 +1,7 @@
 import { expect } from 'bun:test';
 import { existsSync } from 'node:fs';
 import type { CommandOutcome } from '../../../src/cli/contracts';
+import { fleetRestore } from '../../../src/cli/fleet-restore';
 import {
   fleetState,
   type FleetStateOptions,
@@ -24,6 +25,7 @@ import {
 const { Given, When, Then } = state;
 
 const SWITCHES = ['init', 'export', 'example', 'push', 'restore', 'yes'];
+const CAMEL: Record<string, string> = { 'take-over': 'takeOver' };
 const VALUES = [
   'bucket',
   'endpoint',
@@ -31,6 +33,7 @@ const VALUES = [
   'prefix',
   'directory',
   'import',
+  'timestamp',
 ];
 
 /** A `fleet-state` command line as its options, each value expanded. */
@@ -44,7 +47,8 @@ function options(
   const parsed: Record<string, string | boolean> = {};
   while (words.length > 0) {
     const flag = words.shift()!.replace(/^--/, '');
-    if (SWITCHES.includes(flag)) parsed[flag] = true;
+    if (CAMEL[flag]) parsed[CAMEL[flag]] = true;
+    else if (SWITCHES.includes(flag)) parsed[flag] = true;
     else if (VALUES.includes(flag))
       parsed[flag] = world.expand(words.shift() ?? '', manager);
     else throw new Error(`fleet-state has no --${flag}`);
@@ -65,11 +69,30 @@ function run(
     env: manager.env,
     home: manager.home,
     ask: manager.ask,
+    holder: manager.holder,
   });
 }
 
+When(
+  phrase('the operator runs "fleet-restore( --dry-run)?" on ', WHO),
+  (world, dryRun: string | undefined, name: string | undefined) => {
+    const manager = world.manager(name);
+    return world.attempt(() =>
+      fleetRestore(
+        { dryRun: Boolean(dryRun) },
+        {
+          run: manager.run,
+          env: manager.env,
+          home: manager.home,
+          holder: manager.holder,
+        }
+      )
+    );
+  }
+);
+
 Given(
-  phrase('the operator (runs|ran|tried) "([^"]+)" on ', WHO),
+  phrase('the operator (runs|ran|tried) "(fleet-state[^"]*)" on ', WHO),
   (world, verb: string, command: string, name: string | undefined) =>
     act(world, verb, () => run(world, world.manager(name), command))
 );

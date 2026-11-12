@@ -125,15 +125,18 @@ export async function replicate(target: Replication): Promise<boolean> {
   ]);
 }
 
-/** Downloads the bucket's latest version to `output`, which must not exist.
- * `absent` means the bucket is reachable and holds no state yet.
+/** Downloads the bucket's latest version to `output`, which must not exist,
+ * or the version it held at `timestamp`. `absent` means the bucket is
+ * reachable and holds no state yet.
  */
 export async function restore(
   target: Replication,
-  output: string
+  output: string,
+  timestamp?: string
 ): Promise<'restored' | 'absent' | 'failed'> {
   const ran = await invoke(target, 'restore', [
     '-if-replica-exists',
+    ...(timestamp ? ['-timestamp', timestamp] : []),
     '-o',
     output,
     target.database,

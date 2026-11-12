@@ -93,7 +93,7 @@ export const COMMANDS: CommandSpec[] = [
     [
       'fleet-state --restore',
       'Replace the local fleet state with the bucket’s',
-      'Discard this manager’s copy of the fleet state and download the bucket’s version. Needs --yes when this machine has changes the bucket does not hold.',
+      'Discard this manager’s copy of the fleet state and download the bucket’s version. Needs --yes when this machine has changes the bucket does not hold. --timestamp TIME --yes restores the version the bucket held then and uploads it again: the remedy for a corrupt replica.',
       ['state', 'bucket', 'restore', 'recover', 'disposable'],
       true,
     ],
@@ -102,6 +102,19 @@ export const COMMANDS: CommandSpec[] = [
       'Report how reliably fleet-sync runs',
       'Read-only: success rate, mean duration, the most frequent failing check IDs and how long each machine was not ready, from the history of fleet-sync runs kept in the fleet state. --since 30d (default), 12h or 90m.',
       ['history', 'reliability', 'report', 'failures', 'sync'],
+    ],
+    [
+      'fleet-restore --dry-run',
+      'Check that a replacement manager can be restored',
+      'Read-only: verifies every prerequisite of a manager restore (fleet.json, the bucket and the state in it, the local host name, Git, Tailscale, the container engine) and lists what would be restored, in order. docs/manager-recovery.md is the runbook.',
+      ['manager', 'restore', 'replace', 'lost', 'recovery', 'runbook'],
+    ],
+    [
+      'fleet-restore',
+      'Restore a replacement manager from the bucket',
+      'Runs the same checks, then takes the fleet state from the bucket. fleet-sync rebuilds the rest.',
+      ['manager', 'restore', 'replace', 'lost', 'recovery'],
+      true,
     ],
     [
       'fleet-node-sync',

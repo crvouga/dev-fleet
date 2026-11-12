@@ -7,5 +7,6 @@ import './documents';
 import './fleet-state';
 import './fleet-sync';
 import './litestream';
+import './lifecycle';
 
 export { StateWorld, state } from './world';

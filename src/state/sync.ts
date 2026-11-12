@@ -18,12 +18,29 @@ import { bucketIdentity, type Bucket } from './bucket';
 import { connection } from './connection';
 import { replicate, restore } from './litestream';
 import { databasePath, replicatedPath, stateRoot } from './paths';
-import { readHead, type Head } from './store';
+import { managerHolder } from './holder';
+import {
+  StateNewerError,
+  readHead,
+  readLease,
+  writeLease,
+  type Head,
+  type Lease,
+} from './store';
+
+export type { Lease } from './store';
 
 export interface StateContext {
   root: string;
   bucket: Bucket | null;
   run: Runner;
+  /** This machine, as the manager lease names it. Without one the lease is
+   * neither checked nor taken.
+   */
+  holder?: string | null;
+  /** Take the lease from another manager before it expired. */
+  takeOver?: boolean;
+  now?: () => Date;
 }
 
 export function stateContext(
@@ -34,12 +51,14 @@ export function stateContext(
     root: stateRoot(env),
     bucket: connection(env).bucket,
     run,
+    holder: managerHolder(env),
   };
 }
 
 /** How this machine's copy compares with the bucket.
  * - `local-only`: no bucket is configured; this copy is the only one.
  * - `unreachable`: the bucket did not answer, or did not take an upload.
+ * - `corrupt`: the bucket answered with a version that cannot be read.
  * - `empty`: neither side holds any state.
  * - `unpublished`: the bucket holds nothing yet; this copy can seed it.
  * - `in-sync`: both hold the same version.
@@ -50,6 +69,7 @@ export function stateContext(
 export type Standing =
   | 'local-only'
   | 'unreachable'
+  | 'corrupt'
   | 'empty'
   | 'unpublished'
   | 'in-sync'
@@ -109,19 +129,24 @@ const INCOMING = /^incoming-[0-9a-f-]{36}\.db/;
 
 type Remote =
   | { status: 'unreachable' }
+  | { status: 'corrupt' }
   | { status: 'absent' }
   | { status: 'present'; file: string; head: Head };
 
-/** Downloads the bucket's current version beside the local one. */
+/** Downloads the bucket's current version beside the local one, or the
+ * version it held at `timestamp`.
+ */
 async function fetchRemote(
   context: StateContext & { bucket: Bucket },
-  install = true
+  install = true,
+  timestamp?: string
 ): Promise<Remote> {
   const database = databasePath(context.root);
   const file = join(context.root, `incoming-${randomUUID()}.db`);
   const outcome = await restore(
     { database, bucket: context.bucket, run: context.run, install },
-    file
+    file,
+    timestamp
   );
   if (outcome === 'absent') return { status: 'absent' };
   try {
@@ -130,10 +155,12 @@ async function fetchRemote(
     discard(file);
     // A replica that holds no version yet is the same as no replica.
     return { status: outcome === 'restored' ? 'absent' : 'unreachable' };
-  } catch {
-    // A download that cannot be read says nothing about the bucket.
+  } catch (error) {
     discard(file);
-    return { status: 'unreachable' };
+    // A newer dev-fleet wrote it: refused, never taken for damage.
+    if (error instanceof StateNewerError) throw error;
+    // The bucket answered, and what it holds cannot be read.
+    return { status: 'corrupt' };
   }
 }
 
@@ -163,8 +190,8 @@ async function observe(
   const { bucket } = context;
   if (!bucket) return { standing: 'local-only', local, remote: null };
   const remote = await fetchRemote({ ...context, bucket }, install);
-  if (remote.status === 'unreachable')
-    return { standing: 'unreachable', local, remote };
+  if (remote.status === 'unreachable' || remote.status === 'corrupt')
+    return { standing: remote.status, local, remote };
   if (remote.status === 'absent')
     return { standing: local ? 'unpublished' : 'empty', local, remote };
   const replicated = readReplicated(context.root, bucket);
@@ -261,7 +288,9 @@ async function upload(
  */
 function settle(context: StateContext, before: Standing): Promise<Standing> {
   const { bucket } = context;
-  if (!bucket || before === 'unreachable') return Promise.resolve(before);
+  // A damaged replica keeps its history for a point-in-time restore.
+  if (!bucket || before === 'unreachable' || before === 'corrupt')
+    return Promise.resolve(before);
   const head = readHead(databasePath(context.root));
   if (
     before === 'in-sync' &&
@@ -319,6 +348,40 @@ export function pull(context: StateContext): Promise<Standing> {
   return locked(context.root, () => observed(context, true));
 }
 
+/** Replaces this copy with the version the bucket held at `timestamp`, then
+ * uploads it as the bucket's current version: the way back from a replica
+ * whose latest version is damaged. `unreachable` when the bucket holds no
+ * readable version at that time.
+ */
+export function pullAt(
+  context: StateContext,
+  timestamp: string
+): Promise<Standing> {
+  if (Number.isNaN(Date.parse(timestamp)))
+    throw new FleetUsageError(
+      '--timestamp needs a time such as 2026-11-01T00:00:00Z.'
+    );
+  const { bucket } = context;
+  if (!bucket)
+    throw new FleetUsageError(
+      'No bucket is configured, so there is no earlier version to restore.'
+    );
+  return locked(context.root, async () => {
+    const remote = await fetchRemote(
+      { ...context, bucket },
+      true,
+      new Date(timestamp).toISOString()
+    );
+    if (remote.status !== 'present')
+      return remote.status === 'absent' ? 'empty' : remote.status;
+    const database = databasePath(context.root);
+    discard(database);
+    renameSync(remote.file, database);
+    chmodSync(database, 0o600);
+    return upload({ ...context, bucket }, true);
+  });
+}
+
 /** Uploads this copy's changes, only when the bucket has not moved since
  * this copy last matched it. A copy with no changes of its own is brought up
  * to the bucket instead; a diverged one is left alone and reported.
@@ -329,6 +392,62 @@ export function push(context: StateContext): Promise<Standing> {
     return ['unpublished', 'local-ahead'].includes(before)
       ? settle(context, before)
       : before;
+  });
+}
+
+/** How long a manager holds the lease after its last change. A machine that
+ * wakes up later than this may take it without being asked.
+ */
+export const LEASE_DAYS = 7;
+const LEASE_MS = LEASE_DAYS * 24 * 60 * 60 * 1000;
+
+/** Another manager holds the lease: this one changes nothing. */
+export class LeaseHeldError extends FleetUsageError {}
+
+/** The lease another manager holds over this copy, when it is not expired
+ * and this machine was not told to take it over. Reads local files only: call
+ * it on the bucket's version, after a refresh.
+ */
+export function leaseConflict(
+  context: StateContext,
+  now: Date = (context.now ?? (() => new Date()))()
+): Lease | null {
+  const lease = readLease(databasePath(context.root));
+  if (!context.holder || !lease || lease.holder === context.holder) return null;
+  if (Date.parse(lease.expiresAt) <= now.getTime() || context.takeOver)
+    return null;
+  return lease;
+}
+
+export function leaseHeldMessage(lease: Lease): string {
+  return `FLEET_MANAGER_LEASE_HELD: another manager (${lease.holder}) holds the fleet state until ${lease.expiresAt}. Nothing was changed. Run devfleet from that manager; to make this machine the manager instead, repeat with --take-over once the other one is gone (see docs/manager-recovery.md).`;
+}
+
+/** Refuses when another manager holds the lease. Call it before the first
+ * write of a session.
+ */
+export function refuseHeldLease(context: StateContext): void {
+  const held = leaseConflict(context);
+  if (held) throw new LeaseHeldError(leaseHeldMessage(held));
+}
+
+/** Takes or renews the lease for this machine: when it is not this machine's
+ * yet, or half spent. Call it at the end of a session that may write.
+ */
+export function claimLease(
+  context: StateContext,
+  now: Date = (context.now ?? (() => new Date()))()
+): void {
+  refuseHeldLease(context);
+  if (!context.holder) return;
+  const lease = readLease(databasePath(context.root));
+  const fresh =
+    lease?.holder === context.holder &&
+    Date.parse(lease.expiresAt) - now.getTime() > LEASE_MS / 2;
+  if (fresh) return;
+  writeLease(databasePath(context.root), {
+    holder: context.holder,
+    expiresAt: new Date(now.getTime() + LEASE_MS).toISOString(),
   });
 }
 
@@ -346,7 +465,9 @@ export function mutateState<T>(
   return locked(context.root, async () => {
     const before = await observed(context, false);
     if (before === 'diverged') throw new FleetUsageError(DIVERGED_REMEDY);
+    refuseHeldLease(context);
     const value = await change(before);
+    claimLease(context);
     return { value, standing: await settle(context, before) };
   });
 }

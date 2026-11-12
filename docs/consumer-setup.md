@@ -382,10 +382,8 @@ and codes; leave out everything private.
 - **Upgrade the fleet.** `npm install --save-dev --save-exact @crvouga/dev-fleet@latest`,
   commit, `npx devfleet fleet-sync`. The canary proves the new revision first.
   Install an older version and sync to roll back.
-- **Replace the manager.** On the new Mac: clone the project, `npm ci`, put
-  the bucket credentials in the environment, `npx devfleet fleet-sync`. The
-  roster and the approved revision come back from the bucket. See
-  [state](state.md) for what the bucket does not hold yet.
+- **Replace the manager.** Follow
+  [replacing the manager](manager-recovery.md).
 
 ## Moving from a pinned commit and a wrapper script
 
