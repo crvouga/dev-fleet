@@ -9,6 +9,8 @@ import type { Check, Runner } from './types';
 import { UBUNTU_WORKER } from './platform/ubuntu-worker';
 import { workerAccessChecks } from './worker-access-checks';
 import { record } from './config';
+import { workerExposure } from './exposure';
+import { exposureCheck } from './worker-exposure';
 
 export async function workerReadiness(
   run: Runner,
@@ -67,6 +69,7 @@ export async function workerReadiness(
       run,
       workerSelection(fleet, nodeId).profiles.includes('web')
     ),
+    await exposureCheck(workerExposure(fleet, nodeId), run),
     ...(await gitChecks(fleet.git, run)),
     ...(await workerCapacity(root, nodeId, run)),
   ];

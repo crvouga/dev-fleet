@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 251 codes; 31 need a person.
+There are 260 codes; 34 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -118,6 +118,23 @@ There are 251 codes; 31 need a person.
 - `DOCKER_RUN_TIMEOUT`: docker run timeout.
 - `DOCKER_SMOKE_IMAGE_MISSING`: docker smoke image missing.
 - `DOCKER_SOCKET_ACCESS_DENIED`: docker socket access denied.
+
+## Exposure of a worker
+
+- **Meaning:** Something on the worker is reachable from outside the tailnet, or could be: the fleet firewall (`ansible/ubuntu/tasks/firewall.yml`) is not loaded or kept SSH open, a service listens beyond loopback and the tailnet (`worker:exposure`), or the manager reached a fleet port on the worker's public address (`worker:public-reachability`). The exposure policy is `exposure` in `fleet.json` (fleet-wide under `worker`, per worker beside `network`).
+- **Confirm:** On the worker: `sudo nft list table inet personal_fleet`, `sudo ss -H -l -n -t -u -p` and `sudo sshd -T | grep -E 'passwordauthentication|permitrootlogin'`. From the manager: `devfleet fleet-status --workers`.
+- **Fix:** Run `devfleet fleet-sync`. It closes SSH beyond the tailnet only when the manager's session arrives over the tailnet: point the worker's SSH alias at its tailnet name first. Bind a service to `127.0.0.1` or the tailnet address, or declare its port in `publicPorts`.
+- **Escalate:** A firewall the tailnet path could not verify (the previous rules are back) needs `tailscale status` on the worker; a public SSH port is opened on purpose only with `publicSsh`, by a person.
+
+- `FIREWALL_RULES_REJECTED`: firewall rules rejected by `nft --check`; the previous rules stay loaded.
+- `FIREWALL_TAILNET_UNVERIFIED`: the tailnet path did not answer a new probe after the rules loaded; the previous rules were restored.
+- `FIREWALL_UNMANAGED_CONFLICT`: `/etc/personal-fleet/firewall.nft` exists without the fleet's marker. **Needs a person.**
+- `SSH_HARDENING_OVERRIDDEN`: `sshd -T` still allows passwords or root login: an earlier fragment or a Match block wins. **Needs a person.**
+- `WORKER_EXPOSURE_UNOBSERVED`: the addresses, sockets or firewall could not be read with `sudo -n`.
+- `WORKER_FIREWALL_INACTIVE`: the fleet firewall is not loaded.
+- `WORKER_LISTENER_UNRESTRICTED`: a socket listens beyond loopback and the tailnet outside the allow-list; the summary names the port and the owning unit. A fleet service fails; another warns or fails by `otherListeners`.
+- `WORKER_PUBLIC_PORT_UNRESTRICTED`: the manager connected to SSH, T3 or the monitoring port on the worker's public address.
+- `WORKER_PUBLIC_SSH_UNDECLARED`: SSH is still open beyond the tailnet without `publicSsh`, because no session over the tailnet proved the manager's path. **Needs a person.**
 
 ## Headless browser on a worker
 

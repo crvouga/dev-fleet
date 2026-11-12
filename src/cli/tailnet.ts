@@ -6,6 +6,7 @@ import {
   appendDashboardEvidence,
 } from './managed-health';
 import { discoverTailnet } from '../tailscale';
+import { appendPublicReachability } from '../public-reachability';
 import { tailnetHealth } from '../tailnet-health';
 import { makeReport, renderReport, reportExitCode } from '../report';
 import { readRoster } from './roster';
@@ -57,6 +58,8 @@ export async function executeTailnet(
   );
   if (options.managed)
     await appendManagerLinks(nodes, registered, services.run);
+  // From the manager, outside the tailnet: optional, it never blocks readiness.
+  if (options.workers) await appendPublicReachability(nodes, services.run);
   // The hub runs on the manager, which worker scope deliberately filters out of
   // `tailnet`; its visibility comes from the unfiltered discovery.
   const dashboard = options.workers

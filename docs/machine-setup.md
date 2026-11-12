@@ -405,6 +405,9 @@ and Ninja) or `jvm` (Temurin), each a `worker_profile_<name>` under `[vars]` in
 `mise.toml`. `worker.tools` adds single tools dev-fleet already pins. The setup
 installs them (`--node` reads the installed configuration) and the doctor
 checks each as `tool:<name>` (`--profiles`, `--tools`).
+`worker.exposure` (fleet-wide) or `exposure` on one worker says what a worker
+opens beyond loopback and the tailnet; without it, nothing. See
+[Exposure](ubuntu-sync.md#exposure).
 The source-owned `worker-auth.ts` timer renews the worker's existing Vault token
 and can restore the declared GitHub account from its authorized Vault service
 credential, without copying another machine's login directory.

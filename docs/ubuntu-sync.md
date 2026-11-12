@@ -236,14 +236,58 @@ GNOME lock/idle changes apply to the designated user only. Effective running
 session/logind behavior still needs a maintenance/reboot acceptance check; writing
 a file does not prove logout/reboot survival. The sudoers fragment is validated
 with visudo before installation; this user and its agents can administer the
-machine. SSH authentication remains enabled.
+machine.
 
-SSH forwarding changes validate the complete configuration before reload and
-restore the previous fragment on validation failure. Existing listeners,
-authentication and firewall rules are preserved. Existing socket activation is preserved for forwarding-only changes; listener
-migrations and unmanaged fragments require review. The manager makes a **new**
-strict SSH connection after apply. Private-listener/firewall acceptance and
-failure-after-reload recovery still require disposable integration testing.
+SSH changes validate the complete configuration before reload and restore the
+previous fragments on validation failure. sshd takes keys only and refuses
+root (`10-personal-fleet-exposure.conf`, which sorts before an image's own
+fragments; `SSH_HARDENING_OVERRIDDEN` when `sshd -T` still shows otherwise).
+Existing listeners and socket activation are preserved; unmanaged fragments
+require review. The manager makes a **new** strict SSH connection after apply.
+
+### Exposure
+
+Every worker, with a public address or without one, admits inbound traffic
+only over loopback and the tailnet (`ansible/ubuntu/tasks/firewall.yml`, the
+`inet personal_fleet` nftables table, loaded at boot by
+`personal-fleet-firewall.service`). Open beyond it: tailscaled's UDP port,
+DHCP replies, ICMP, and what the exposure policy opens. Where Docker is
+installed, a published container port is dropped from outside the tailnet
+before Docker's own chains see it. Docker's and Tailscale's tables are left to
+their owners.
+
+The policy is `exposure` in `fleet.json`, fleet-wide under `worker` and per
+worker beside `network`; a field a worker names replaces the fleet-wide one:
+
+```json
+"exposure": {
+  "publicSsh": false,
+  "publicPorts": [{ "protocol": "udp", "port": 51820 }],
+  "otherListeners": "warn"
+}
+```
+
+`publicSsh` is break-glass access: SSH stays open beyond the tailnet.
+Without it the public SSH port closes only when the session running the sync
+arrived over the tailnet, after the tailnet path answers a new probe and sshd
+a new connection on the tailnet address; a failed verification restores the
+previous rules (`FIREWALL_TAILNET_UNVERIFIED`). A session from a public
+address, a tailnet that is not up, or a run without a session that finds the
+port open keeps it open, and `worker:exposure` reports
+`WORKER_PUBLIC_SSH_UNDECLARED` until the manager's SSH alias names the
+worker's tailnet name.
+
+`worker:exposure` (on the worker) lists listening sockets and fails on one
+bound beyond loopback and the tailnet outside the allow-list (sshd, tailscaled,
+the system's DHCP and name-resolution listeners, `publicPorts`), naming the
+port and its unit. A fleet service there always fails; anything else, such as
+an agent's development server, warns or fails by `otherListeners`.
+`worker:public-reachability` (from the manager, in `fleet-status --workers`)
+tries the SSH, T3 and monitoring ports on the public address Tailscale knows
+for the worker; it never blocks readiness, because the manager may share the
+worker's network. Both are not applicable without an address outside the
+tailnet. Closing the public path on a machine with two interfaces still needs
+the disposable VM or a real machine to prove.
 
 The manager is the only configuration coordinator. No per-node pull timer is
 installed. Manager schedule controls use the existing platform adapter:

@@ -1,0 +1,50 @@
+# Managed by personal Fleet; inbound only over loopback and the tailnet (worker exposure policy).
+# Loaded at boot by personal-fleet-firewall.service. Replaces only its own
+# table: Docker's and Tailscale's tables are left to their owners.
+table inet personal_fleet
+delete table inet personal_fleet
+
+table inet personal_fleet {
+	chain input {
+		type filter hook input priority filter - 10; policy drop;
+		iif "lo" accept
+		ct state invalid drop
+		ct state established,related accept
+		iifname "{{ exposure.tailnetInterface }}" accept
+{% if firewall_docker | bool %}
+{% for interface in exposure.containerInterfaces %}
+		iifname "{{ interface }}" accept comment "containers reach the host"
+{% endfor %}
+{% endif %}
+		udp dport {{ exposure.tailscalePort }} accept comment "tailscaled"
+		meta l4proto ipv6-icmp accept
+		meta l4proto icmp accept
+		udp sport 67 udp dport 68 accept comment "dhcp"
+		ip6 saddr fe80::/10 udp sport 547 udp dport 546 accept comment "dhcpv6"
+{% if firewall_public_ssh | bool %}
+{% for port in firewall_ssh_ports %}
+		tcp dport {{ port }} accept comment "public-ssh"
+{% endfor %}
+{% endif %}
+{% for entry in firewall_policy.publicPorts | default([]) %}
+		{{ entry.protocol }} dport {{ entry.port }} accept comment "public-port"
+{% endfor %}
+	}
+{% if firewall_docker | bool %}
+
+	# A published container port is reached by forwarding, not input: from
+	# outside the tailnet it is dropped before Docker's own chains accept it.
+	chain forward {
+		type filter hook forward priority filter - 10; policy accept;
+		ct state established,related accept
+		iifname "{{ exposure.tailnetInterface }}" accept
+{% for interface in exposure.containerInterfaces %}
+		iifname "{{ interface }}" accept
+{% endfor %}
+		ct status dnat drop comment "container-port"
+{% for interface in exposure.containerInterfaces %}
+		oifname "{{ interface }}" drop comment "container-port"
+{% endfor %}
+	}
+{% endif %}
+}

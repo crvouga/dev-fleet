@@ -2,6 +2,7 @@ import { CAPABILITIES, record } from './config';
 import { FleetUsageError } from './errors';
 import type { Capability } from './types';
 import { TOOL_PROFILES, type ToolProfile } from '../bootstrap/worker-tools';
+import { parseExposure, type ExposureDeclaration } from './exposure';
 
 export interface WorkerPolicy {
   requiredCapabilities: Capability[];
@@ -17,6 +18,8 @@ export interface WorkerPolicy {
   toolProfiles?: ToolProfile[];
   /** Single tools pinned in dev-fleet's mise.toml every worker installs. */
   tools?: string[];
+  /** What every worker opens beyond loopback and the tailnet (src/exposure.ts). */
+  exposure?: ExposureDeclaration;
 }
 const REQUIRED = [
   'github',
@@ -47,6 +50,7 @@ const FIELDS: Record<string, (value: unknown) => boolean> = {
   neverSleep: (value) => value === true,
   toolProfiles: (value) => value === undefined || toolProfiles(value) !== null,
   tools: (value) => value === undefined || toolNames(value),
+  exposure: (value) => value === undefined || parseExposure(value) !== null,
 };
 /** The first field of a worker policy that breaks its rule, or null. */
 export function policyFault(value: Record<string, unknown>): string | null {
@@ -79,5 +83,12 @@ export function parseWorkerPolicy(value: unknown): WorkerPolicy {
     throw new FleetUsageError(
       'Invalid mandatory worker policy. Workers require the locked toolchain, common services, unattended sudo, persistent T3 and no sleep.'
     );
-  return value as unknown as WorkerPolicy;
+  const exposure =
+    value['exposure'] === undefined
+      ? undefined
+      : parseExposure(value['exposure']);
+  return {
+    ...(value as unknown as WorkerPolicy),
+    ...(exposure ? { exposure } : {}),
+  };
 }

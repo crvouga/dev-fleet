@@ -24,6 +24,7 @@ import { resolve } from 'node:path';
 import { auditUbuntu } from './platform/ubuntu-audit';
 import { convergeGitIdentity } from './git-identity';
 import { workerSelection } from '../bootstrap/worker-tools';
+import { workerExposure } from './exposure';
 import {
   applyAgentProfiles,
   attempt,
@@ -165,6 +166,8 @@ async function applyBaseline(
         development_home: user.homedir,
         // The web profile brings headless Chromium (tasks/browser.yml).
         worker_tool_profiles: workerSelection(fleet, node).profiles,
+        // What the firewall opens beyond the tailnet (tasks/firewall.yml).
+        worker_exposure: workerExposure(fleet, node).policy,
       }),
     },
     {

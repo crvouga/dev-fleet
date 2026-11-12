@@ -20,6 +20,11 @@ import {
 import { parseNotify, type NotifyConfig } from './notify';
 import { UBUNTU_RELEASES, ubuntuRelease } from './platform/ubuntu-release';
 import { parseGithubPolicy, type GithubPolicy } from './github/policy';
+import {
+  EXPOSURE_EXPECTED,
+  parseExposure,
+  type ExposureDeclaration,
+} from './exposure';
 
 export interface MachineDefinition {
   id: string;
@@ -27,6 +32,8 @@ export interface MachineDefinition {
   os: 'linux';
   /** Tool profiles this worker adds to the fleet-wide ones. */
   toolProfiles?: ToolProfile[];
+  /** This worker's exposure, over the fleet-wide one (src/exposure.ts). */
+  exposure?: ExposureDeclaration;
   network?: {
     tailscaleName: string;
     user: string;
@@ -238,7 +245,11 @@ function port(value: unknown, path: string): number {
 }
 function worker(value: unknown, path: string): MachineDefinition {
   const fields = object(value, path);
-  keys(fields, ['id', 'ssh', 'os', 'network', 'toolProfiles'], path);
+  keys(
+    fields,
+    ['id', 'ssh', 'os', 'network', 'toolProfiles', 'exposure'],
+    path
+  );
   const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
   const ssh = text(fields['ssh'], HOST, `${path}.ssh`, 'an SSH host alias');
   // Workers are the Linux boxes; any other platform is not a worker.
@@ -260,6 +271,13 @@ function worker(value: unknown, path: string): MachineDefinition {
               'a list of known tool profiles, each once',
               fields['toolProfiles']
             ),
+        }),
+    ...(fields['exposure'] === undefined
+      ? {}
+      : {
+          exposure:
+            parseExposure(fields['exposure']) ??
+            fail(`${path}.exposure`, EXPOSURE_EXPECTED, fields['exposure']),
         }),
   };
 }
@@ -603,6 +621,7 @@ const POLICY: Record<string, string> = {
   neverSleep: 'true',
   toolProfiles: 'a list of known tool profiles, each once',
   tools: 'a list of tool names from dev-fleet’s mise.toml, each once',
+  exposure: EXPOSURE_EXPECTED,
 };
 function policy(value: unknown): WorkerPolicy {
   const fields = object(value, '$.worker');

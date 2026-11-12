@@ -100,6 +100,9 @@ ssh_keys:
         assert 'changed=0' in second.stdout, 'repeat run changed configuration'
         test_drift(ssh, command)
         run(ssh + ['test "$(cat work/uncommitted)" = preserved && sudo visudo -c && test "$(systemctl is-enabled sleep.target)" = masked'])
+        # No tailnet here and the session arrives from outside it: the firewall
+        # loads, but keeps SSH open rather than lock the test out.
+        run(ssh + ['sudo sshd -T | grep -qx "passwordauthentication no" && sudo sshd -T | grep -qx "permitrootlogin no" && sudo nft list table inet personal_fleet | grep -q "policy drop" && sudo nft list table inet personal_fleet | grep -q public-ssh'])
         t3_tested = test_t3(ssh)
         test_agent(ssh)
         boot = run(ssh + ['cat /proc/sys/kernel/random/boot_id']).stdout
@@ -111,7 +114,7 @@ ssh_keys:
                 break
             time.sleep(2)
         assert result.returncode == 0 and result.stdout != boot, 'reboot reconnect failed'
-        run(ssh + ['test "$(systemctl is-enabled sleep.target)" = masked && test "$(cat work/uncommitted)" = preserved'])
+        run(ssh + ['test "$(systemctl is-enabled sleep.target)" = masked && test "$(cat work/uncommitted)" = preserved && sudo nft list table inet personal_fleet | grep -q "policy drop"'])
         if t3_tested:
             run(ssh + ['systemctl --user is-active t3code.service && test \"$(cat ~/.t3/fleet-test-preserved)\" = preserved'])
             for _ in range(30):
@@ -128,7 +131,7 @@ ssh_keys:
             (ROOT / 'boot-policy-evidence.json').write_text(evidence.stdout)
             print('production boot-policy observer passed after VM reboot', flush=True)
         run(ssh + ['systemctl is-active beszel-agent.service && test \"$(sudo cat /var/lib/beszel-agent/fixture-preserved)\" = preserved'])
-        print(json.dumps({'passed': ['Ubuntu baseline apply', 'repeat no-op', 'sudoers validation', 'sleep target masked', 'reboot and fresh SSH', 'uncommitted file preserved', 'sleep/SSH drift repair and injected capacity gate', 'native Beszel agent no-op/crash/reboot with intentionally unreachable fixture hub'] + (['native T3 service install, no-op, crash recovery, managed update policy and reboot'] if t3_tested else []), 'unverified': ['Tailscale', 'paired T3', 'Beszel agent/private metrics', 'full remote bootstrap']}), flush=True)
+        print(json.dumps({'passed': ['Ubuntu baseline apply', 'repeat no-op', 'sudoers validation', 'sleep target masked', 'reboot and fresh SSH', 'uncommitted file preserved', 'sleep/SSH drift repair and injected capacity gate', 'native Beszel agent no-op/crash/reboot with intentionally unreachable fixture hub', 'keys-only sshd without root login, and the fleet firewall loaded at apply and boot with SSH kept open while no tailnet session proves the manager path'] + (['native T3 service install, no-op, crash recovery, managed update policy and reboot'] if t3_tested else []), 'unverified': ['Tailscale', 'closing public SSH over a tailnet session', 'paired T3', 'Beszel agent/private metrics', 'full remote bootstrap']}), flush=True)
     finally:
         # Preserve failure evidence on disk before terminating the disposable VM.
         # This is fixture cleanup, not a claimed power-loss acceptance test.

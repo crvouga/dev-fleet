@@ -559,6 +559,10 @@
       "meaning": "The worker runs the declared revision."
     },
     {
+      "id": "worker:exposure",
+      "meaning": "Nothing listens on the worker beyond loopback and the tailnet but what the declared exposure policy allows, and the fleet firewall that closes the rest is loaded; not applicable without an address outside the tailnet."
+    },
+    {
       "id": "worker:github-sync",
       "meaning": "The worker is signed in to GitHub from the stored credential as the declared login."
     },
@@ -581,6 +585,10 @@
     {
       "id": "worker:proxy-singleton",
       "meaning": "The worker is a proxy client, not a second gateway."
+    },
+    {
+      "id": "worker:public-reachability",
+      "meaning": "From the manager, the worker's SSH, T3 and monitoring ports accept no connection on its public address; optional, and not applicable when Tailscale knows no public address for it."
     },
     {
       "id": "worker:readiness",

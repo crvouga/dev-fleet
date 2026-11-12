@@ -69,7 +69,8 @@
     "unzip": "6.0-29ubuntu1",
     "xz-utils": "5.8.3-1ubuntu0.1",
     "ansible-core": "2.20.1-1",
-    "systemd-oomd": "259.9-0ubuntu0.1"
+    "systemd-oomd": "259.9-0ubuntu0.1",
+    "nftables": "1.1.6-1"
   },
   "tailscale": {
     "version": "1.104.5",
@@ -118,6 +119,18 @@
     "failOffsetSeconds": 30
   },
   "rebootPendingFailDays": 14,
+  "exposure": {
+    "tailnetInterface": "tailscale0",
+    "tailscalePort": 41641,
+    "containerInterfaces": ["docker0", "br-*"],
+    "systemListeners": [
+      { "protocol": "udp", "port": 68 },
+      { "protocol": "udp", "port": 546 },
+      { "protocol": "udp", "port": 5353 },
+      { "protocol": "udp", "port": 5355 },
+      { "protocol": "tcp", "port": 5355 }
+    ]
+  },
   "dockerSmokeTest": {
     "image": "busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec",
     "timeoutSeconds": 60
