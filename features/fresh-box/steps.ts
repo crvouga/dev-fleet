@@ -222,6 +222,9 @@ Then('it took less than {int} seconds', (world, seconds: number) => {
 // ── Disk footprint ───────────────────────────────────────────────────────
 
 const MISE = '$HOME/.local/share/mise';
+// A profile installs outside mise's own directory too: Rust through rustup
+// into ~/.rustup and ~/.cargo, and package managers into their caches.
+const HOME = '$HOME';
 const FLEET = '$HOME/.local/share/personal/fleet';
 type Budget = keyof typeof policy.sizing.footprintMiB.profiles;
 
@@ -268,7 +271,7 @@ Then(
 When(
   'the tools of the {string} profile are installed on the machine',
   async (world, profile: string) => {
-    const before = await mebibytes(world, MISE);
+    const before = await mebibytes(world, HOME);
     const tools = (
       await world.remote(
         `cd "${FLEET}/revisions/${world.revision}" && sed -n 's/^worker_profile_${profile} = "\\(.*\\)"$/\\1/p' mise.toml`
@@ -281,7 +284,7 @@ When(
       `cd "${FLEET}/revisions/${world.revision}" && "$HOME/.local/bin/mise" install --locked ${tools.split(',').join(' ')} >/dev/null 2>&1`
     );
     expect(installed.ok).toBe(true);
-    report(world, profile, (await mebibytes(world, MISE)) - before);
+    report(world, profile, (await mebibytes(world, HOME)) - before);
   }
 );
 
