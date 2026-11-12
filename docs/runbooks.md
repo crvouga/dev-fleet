@@ -8,29 +8,26 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 241 codes; 31 need a person.
+There are 238 codes; 29 need a person.
 
 ## Bootstrap of a new or returning worker
 
 - **Meaning:** The remote bootstrap (`bootstrap/fleet-remote-bootstrap.sh`) stopped before node convergence. It reports the phase and the code, never its output.
 - **Confirm:** Run `devfleet fleet-sync --dry-run` and read the `bootstrap:*` check of the worker; `ssh WORKER` and look under `~/.local/share/personal/fleet`.
 - **Fix:** Follow the remedy the check prints, then run `devfleet fleet-sync`. The bootstrap resumes where it stopped.
-- **Escalate:** A platform or architecture code means the machine must be reinstalled: Ubuntu 26.04 on x86_64 or aarch64.
+- **Escalate:** A platform or architecture code means the machine must be reinstalled with a release [the support matrix](support-matrix.md) lists, on a machine of its own.
 
 - `BOOTSTRAP_CAPACITY_UNVERIFIED`: bootstrap capacity unverified.
 - `BOOTSTRAP_DISK_CAPACITY_REQUIRED`: bootstrap disk capacity required.
-- `BOOTSTRAP_LOCK_TOOL_REQUIRED`: bootstrap lock tool required.
 - `CONFIGURATION_INSTALL_FAILED`: configuration install failed.
 - `FLEET_APPROVED_BOOTSTRAP_UNAVAILABLE`: fleet approved bootstrap unavailable.
 - `FLEET_STATE_PATH_UNSAFE`: fleet state path unsafe.
-- `MACOS_ARCHITECTURE_UNSUPPORTED`: macos architecture unsupported. **Needs a person.**
-- `MACOS_BASELINE_MISMATCH`: macos baseline mismatch. **Needs a person.**
 - `PLATFORM_UNSUPPORTED`: platform unsupported. **Needs a person.**
 - `REMOTE_BOOTSTRAP_EVIDENCE_INVALID`: remote bootstrap evidence invalid.
 - `REMOTE_BOOTSTRAP_EXIT_FAILED`: remote bootstrap exit failed.
 - `ROOT_DEVELOPMENT_USER_REJECTED`: root development user rejected.
 - `UBUNTU_ARCHITECTURE_UNSUPPORTED`: ubuntu architecture unsupported. **Needs a person.**
-- `XCODE_COMMAND_LINE_TOOLS_REQUIRED`: xcode command line tools required. **Needs a person.**
+- `WORKER_ENVIRONMENT_UNSUPPORTED`: worker environment unsupported: a container or WSL2. **Needs a person.**
 
 ## Ubuntu packages
 
