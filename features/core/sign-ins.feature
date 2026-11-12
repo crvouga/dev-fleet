@@ -77,5 +77,6 @@ Feature: A computer's sign-ins are proved by the tools themselves
         | auth:gemini   |
         | auth:copilot  |
         | auth:opencode |
+      And every skipped check says "AUTH_NOT_SUPPORTED_ON_ROUTE" and where its access is proven
       And no command was run with the argument "login"
       And nothing reported contains "private-secret"

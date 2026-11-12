@@ -189,6 +189,14 @@ warns that the manager holds the only one. [docs/state.md](docs/state.md)
 explains how replication stays correct, how to move an existing fleet to a
 project, and which state is not in the bucket yet.
 
+## Provider accounts
+
+Provider accounts live only on the CLI proxy. `npx devfleet fleet-accounts`
+lists them with their state; `--add`, `--relogin` and `--remove` change one
+and propagate the result to every node, and `fleet-sync --only accounts`
+propagates them without a full sync.
+[docs/accounts.md](docs/accounts.md) explains how.
+
 ## Add or remove a machine
 
 1. Set up SSH from the manager to the new Ubuntu box (a non-root user with

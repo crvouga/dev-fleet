@@ -135,6 +135,19 @@ export const COMMANDS: CommandSpec[] = [
       ['onboarding', 'register', 'new', 'setup', 'add'],
       true,
     ],
+    [
+      'fleet-accounts',
+      'List provider accounts and their state',
+      'Read-only: the provider accounts signed in on the CLI proxy (provider, index, label, state, when a cooldown clears), the roster version and the proxy:account:<provider> checks. --diff also compares what this machine offers with the roster.',
+      ['accounts', 'providers', 'login', 'quota', 'cooldown', 'roster'],
+    ],
+    [
+      'fleet-accounts --add',
+      'Add, sign in again or remove a provider account',
+      '--add PROVIDER, --relogin PROVIDER INDEX or --remove PROVIDER INDEX changes one account on the CLI proxy (signing in is the only manual step), then propagates the accounts to every node with fleet-sync --only accounts.',
+      ['accounts', 'login', 'relogin', 'remove', 'add', 'sign in'],
+      true,
+    ],
   ]),
   ...group('T3', [
     [

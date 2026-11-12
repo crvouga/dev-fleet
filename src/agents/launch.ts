@@ -6,6 +6,9 @@ import { accountPrefix, accountSlug, discoverAccounts } from './accounts';
 import { startAccountRelay } from './account-relay';
 import { proxyKey } from './secrets';
 import { pinnedBinary, pinnedPath } from './toolchain';
+import { AccountSelector } from '../accounts/selection';
+import { fleet } from '../fleet-config';
+import type { AccountSelection } from '../definition';
 
 /** `account` (its email) pins a proxy launch to one signed-in proxy account. */
 export async function launchProfile(
@@ -43,9 +46,11 @@ export async function launchProfile(
   }
   toolEnvironment(env, selection, directory);
   const pinned =
-    account && selection.profile === 'proxy'
-      ? await pinAccount(env, selection, { account, directory })
-      : null;
+    selection.profile !== 'proxy'
+      ? null
+      : account
+        ? await pinAccount(env, selection, { account, directory })
+        : await routeThroughRelay(env, selection);
   try {
     return await spawnAgent(selection, directory, env, [
       pinned?.args ?? [],
@@ -96,9 +101,14 @@ export async function pinAccount(
 ): Promise<{ args: string[]; stop: () => void }> {
   const prefix = accountPrefix(selection.tool, account);
   // What the account serves right now, preferred default first.
-  const served = (await discover(env['CLIPROXY_API_KEY'] ?? '')).find(
+  const roster = await discover(env['CLIPROXY_API_KEY'] ?? '');
+  const served = roster.find(
     (entry) => entry.tool === selection.tool && entry.email === account
   );
+  // Named in this account's "cooling down" error, so the person can switch.
+  const alternatives = roster
+    .filter((entry) => entry.tool === selection.tool && entry.email !== account)
+    .map((entry) => entry.email);
   if (!served)
     throw new AgentConfigurationError(
       'This account is not signed in on the CLI proxy.'
@@ -108,7 +118,9 @@ export async function pinAccount(
     env['OPENCODE_CONFIG_CONTENT'] = JSON.stringify(accountOpenCode(served));
     return { args: [], stop: () => {} };
   }
-  const { url, stop } = relay(registry.proxy.endpoint, prefix);
+  const { url, stop } = relay(registry.proxy.endpoint, prefix, {
+    alternatives,
+  });
   if (selection.tool === 'claude') {
     env['ANTHROPIC_BASE_URL'] = url;
     // Aliases and the default must name models a Claude account serves.
@@ -145,6 +157,73 @@ export async function pinAccount(
     stop,
   };
 }
+
+/** Which tools reach the proxy through an address this wrapper sets, and so
+ * can be sent through a relay. OpenCode and Grok read theirs from rendered
+ * configuration and still go to the proxy directly.
+ */
+const RELAYED = new Set(['claude', 'codex', 'gemini', 'antigravity']);
+
+/** An unpinned launch goes through a relay as well: it retries a proxy that
+ * is restarting exactly as a pinned one does, reports "proxy unreachable"
+ * when it stays down, and picks each request's account by the fleet's
+ * selection policy when it declares one for the provider.
+ */
+export async function routeThroughRelay(
+  env: NodeJS.ProcessEnv,
+  selection: Selection,
+  {
+    relay = startAccountRelay,
+    discover = discoverAccounts,
+    policy = selectionPolicy,
+  } = {}
+): Promise<{ args: string[]; stop: () => void } | null> {
+  if (!RELAYED.has(selection.tool)) return null;
+  const selector = await policySelector(env, selection, discover, policy);
+  const { url, stop } = relay(
+    registry.proxy.endpoint,
+    '',
+    selector ? { selector } : {}
+  );
+  if (selection.tool === 'claude') env['ANTHROPIC_BASE_URL'] = url;
+  if (selection.tool === 'gemini' || selection.tool === 'antigravity')
+    env['GOOGLE_GEMINI_BASE_URL'] = url;
+  const args =
+    selection.tool === 'codex'
+      ? [
+          '-c',
+          `model_providers.personal_proxy.base_url=${JSON.stringify(`${url}/v1`)}`,
+        ]
+      : [];
+  return { args, stop };
+}
+
+/** The fleet's selection policy for the tool's provider, over the accounts
+ * the proxy lists. The list is read only when a policy needs it; an
+ * unreadable list leaves the choice to the proxy's own pool.
+ */
+async function policySelector(
+  env: NodeJS.ProcessEnv,
+  selection: Selection,
+  discover: typeof discoverAccounts,
+  policy: (provider: string) => AccountSelection | undefined
+): Promise<AccountSelector | undefined> {
+  const route = (
+    registry.proxy.accounts as Record<string, { provider: string }>
+  )[selection.tool];
+  const declared = route ? policy(route.provider) : undefined;
+  if (!declared) return undefined;
+  const accounts = await discover(env['CLIPROXY_API_KEY'] ?? '').catch(
+    () => []
+  );
+  const prefixes = accounts
+    .filter((account) => account.tool === selection.tool)
+    .map((account) => account.prefix);
+  return prefixes.length ? new AccountSelector(prefixes, declared) : undefined;
+}
+
+const selectionPolicy = (provider: string): AccountSelection | undefined =>
+  fleet.services.proxy.accounts?.selection?.[provider];
 
 /** OpenCode configuration that offers only one account's models. */
 function accountOpenCode(route: { prefix: string; models: string[] }) {

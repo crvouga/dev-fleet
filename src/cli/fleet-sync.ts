@@ -36,6 +36,7 @@ import { FleetLockError } from '../machine/lock-error';
 import { selected } from './fleet-sync-remote';
 import { managerIdentity } from './fleet-sync-manager';
 import { managerRunScript, rehome } from './fleet-sync-checkout';
+import { syncAccounts } from './fleet-sync-accounts';
 import { packageInfo } from '../package-info';
 import {
   forwardingDisabled,
@@ -53,6 +54,8 @@ export interface FleetSyncOptions {
   node?: string[];
   all?: boolean;
   schedule?: ScheduleAction;
+  /** `accounts`: only the account-derived configuration, on every node. */
+  only?: string;
   /** Internal: this revision already converged the whole fleet, so no canary
    * has to prove it first and every worker converges at once.
    */
@@ -80,6 +83,7 @@ export async function fleetSync(
   if (!(await onManager(run)))
     return offManager(options, settings, run, forward);
   if (options.schedule === 'status') return scheduleStatus(settings, run);
+  if (options.only === 'accounts') return onlyAccounts(options, settings, run);
   return managerSync(options, settings, {
     run,
     root: machineRoot(),
@@ -289,11 +293,43 @@ function validate(options: FleetSyncOptions): void {
     throw new FleetUsageError(
       '--revision requires an exact lowercase 40-character commit SHA.'
     );
+  validateOnly(options);
   if (options.dryRun && (options.apply || options.yes))
     throw new FleetUsageError(
       '--dry-run cannot be combined with apply confirmation.'
     );
 }
+function validateOnly(options: FleetSyncOptions): void {
+  if (options.only !== undefined && options.only !== 'accounts')
+    throw new FleetUsageError('--only takes one scope: accounts.');
+  if (options.only && (options.dryRun || options.schedule))
+    throw new FleetUsageError(
+      '--only accounts applies at once; it takes neither --dry-run nor --schedule.'
+    );
+}
+
+/** `--only accounts`: workers keep the revision they run; only their
+ * accounts change.
+ */
+async function onlyAccounts(
+  options: FleetSyncOptions,
+  settings: Settings,
+  run: Runner
+): Promise<CommandOutcome> {
+  const root = machineRoot();
+  await ensurePrivateRoot(root);
+  const state = await loadEnrollment(legacyHome() ? root : null);
+  const revision =
+    state?.approvedRevision ??
+    (await selectedRevision(options.revision, undefined, settings, run));
+  if (!isRevision(revision))
+    return actionRequired(
+      'FLEET_REVISION_REQUIRED',
+      'No revision is applied yet. Run a full fleet-sync first.'
+    );
+  return syncAccounts(options, settings, { revision, run });
+}
+
 function interactive(options: FleetSyncOptions): boolean {
   return (
     ![

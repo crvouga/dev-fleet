@@ -6,6 +6,8 @@ import { syncWorkspace } from './sync';
 import { repairWorkspace, validRepairs } from './repair-runner';
 import { validSnapshot } from './protocol';
 import type { Fingerprint } from './types';
+import { machineProviders } from './t3/providers';
+import { accountContext, nodeAccountChecks } from './accounts/context';
 
 async function main(): Promise<void> {
   const raw: unknown = JSON.parse(
@@ -35,6 +37,16 @@ async function main(): Promise<void> {
       runCommand,
       raw['expected'] as Fingerprint
     );
+    process.stdout.write(JSON.stringify({ version: 1, checks }));
+  } else if (raw['action'] === 'accounts') {
+    // The fast account path: only the account-derived T3 instances. T3
+    // watches its settings, so no restart and no running turn ends.
+    if (raw['apply'] !== true)
+      throw new Error('Account propagation requires explicit authorization.');
+    const checks = [
+      await machineProviders(node.id, node.workspace, true),
+      ...(await nodeAccountChecks(await accountContext())),
+    ];
     process.stdout.write(JSON.stringify({ version: 1, checks }));
   } else if (raw['action'] === 'sync') {
     if (raw['apply'] !== true)
@@ -84,6 +96,8 @@ async function configureRequest(
 function validRequest(raw: unknown): raw is Record<string, unknown> {
   return (
     record(raw) &&
-    ['probe', 'sync', 'repair', 'configure'].includes(String(raw['action']))
+    ['probe', 'sync', 'repair', 'configure', 'accounts'].includes(
+      String(raw['action'])
+    )
   );
 }

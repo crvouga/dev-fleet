@@ -42,6 +42,18 @@ export async function codingAuth(
   ];
 }
 
+/** CLIs with no sign-in of their own to check, and why. Each says where
+ * its access is proven instead; none is a silent skip.
+ */
+export const PROXY_ROUTED: Record<string, string> = {
+  gemini:
+    'gemini signs in through the CLI proxy and has no T3 launcher; provider:gemini:inference proves its route from this node.',
+  copilot:
+    'copilot is not routed through the CLI proxy and dev-fleet does not manage its GitHub sign-in; no provider account is checked.',
+  opencode:
+    'opencode signs in through the CLI proxy; agent:muse:session and the per-account agent:opencode sessions prove it from this node.',
+};
+
 export async function serviceAuth(run: Runner): Promise<Check[]> {
   const services: Service[] = [
     {
@@ -89,14 +101,12 @@ export async function serviceAuth(run: Runner): Promise<Check[]> {
   ];
   const checks: Check[] = [];
   for (const service of services) checks.push(await serviceCheck(service, run));
-  for (const id of ['gemini', 'copilot', 'opencode'])
+  for (const [id, reason] of Object.entries(PROXY_ROUTED))
     checks.push({
       id: `auth:${id}`,
       status: 'skip',
-      summary: `${id} provider authorization has no verified noninteractive status adapter in this CLI. Installed binaries or saved keys are not proof of access.`,
-      remedy: {
-        action: `Verify ${id} provider access locally using its supported account diagnostics. No prompt or billable request was made.`,
-      },
+      required: false,
+      summary: `AUTH_NOT_SUPPORTED_ON_ROUTE: ${reason}`,
     });
   return checks;
 }

@@ -58,3 +58,18 @@ print(
     "credential files validated offline.",
 )
 print("No restored credentials or code were activated.")
+# `--newest DIR`: the newest checkpoint. Refresh tokens rotate, so an older
+# checkpoint can hold tokens the provider has already replaced; name exactly
+# the accounts that need a new login (provider and index, never an account).
+if "--newest" in sys.argv[2:]:
+    import checkpoint
+
+    newest = pathlib.Path(sys.argv[sys.argv.index("--newest") + 1]).resolve()
+    if not (newest / "CHECKPOINT.json").is_file():
+        newest = checkpoint.locate(newest)
+    stale = checkpoint.stale_accounts(root, newest)
+    for provider, index in stale:
+        print("needs-login:", provider, index)
+    print("Accounts restored with a current refresh token:", "all" if not stale else "all others")
+    if stale:
+        sys.exit(4)

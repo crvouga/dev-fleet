@@ -40,7 +40,7 @@ export interface FleetDefinition {
   workers: MachineDefinition[];
   services: {
     /** Public HTTPS origin of the CLI proxy every node uses. */
-    proxy: { endpoint: string };
+    proxy: { endpoint: string; accounts?: AccountPolicy };
     monitoring: {
       hubPort: 8443;
       /** Public dashboard origin. */
@@ -53,6 +53,22 @@ export interface FleetDefinition {
   };
   worker?: WorkerPolicy;
   ubuntu: { release: '26.04'; architectures: ['amd64', 'arm64'] };
+}
+/** How provider accounts are watched and chosen (src/accounts/). */
+export interface AccountPolicy {
+  /** Fewer usable accounts of a provider than this is a warning; none fails. */
+  minimumUsable?: number;
+  /** Per provider (`claude`, `codex`, `antigravity`): which account an
+   * unpinned request goes to first. Accounts cooling down are skipped.
+   */
+  selection?: Record<string, AccountSelection>;
+}
+export interface AccountSelection {
+  strategy: 'fill-first' | 'round-robin' | 'least-recently-limited';
+  /** Account labels (sign-in emails) first, in this order; the others
+   * follow in the order of their routing prefix.
+   */
+  order?: string[];
 }
 const ID = /^[a-z][a-z0-9-]{0,62}$/;
 const HOST = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/;
@@ -177,13 +193,64 @@ function services(value: unknown): FleetDefinition['services'] {
   const { proxy, monitoring } = value;
   if (
     !record(proxy) ||
-    !keys(proxy, ['endpoint']) ||
+    !keys(proxy, ['endpoint', 'accounts']) ||
     !origin(proxy['endpoint'])
   )
     return fail();
   return {
-    proxy: { endpoint: proxy['endpoint'] },
+    proxy: {
+      endpoint: proxy['endpoint'],
+      ...(proxy['accounts'] === undefined
+        ? {}
+        : { accounts: accountPolicy(proxy['accounts']) }),
+    },
     monitoring: monitoringService(monitoring),
+  };
+}
+const STRATEGIES = ['fill-first', 'round-robin', 'least-recently-limited'];
+function accountPolicy(value: unknown): AccountPolicy {
+  if (!record(value) || !keys(value, ['minimumUsable', 'selection']))
+    return fail();
+  const { minimumUsable, selection } = value;
+  if (
+    minimumUsable !== undefined &&
+    !(Number.isInteger(minimumUsable) && Number(minimumUsable) >= 1)
+  )
+    return fail();
+  return {
+    ...(minimumUsable === undefined
+      ? {}
+      : { minimumUsable: minimumUsable as number }),
+    ...(selection === undefined
+      ? {}
+      : { selection: selectionPolicies(selection) }),
+  };
+}
+function selectionPolicies(value: unknown): Record<string, AccountSelection> {
+  if (!record(value)) return fail();
+  const providers: Record<string, AccountSelection> = {};
+  for (const [provider, entry] of Object.entries(value)) {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(provider)) return fail();
+    providers[provider] = accountSelection(entry);
+  }
+  return providers;
+}
+function accountSelection(entry: unknown): AccountSelection {
+  if (
+    !record(entry) ||
+    !keys(entry, ['strategy', 'order']) ||
+    !STRATEGIES.includes(String(entry['strategy']))
+  )
+    return fail();
+  const { order } = entry;
+  if (
+    order !== undefined &&
+    !(Array.isArray(order) && order.every((label) => account(label)))
+  )
+    return fail();
+  return {
+    strategy: entry['strategy'] as AccountSelection['strategy'],
+    ...(order ? { order: order as string[] } : {}),
   };
 }
 function monitoringService(

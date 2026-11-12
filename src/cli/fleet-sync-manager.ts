@@ -6,6 +6,7 @@ import { convergeProxy } from '../proxy-converge';
 import { attempt } from '../node-converge-shared';
 import { quotaLimited, verifyFleetProviders } from '../agents/fleet-verify';
 import { verifyNativeAgents } from '../agents/native-verify';
+import { accountContext, nodeAccountChecks } from '../accounts/context';
 import { convergeManagerHub } from '../monitoring/manager-hub';
 import { enrollManagerMonitoring } from './fleet-sync-monitoring';
 import { installConfig } from '../fleet-config';
@@ -55,10 +56,17 @@ export async function convergeManager(
       );
       checks.push(...providers);
       // Same agents, versions and shared accounts as every worker.
+      const accounts = await accountContext();
+      checks.push(
+        ...(await attempt('accounts:verification', () =>
+          nodeAccountChecks(accounts)
+        ))
+      );
       checks.push(
         ...(await attempt('agent:verification', () =>
           verifyNativeAgents(id, input.workspace, run, {
             outOfQuota: quotaLimited(providers),
+            ...(accounts ? { accounts } : {}),
           })
         ))
       );

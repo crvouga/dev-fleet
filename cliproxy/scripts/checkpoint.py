@@ -127,9 +127,37 @@ def copy_state(root, target):
             shutil.copyfile(source, destination)
     shutil.copyfile(root / "INSTALLATION.json", target / "INSTALLATION.json")
     (target / "CHECKPOINT.json").write_text(
-        json.dumps({"version": 1, "files": hashes(target)}) + "\n"
+        json.dumps(
+            {
+                "version": 1,
+                "files": hashes(target),
+                "tokens": _accounts().token_digests(target / "state/runtime/auths"),
+            }
+        )
+        + "\n"
     )
     validate(target)
+
+
+def _accounts():
+    """accounts.py beside this file, however this module was loaded."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "accounts", pathlib.Path(__file__).resolve().parent / "accounts.py"
+    )
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def stale_accounts(restored, newest):
+    """[(provider, index)] of the accounts in the restored checkpoint
+    `restored` whose refresh token the provider has since replaced, judged
+    against the manifest of the newest checkpoint `newest`. Restoring the
+    newest checkpoint itself finds none."""
+    tokens = json.loads((newest / "CHECKPOINT.json").read_text()).get("tokens") or {}
+    return _accounts().stale_after_restore(restored / "state/runtime/auths", tokens)
 
 
 def capture(root, target, attempts=6, sleep=time.sleep):

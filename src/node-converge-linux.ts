@@ -10,6 +10,7 @@ import { providerNames } from './t3/names-check';
 import { machineProviders } from './t3/providers';
 import { quotaLimited, verifyFleetProviders } from './agents/fleet-verify';
 import { verifyNativeAgents } from './agents/native-verify';
+import { accountContext, nodeAccountChecks } from './accounts/context';
 import { managedT3, managedT3Desktop } from '../bootstrap/native-t3';
 import { convergeT3Service, t3StartedAt } from './platform/t3-service';
 import { userInfo } from 'node:os';
@@ -74,12 +75,19 @@ export async function convergeLinux(
     verifyFleetProviders(node)
   );
   checks.push(...providers);
+  const accounts = await accountContext();
+  checks.push(
+    ...(await attempt('accounts:verification', () =>
+      nodeAccountChecks(accounts)
+    ))
+  );
   checks.push(
     ...(await attempt('agent:verification', () =>
       verifyNativeAgents(node, root, run, {
         outOfQuota: quotaLimited(providers),
         // Where T3 starts them: the environment of its user service.
         t3Service: true,
+        ...(accounts ? { accounts } : {}),
       })
     ))
   );
