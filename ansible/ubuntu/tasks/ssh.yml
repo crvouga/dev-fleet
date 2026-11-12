@@ -2,6 +2,7 @@
 - name: Inspect effective SSH configuration before changes
   ansible.builtin.command: /usr/sbin/sshd -T
   changed_when: false
+  check_mode: false
   register: effective_ssh
 - name: Inspect any existing managed SSH fragment
   ansible.builtin.stat:
@@ -36,6 +37,8 @@
     - name: Validate complete SSH configuration
       ansible.builtin.command: /usr/sbin/sshd -t
       changed_when: false
+      # Verifies a change a dry run does not make.
+      when: not ansible_check_mode
   rescue:
     - name: Restore previous fragment after validation failure
       ansible.builtin.copy:
@@ -67,5 +70,7 @@
 - name: Verify effective forwarding after reload
   ansible.builtin.command: /usr/sbin/sshd -T
   changed_when: false
+  # Verifies a change a dry run does not make.
+  when: not ansible_check_mode
   register: ssh_verified
   failed_when: "'allowtcpforwarding yes' not in ssh_verified.stdout"

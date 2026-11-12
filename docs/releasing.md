@@ -53,6 +53,29 @@ passes and says so. Re-running a
 release whose version is already on npm skips the publish and finishes the tag
 and GitHub Release.
 
+Nothing is published until the release has been tried. The workflow packs
+the package once, then, for that commit and that tarball:
+
+- installs the tarball in an empty directory, the way a fleet project does,
+  and runs `devfleet --version` and `devfleet fleet-state --example` on Node
+  22 and 24 ([`bootstrap/package-smoke.ts`](../bootstrap/package-smoke.ts)):
+  a broken bin path or a file missing from `files` fails here;
+- runs the [Ubuntu VM test](../.github/workflows/vm.yml) (a real Ubuntu
+  machine: baseline, a second run, drift, reboot, and the production SSH
+  bootstrap of the commit).
+
+Only when both pass is that same tarball published, and the GitHub Release
+gets notes written from the Conventional Commits since the last release
+([`bootstrap/release-notes.ts`](../bootstrap/release-notes.ts)). A commit
+whose change restarts T3 on the workers, and so ends the agent turns running
+there, says so in a `Worker-Restart: <reason>` footer, and the notes list it
+first.
+
+There is no `next` channel yet: publishing uses npm Trusted Publishing, which
+can publish but cannot move a dist-tag, and moving one would need an npm
+token stored in CI. The VM test before publishing stands in for the soak a
+`next` channel would give.
+
 A hand-pushed tag still works and publishes exactly that version:
 
 ```sh

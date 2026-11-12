@@ -205,7 +205,8 @@ serially; diagnostics run at most four remote probes concurrently.
   shell PATH and installs frozen Bun dependencies. Review OS-specific effects
   and existing config conflict guards in the shared bootstrap runbook.
 - Record input hashes only after success and stable checkout inputs. Failed
-  setup can leave partial installs; no rollback is claimed. Trusted checkout
+  setup can leave partial installs, which the next sync completes. Going back
+  is `fleet-sync --rollback`, as the [README](../README.md#the-version) says. Trusted checkout
   package lifecycle scripts can execute during installation.
 - No other application repos, credentials, provider settings or cloud resources
   are synchronized. `devfleet fleet-sync` remains the broader convergence.

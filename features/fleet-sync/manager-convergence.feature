@@ -101,6 +101,14 @@ Feature: The manager converges itself before any worker
       When the power settings of the manager are measured
       Then the check's summary is "MANAGER_SLEEPS_ON_POWER"
 
+    Scenario: A setting this Mac does not have is not applicable
+      A virtual Mac has no Wake-on-LAN, so pmset lists no womp; the playbook
+      skips the setting and the check does not fail on it.
+      Given pmset reports on AC power every setting the manager's power policy declares except "womp"
+      When the power settings of the manager are measured
+      Then the check's status is "pass"
+      And the check's summary is "The manager never sleeps on AC power; not applicable on this Mac: womp."
+
     Scenario: Every other setting the policy declares is measured, and the remedy applies the playbook
       When each setting the manager's power policy declares, except "sleep", is in turn reported as "other" on a manager whose checkout is "/fleet/checkout"
       Then each time the check's status is "fail"

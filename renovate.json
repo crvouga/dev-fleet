@@ -3,6 +3,17 @@
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "labels": ["deps"],
   "lockFileMaintenance": { "enabled": true },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "The tunnel image of the monitoring hub, by tag and digest. The Beszel image moves with its agents' digests, by hand (docs/declared.md).",
+      "managerFilePatterns": ["/^ansible/monitoring/lock\\.json$/"],
+      "matchStrings": [
+        "\"tunnelImage\": \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ],
   "packageRules": [
     {
       "description": "Agent CLIs are what every node runs; review each bump on its own.",

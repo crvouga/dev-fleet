@@ -91,6 +91,7 @@ skipped where it cannot.
 | `@s3`         | Where `DEVFLEET_TEST_S3` names a throwaway S3 service                        |
 | `@vault`      | Where `vault` is on PATH, or `DEVFLEET_TEST_VAULT=required`; a dev server    |
 | `@required`   | Only where `DEVFLEET_TEST_LITESTREAM=required`, to prove nothing was skipped |
+| `@macos`      | On macOS only; the manager job of CI runs them                               |
 | `@posix`      | Not on Windows                                                               |
 | `@linux`      | On Linux only                                                                |
 | `@bash`       | Where `/bin/bash` exists                                                     |

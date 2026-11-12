@@ -10,8 +10,11 @@
     - name: Verify the desktop unit runs before adding any recovery trigger
       ansible.builtin.command:
         argv: [systemctl, --user, is-active, t3code-desktop.service]
+      become: true
       become_user: '{{ development_user }}'
       environment:
         XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
       changed_when: false
-    - ansible.builtin.import_tasks: tasks/recovery.yml
+      check_mode: false
+    - name: Enable recovery
+      ansible.builtin.import_tasks: tasks/recovery.yml

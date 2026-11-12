@@ -17,6 +17,7 @@
         argv: [tailscale, serve, status, --json]
       register: t3_serve_status
       changed_when: false
+      check_mode: false
     - name: Publish T3 on tailnet HTTPS port 443
       ansible.builtin.command:
         argv: [tailscale, serve, --bg, --https=443, '{{ t3_route_target }}']

@@ -128,3 +128,35 @@ Feature: fleet-sync brings the manager's fleet state up to the bucket before it 
     And a refresh of manager "b" reports "in-sync"
     And the fleet state of manager "b" holds the configuration that "~/fleet.json" on the manager declares
     And the enrollment in the fleet state of manager "b" contains "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+  Scenario: --rollback approves the revision applied before the current one
+    A rollback applies the playbooks and pins of the previous revision: the
+    revision, the tools and T3 go back; system packages roll forward only.
+    Given the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "previousRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+      """
+    When fleet-sync rolls back
+    Then the report contains "FLEET_MANAGER_ENROLLMENT_REQUIRED"
+    And the approved revision of the manager is "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+  Scenario: --rollback with no earlier revision changes nothing
+    Given the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+      """
+    When fleet-sync rolls back
+    Then the command exits 1
+    And the report contains "FLEET_ROLLBACK_UNAVAILABLE"
+    And the enrollment in the fleet state of the manager is what it was before the run

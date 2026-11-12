@@ -50,6 +50,8 @@ export class MonitoringWorld extends CommandWorld {
   box = '';
   pid = '';
   changed: number | undefined;
+  /** What the last playbook run printed. */
+  output = '';
 }
 
 export const monitoring = steps<MonitoringWorld>();

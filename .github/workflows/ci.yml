@@ -25,9 +25,8 @@ jobs:
       # The Python, restic and Vault every machine runs, from the same lock:
       # never the runner's own or the distribution's. Vault runs the worker
       # credential scenarios against a development server.
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: ./.github/actions/mise
         with:
-          version: 2026.10.24
           install_args: python restic vault
       - name: Install dependencies
         run: |
@@ -61,10 +60,8 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: ./.github/actions/mise
         with:
-          # The version bootstrap/bootstrap.sh installs on every machine.
-          version: 2026.10.24
           install_args: litestream
       - run: bun install --frozen-lockfile
       - name: Wait for the S3 service
@@ -83,12 +80,66 @@ jobs:
       MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      - uses: ./.github/actions/mise
         with:
-          version: 2026.10.24
           # actionlint checks each `run:` script with the pinned shellcheck.
           install_args: actionlint shellcheck
       - run: mise exec actionlint shellcheck -- actionlint
+  ansible:
+    name: Playbooks
+    # Every playbook passes ansible-lint in the production profile (which
+    # includes its syntax check) and ansible-playbook --syntax-check, with
+    # the Ansible the manager runs (ansible/uv.lock).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: ./.github/actions/mise
+        with:
+          install_args: uv
+      - name: Lint every playbook
+        run: mise exec uv -- uv run --project ansible --locked --isolated --group lint ansible-lint
+      - name: Syntax-check every playbook
+        run: |
+          for playbook in ansible/*/*.yml; do
+            [ "$(basename "$playbook")" = compose.yml ] && continue
+            mise exec uv -- uv run --project ansible --locked --isolated ansible-playbook \
+              --syntax-check --inventory localhost, "$playbook"
+          done
+  manager:
+    name: Manager on macOS
+    # The manager runs only on macOS: every feature, the launchd jobs linted
+    # by macOS itself (features/machines/launchd-jobs.feature), and the
+    # manager playbook converged on the runner, then applied again and
+    # checked, which must both report no change.
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      MISE_TRUSTED_CONFIG_PATHS: ${{ github.workspace }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - uses: ./.github/actions/mise
+        with:
+          install_args: uv
+      - run: bun install --frozen-lockfile
+      - run: bun test
+      - name: Converge the manager playbook, then prove a second run and a dry run change nothing
+        run: |
+          converge() {
+            mise exec uv -- uv run --project ansible --locked --isolated \
+              ansible-playbook --inventory localhost, ansible/macos/manager.yml "$@" | tee "$RUNNER_TEMP/run.log"
+          }
+          changed() { grep -Eo 'changed=[0-9]+' "$RUNNER_TEMP/run.log" | tail -n 1; }
+          converge
+          converge
+          [ "$(changed)" = changed=0 ] || { echo '::error::A second run changed the manager.'; exit 1; }
+          converge --check --diff
+          [ "$(changed)" = changed=0 ] || { echo '::error::A dry run on the converged manager reports a change.'; exit 1; }
   fresh-box:
     name: Fresh worker over SSH (${{ matrix.architecture }})
     # A disposable Ubuntu machine that has only an SSH server and an account

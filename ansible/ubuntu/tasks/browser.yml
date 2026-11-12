@@ -51,6 +51,9 @@
       - --disable-gpu
       - --dump-dom
       - about:blank
+  become: true
   become_user: '{{ development_user }}'
   timeout: '{{ browser.launchTimeoutSeconds }}'
   changed_when: false
+  # Verifies a change a dry run does not make.
+  when: not ansible_check_mode

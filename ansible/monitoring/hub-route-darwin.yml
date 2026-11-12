@@ -29,6 +29,7 @@
         argv: ['{{ beszel_tailscale_cli }}', serve, status, --json]
       register: beszel_serve_status
       changed_when: false
+      check_mode: false
     - name: Publish the hub on the tailnet HTTPS port as the signed-in user
       ansible.builtin.command:
         argv: '{{ beszel_serve }}'

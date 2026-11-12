@@ -53,6 +53,7 @@
         argv: [systemctl, --user, is-active, --quiet, t3code-desktop.service]
       register: t3_desktop_active
       changed_when: false
+      check_mode: false
       failed_when: false
     - name: Ask the running T3 which policy it loaded
       become: true
@@ -61,9 +62,11 @@
         argv: ['{{ t3_executable }}', policy, show]
       register: t3_policy_loaded
       changed_when: false
+      check_mode: false
       failed_when: false
       when: t3_desktop_active.rc == 0
-    - ansible.builtin.import_tasks: tasks/t3-restart.yml
+    - name: Restart T3 when it is idle
+      ansible.builtin.import_tasks: tasks/t3-restart.yml
       when:
         - t3_desktop_active.rc == 0
         - t3_policy_loaded.stdout is not search('loaded this policy\.\s*$')

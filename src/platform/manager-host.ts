@@ -15,6 +15,14 @@ export interface BootItem {
   detail: string;
 }
 
+/** `notApplicable` names settings the machine lacks (a virtual Mac has no
+ * womp): the playbook skips them, so they are not drift.
+ */
+export interface PowerDrift {
+  drifted: string[];
+  notApplicable: string[];
+}
+
 /** Where the manager runs, behind one interface: how it is named, how it is
  * kept awake, how its services are supervised and where they keep data. The
  * macOS host is the default and the reference.
@@ -29,8 +37,9 @@ export interface ManagerHost {
   dataDirectory(home: string): string;
   /** The machine's local host name, as `manager.id` must name it. */
   localHostName(run: Runner): Promise<string | null>;
-  /** The power settings that differ from the manager's policy. */
-  powerDrift(run: Runner): Promise<string[]>;
+  /** The power settings that differ from the manager's policy, and those
+   * this machine does not have at all. */
+  powerDrift(run: Runner): Promise<PowerDrift>;
   /** What brings the manager's services back after a power cut, unattended. */
   bootRecovery(run: Runner, home: string): Promise<BootItem[]>;
   /** How a person applies what bootRecovery measures. */
@@ -78,10 +87,18 @@ export const MACOS_MANAGER: ManagerHost = {
     return result.ok ? hostId(result.stdout.trim()) : null;
   },
   async powerDrift(run) {
-    const observed = await acPower(run);
-    return Object.entries(macos.pmset)
-      .filter(([key, value]) => observed(key) !== value)
-      .map(([key]) => key);
+    const result = await run(['pmset', '-g', 'custom']);
+    const ac = result.ok ? result.stdout.split('AC Power:')[1] : undefined;
+    const observed = (key: string) =>
+      new RegExp(`^\\s*${key}\\s+(\\S+)`, 'm').exec(ac ?? '')?.[1];
+    const absent = (key: string) =>
+      ac !== undefined && observed(key) === undefined;
+    return {
+      drifted: Object.entries(macos.pmset)
+        .filter(([key, value]) => !absent(key) && observed(key) !== value)
+        .map(([key]) => key),
+      notApplicable: Object.keys(macos.pmset).filter(absent),
+    };
   },
   async bootRecovery(run, home) {
     const observed = await acPower(run);
@@ -153,7 +170,7 @@ export const LINUX_MANAGER: ManagerHost = {
       const result = await run(['systemctl', 'is-enabled', target]);
       if (result.stdout.trim() !== 'masked') drifted.push(target);
     }
-    return drifted;
+    return { drifted, notApplicable: [] };
   },
   async bootRecovery(run) {
     const user = userInfo().username;

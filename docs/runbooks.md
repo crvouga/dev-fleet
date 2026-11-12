@@ -380,6 +380,7 @@ There are 250 codes; 31 need a person.
 - `FLEET_REMOTE_LOCKED`: fleet remote locked.
 - `FLEET_REMOTE_OPERATION_FAILED`: fleet remote operation failed.
 - `FLEET_REVISION_REQUIRED`: fleet revision required.
+- `FLEET_ROLLBACK_UNAVAILABLE`: fleet rollback unavailable.
 - `FLEET_SCHEDULE_PREVIEW`: fleet schedule preview.
 - `FLEET_SOURCE_UNAVAILABLE`: fleet source unavailable.
 - `FLEET_STATE_DIVERGED`: fleet state diverged. **Needs a person.**

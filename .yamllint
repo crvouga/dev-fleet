@@ -1,0 +1,18 @@
+# Prettier formats every YAML file (`bun run format`); yamllint, run by
+# ansible-lint, checks only what Prettier does not decide.
+extends: default
+rules:
+  indentation: disable
+  line-length: disable
+  comments-indentation: false
+  document-start: disable
+  comments:
+    min-spaces-from-content: 1
+  truthy:
+    allowed-values: ['true', 'false']
+    check-keys: false
+  braces:
+    max-spaces-inside: 1
+  octal-values:
+    forbid-implicit-octal: true
+    forbid-explicit-octal: true

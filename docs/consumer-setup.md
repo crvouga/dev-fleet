@@ -382,7 +382,9 @@ and codes; leave out everything private.
 - **Remove a worker.** Delete its entry, commit, run `npx devfleet fleet-sync`.
 - **Upgrade the fleet.** `npm install --save-dev --save-exact @crvouga/dev-fleet@latest`,
   commit, `npx devfleet fleet-sync`. The canary proves the new revision first.
-  Install an older version and sync to roll back.
+  `npx devfleet fleet-sync --rollback` goes back to the revision applied
+  before (the revision, tools and T3; system packages roll forward only, as
+  the [README](../README.md#the-version) says).
 - **Replace the manager.** Follow
   [replacing the manager](manager-recovery.md).
 

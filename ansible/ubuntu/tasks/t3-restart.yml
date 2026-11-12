@@ -16,6 +16,7 @@
       - '{{ development_home }}/.t3/userdata/statev2.sqlite'
   register: t3_idle
   changed_when: false
+  check_mode: false
   failed_when: false
 - name: Restart T3 while it runs no agent turn
   become: true

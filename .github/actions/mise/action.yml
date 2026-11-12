@@ -1,0 +1,19 @@
+name: mise
+description: >-
+  The mise release every machine gets (min_version in mise.toml), with the
+  named tools at the versions mise.lock pins. The version is read from
+  mise.toml, so a workflow never names it.
+inputs:
+  install_args:
+    description: The tools to install, never the whole toolchain
+    required: true
+runs:
+  using: composite
+  steps:
+    - id: pin
+      shell: bash
+      run: echo "version=$(sed -n 's/^min_version = "\(.*\)"$/\1/p' mise.toml)" >> "$GITHUB_OUTPUT"
+    - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
+      with:
+        version: ${{ steps.pin.outputs.version }}
+        install_args: ${{ inputs.install_args }}

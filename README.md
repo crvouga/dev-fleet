@@ -128,10 +128,18 @@ npm install --save-dev --save-exact @crvouga/dev-fleet@latest
 npx devfleet fleet-sync              # the fleet moves to that release
 ```
 
-Install an older version and run `fleet-sync` to go back. One worker, the
-canary, proves a new revision before the others receive it: the first
-reachable worker, or the one `canary` in `fleet.json` (or `--canary`) names
-when it is reachable. An offline worker never holds the others back.
+One worker, the canary, proves a new revision before the others receive it:
+the first reachable worker, or the one `canary` in `fleet.json` (or
+`--canary`) names when it is reachable. An offline worker never holds the
+others back.
+
+To go back, run `npx devfleet fleet-sync --rollback` on the manager: it
+converges every machine to the revision applied before the current one, which
+the fleet state records. A rollback covers what a revision declares: the
+checkout, the pinned tools and T3 Code. System packages roll forward only
+(apt never downgrades them), so a release that moved one keeps it. Installing
+an older version and running `fleet-sync` does the same for any earlier
+release.
 
 ## Your project's own tools
 
@@ -399,6 +407,8 @@ Every pull request runs these checks ([`ci.yml`](.github/workflows/ci.yml)):
 | Fleet state           | The pinned Litestream replicates the fleet state to a directory and to an S3 API, and a second manager restores it                |
 | Fresh worker over SSH | A new Ubuntu machine with only an SSH server and sudo is bootstrapped by the production code over real SSH, on amd64 and on arm64 |
 | Workflows             | The workflow files pass `actionlint`                                                                                              |
+| Playbooks             | Every playbook passes `ansible-lint` (production profile) and `--syntax-check`                                                    |
+| Manager on macOS      | Every feature on macOS, launchd jobs linted by macOS, and the manager playbook converged, then re-run and checked with no change  |
 
 Some scenarios need something a laptop may not have, and are skipped there:
 
@@ -406,6 +416,7 @@ Some scenarios need something a laptop may not have, and are skipped there:
 DEVFLEET_TEST_FRESH_BOX=1 bun test features/fresh-box     # Docker; tests the HEAD commit
 mise install litestream
 DEVFLEET_TEST_S3=http://127.0.0.1:5000 bun test features/state
+bun ansible/ubuntu/tests/run-vm.ts baseline   # Linux amd64 with KVM; the Ubuntu VM workflow
 ```
 
 ## License

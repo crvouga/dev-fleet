@@ -48,9 +48,17 @@ interface Workflow {
     string,
     {
       if?: string;
-      strategy?: { matrix?: { include?: Record<string, string>[] } };
+      'runs-on'?: string;
+      needs?: string | string[];
+      uses?: string;
+      with?: Record<string, unknown>;
+      strategy?: {
+        matrix?: Record<string, unknown> & {
+          include?: Record<string, string>[];
+        };
+      };
       services?: Record<string, { image: string }>;
-      steps: WorkflowStep[];
+      steps?: WorkflowStep[];
     }
   >;
 }
@@ -90,6 +98,7 @@ const KEYWORDS = new Set([
   'become',
   'become_user',
   'changed_when',
+  'check_mode',
   'failed_when',
   'environment',
   'notify',
@@ -178,6 +187,44 @@ Then(
         byPlaybook
       )
     );
+  }
+);
+
+const commands = (world: RulesWorld): Located[] =>
+  world.tasks.filter(
+    ({ task }) => moduleOf(task) === 'ansible.builtin.command'
+  );
+const named = ({ path, task }: Located): string =>
+  `${path}: ${String(task['name'])}`;
+
+Then(
+  'every command task sets {string} or {string}',
+  (world, keyword: string, argument: string) => {
+    expect(commands(world).length).toBeGreaterThan(0);
+    const silent = commands(world).filter(({ task }) => {
+      const command = task['ansible.builtin.command'];
+      return (
+        !(keyword in task) &&
+        !(typeof command === 'object' && command && argument in command)
+      );
+    });
+    expect(silent.map(named)).toEqual([]);
+  }
+);
+
+Then(
+  'every command task that changes nothing sets {string} to false or is skipped when {string}',
+  (world, keyword: string, variable: string) => {
+    const reads = commands(world).filter(
+      ({ task }) => task['changed_when'] === false
+    );
+    expect(reads.length).toBeGreaterThan(0);
+    const unanswered = reads.filter(
+      ({ task }) =>
+        task[keyword] !== false &&
+        !String(task['when'] ?? '').includes(variable)
+    );
+    expect(unanswered.map(named)).toEqual([]);
   }
 );
 
@@ -491,26 +538,59 @@ async function workflow(name: string): Promise<Workflow> {
   throw new Error(`No workflow is named ${name}.`);
 }
 const job = (world: RulesWorld, name: string) => world.workflow!.jobs[name]!;
+/** Every `"quoted"` value of a list written in a step. */
+const quotedList = (text: string): string[] =>
+  [...text.matchAll(/"([^"]*)"/g)].map((match) => match[1]!);
 const jobEnv = (world: RulesWorld, name: string): Record<string, string> =>
-  Object.assign({}, ...job(world, name).steps.map((step) => step.env ?? {}));
+  Object.assign(
+    {},
+    ...(job(world, name).steps ?? []).map((step) => step.env ?? {})
+  );
 
 When(
   'the steps of the {string} workflow that install mise are read',
   async (world, name: string) => {
     world.workflowSteps = Object.values((await workflow(name)).jobs)
-      .flatMap((entry) => entry.steps)
-      .filter((step) => step.uses?.startsWith('jdx/mise-action@'));
+      .flatMap((entry) => entry.steps ?? [])
+      .filter(
+        (step) =>
+          step.uses?.startsWith('jdx/mise-action@') ||
+          step.uses === './.github/actions/mise'
+      );
     world.found = world.workflowSteps.map((step) => String(step.uses));
   }
 );
 
-Then('there is at least one', (world) => {
-  expect(world.found.length).toBeGreaterThan(0);
+Then('each installs mise through {string}', (world, action: string) => {
+  for (const step of world.workflowSteps) expect(step.uses).toBe(`./${action}`);
 });
 
-Then('each installs the mise version mise.toml pins', (world) => {
-  for (const step of world.workflowSteps)
-    expect(step.with?.['version']).toBe(pin('min_version')!);
+Then(
+  '{string} installs the mise version it reads from mise.toml',
+  (_world, path: string) => {
+    const action = parse(read(path)) as {
+      runs: { steps: (WorkflowStep & { id?: string })[] };
+    };
+    const reader = action.runs.steps.find((step) =>
+      step.run?.includes('min_version')
+    );
+    expect(reader?.run).toContain('mise.toml');
+    const installer = action.runs.steps.find((step) =>
+      step.uses?.startsWith('jdx/mise-action@')
+    );
+    expect(installer?.with?.['version']).toBe(
+      `\${{ steps.${reader?.id}.outputs.version }}`
+    );
+  }
+);
+
+Then('no workflow names a mise release number', async () => {
+  for (const path of await files('.github/**/*.yml'))
+    expect(`${path}: ${read(path)}`).not.toContain(pin('min_version')!);
+});
+
+Then('there is at least one', (world) => {
+  expect(world.found.length).toBeGreaterThan(0);
 });
 
 Then('each names the tools it installs', (world) => {
@@ -528,7 +608,8 @@ When('the actions {string} uses are read', (world, path: string) => {
 Then(
   'each is pinned to a full commit, with its release in a comment',
   (world) => {
-    for (const action of world.found)
+    // An action of this repository runs at the commit under test.
+    for (const action of world.found.filter((uses) => !uses.startsWith('./')))
       expect(action).toMatch(
         /^[\w.-]+\/[\w.-]+@[a-f0-9]{40} # v\d+\.\d+\.\d+$/
       );
@@ -581,8 +662,42 @@ Then(
   'its {string} job runs {string}',
   (world, name: string, command: string) => {
     expect(
-      job(world, name).steps.some((step) => step.run?.includes(command))
+      (job(world, name).steps ?? []).some((step) => step.run?.includes(command))
     ).toBe(true);
+  }
+);
+
+Then(
+  'its {string} job runs on {string}',
+  (world, name: string, runner: string) => {
+    expect(job(world, name)['runs-on']).toBe(runner);
+  }
+);
+
+Then(
+  /^the "([^"]+)" workflow's "([^"]+)" job needs (.+)$/,
+  async (world, name: string, needing: string, needed: string) => {
+    world.workflow = await workflow(name);
+    expect([job(world, needing).needs ?? []].flat().sort()).toEqual(
+      quotedList(needed).sort()
+    );
+  }
+);
+
+Then(
+  'its {string} job calls {string} for the commit {string} packed',
+  (world, name: string, path: string, packer: string) => {
+    expect(job(world, name).uses).toBe(`./${path}`);
+    expect(job(world, name).with?.['ref']).toBe(
+      `\${{ needs.${packer}.outputs.commit }}`
+    );
+  }
+);
+
+Then(
+  '{string} requires the profile {string}',
+  (_world, path: string, profile: string) => {
+    expect((parse(read(path)) as { profile?: string }).profile).toBe(profile);
   }
 );
 
@@ -591,7 +706,7 @@ When(
   async (world, step: string, name: string) => {
     world.script =
       Object.values((await workflow(name)).jobs)
-        .flatMap((entry) => entry.steps)
+        .flatMap((entry) => entry.steps ?? [])
         .find((candidate) => candidate.name === step)?.run ?? '';
   }
 );
@@ -602,6 +717,100 @@ Then(
     const at = world.script.indexOf(first);
     expect(at).toBeGreaterThan(-1);
     expect(at).toBeLessThan(world.script.indexOf(second));
+  }
+);
+
+// ── Convergence ──────────────────────────────────────────────────────────
+
+/** Tooling that runs on the developer's machine or in CI, never a fleet machine's. */
+const NOT_CONVERGENCE = [
+  'bootstrap/npm.ts',
+  'bootstrap/release-version.ts',
+  'bootstrap/release-notes.ts',
+  'bootstrap/package-smoke.ts',
+  'bootstrap/pins.ts',
+  'bootstrap/doctor.ts',
+  'bootstrap/setup-status.ts',
+  'bootstrap/devfleet',
+  'bootstrap/fleet-manager-run.sh',
+  'bootstrap/verify-t3-archive.py',
+  'bootstrap/bootstrap.ps1',
+];
+
+When('the bootstrap scripts and modules are listed', async (world) => {
+  world.found = (await files('bootstrap/*')).filter(
+    (path) => !NOT_CONVERGENCE.includes(path)
+  );
+});
+
+When('every playbook is listed', async (world) => {
+  world.found = await playbooks();
+  world.found = world.found.filter((path) => !path.includes('/tasks/'));
+});
+
+Then(
+  'each file found is named in {string} with a reason',
+  (world, path: string) => {
+    expect(world.found.length).toBeGreaterThan(0);
+    const rows = read(path).split('\n');
+    const missing = world.found.filter(
+      (file) =>
+        !rows.some(
+          (row) =>
+            row.includes(`\`${file}\``) &&
+            (row.split('|').at(-2)?.trim().length ?? 0) > 20
+        )
+    );
+    expect(missing).toEqual([]);
+  }
+);
+
+Then('each file found is named in {string}', (world, path: string) => {
+  expect(world.found.length).toBeGreaterThan(0);
+  const text = read(path);
+  expect(world.found.filter((file) => !text.includes(`\`${file}\``))).toEqual(
+    []
+  );
+});
+
+// ── Keeping pins current ─────────────────────────────────────────────────
+
+Then(
+  'a custom manager of Renovate reads the tag and digest of {string} in {string}',
+  (_world, key: string, path: string) => {
+    const { customManagers = [] } = JSON.parse(read('renovate.json')) as {
+      customManagers?: {
+        managerFilePatterns: string[];
+        matchStrings: string[];
+      }[];
+    };
+    const text = read(path);
+    const pattern = (written: string) =>
+      new RegExp(written.replace(/^\/(.*)\/$/, '$1'));
+    const captured = customManagers
+      .filter((manager) =>
+        manager.managerFilePatterns.some((files) => pattern(files).test(path))
+      )
+      .flatMap((manager) => manager.matchStrings)
+      .map((match) => new RegExp(match).exec(text)?.groups)
+      .find(
+        (groups) => groups && text.includes(`"${key}": "${groups['depName']}:`)
+      );
+    expect(captured?.['currentValue']).toBeString();
+    expect(captured?.['currentDigest']).toMatch(/^sha256:[a-f0-9]{64}$/);
+  }
+);
+
+Then(
+  /^docs\/declared\.md says "([^"]+)" is moved by a person, and why$/,
+  (_world, pin: string) => {
+    const section = read('docs/declared.md').split(
+      '## Keeping pins current'
+    )[1]!;
+    const row = section
+      .split('\n')
+      .find((line) => line.startsWith(`| ${pin} `));
+    expect(row).toMatch(/\| A person, because .{20,}\|$/);
   }
 );
 
@@ -771,7 +980,15 @@ Then('it prints {string}', (world, text: string) => {
 Then(
   'its {string} job runs once for each of:',
   (world, name: string, table: DataTable) => {
-    expect(job(world, name).strategy?.matrix?.include).toEqual(table.hashes());
+    const matrix = job(world, name).strategy?.matrix;
+    const [key] = table.raw()[0] ?? [];
+    // A matrix of one list says the same as an include of one key.
+    const rows =
+      matrix?.include ??
+      (matrix?.[key!] as unknown[] | undefined)?.map((value) => ({
+        [key!]: String(value),
+      }));
+    expect(rows).toEqual(table.hashes());
   }
 );
 

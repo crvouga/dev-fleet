@@ -7,7 +7,8 @@
   vars_files:
     - policy.json
   pre_tasks:
-    - ansible.builtin.import_tasks: tasks/release.yml
+    - name: Require a supported Ubuntu release
+      ansible.builtin.import_tasks: tasks/release.yml
       tags: [always]
     - name: Require an explicit non-root user
       ansible.builtin.assert:
@@ -27,10 +28,12 @@
           - ansible_facts.getent_passwd[development_user][1] | int == development_uid | int
           - ansible_facts.getent_passwd[development_user][4] == development_home
       tags: [always]
-    - ansible.builtin.import_tasks: tasks/dpkg.yml
+    - name: Recover or refuse a broken package database
+      ansible.builtin.import_tasks: tasks/dpkg.yml
     # Memory and disk safety must land even when the disk is nearly full.
     # fleet-repair re-applies them alone (--tags disk) for worker:capacity:*.
-    - ansible.builtin.import_tasks: tasks/resources.yml
+    - name: Apply memory and disk safety
+      ansible.builtin.import_tasks: tasks/resources.yml
       tags: [disk]
     - name: Inspect capacity before package and service changes
       ansible.builtin.command:
@@ -43,6 +46,7 @@
       environment:
         FLEET_HOME: '{{ development_home }}'
       changed_when: false
+      check_mode: false
       register: capacity
     - name: Preserve management capacity instead of installing into an exhausted disk
       ansible.builtin.assert:
@@ -61,15 +65,24 @@
     - name: Inspect existing service ownership
       ansible.builtin.service_facts:
   tasks:
-    - ansible.builtin.import_tasks: tasks/packages.yml
-    - ansible.builtin.import_tasks: tasks/docker.yml
-    - ansible.builtin.import_tasks: tasks/browser.yml
+    - name: Install the pinned packages
+      ansible.builtin.import_tasks: tasks/packages.yml
+    - name: Configure Docker
+      ansible.builtin.import_tasks: tasks/docker.yml
+    - name: Install the browser for web workers
+      ansible.builtin.import_tasks: tasks/browser.yml
       when: "'web' in worker_tool_profiles | default([])"
-    - ansible.builtin.import_tasks: tasks/services.yml
-    - ansible.builtin.import_tasks: tasks/power.yml
-    - ansible.builtin.import_tasks: tasks/user.yml
-    - ansible.builtin.import_tasks: tasks/ssh.yml
-    - ansible.builtin.import_tasks: tasks/credentials.yml
+    - name: Keep the always-on services running
+      ansible.builtin.import_tasks: tasks/services.yml
+    - name: Apply the power policy
+      ansible.builtin.import_tasks: tasks/power.yml
+    - name: Configure the development user
+      ansible.builtin.import_tasks: tasks/user.yml
+    - name: Configure SSH
+      ansible.builtin.import_tasks: tasks/ssh.yml
+    - name: Install the credential helpers
+      ansible.builtin.import_tasks: tasks/credentials.yml
       when: development_source is defined
-    - ansible.builtin.import_tasks: tasks/github.yml
+    - name: Sign the worker in to GitHub
+      ansible.builtin.import_tasks: tasks/github.yml
       when: development_source is defined
