@@ -11,6 +11,7 @@ import { fleetAccounts, type FleetAccountsOptions } from './fleet-accounts';
 import { fleetReport, type FleetReportOptions } from './fleet-report';
 import { fleetWatch, watchServices } from './fleet-watch';
 import type { NodeReport } from '../types';
+import { registerGithubVerify } from './github-verify';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -350,6 +351,7 @@ export function registerFleet(
   registerRepair(registration);
   registerNodes(registration);
   registerAccounts(registration);
+  registerGithubVerify(program, complete);
 }
 
 function registerAccounts({ program, defaults, complete }: Registration) {

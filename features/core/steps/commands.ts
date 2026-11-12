@@ -211,10 +211,13 @@ Then('these checks are skipped, in this order:', (world, table: DataTable) => {
 });
 
 Then(
-  'every skipped check says {string} and where its access is proven',
-  (world, code: string) => {
-    const skipped = checks(world).filter((check) => check.status === 'skip');
-    expect(skipped.length).toBeGreaterThan(0);
+  'these skipped checks say {string} and where their access is proven:',
+  (world, code: string, table: DataTable) => {
+    const ids = table.list();
+    const skipped = checks(world).filter(
+      (check) => check.status === 'skip' && ids.includes(check.id)
+    );
+    expect(skipped.map((check) => check.id)).toEqual(ids);
     for (const check of skipped) {
       expect(check.summary).toStartWith(`${code}: `);
       expect(check.summary.length).toBeGreaterThan(code.length + 20);

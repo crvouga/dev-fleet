@@ -65,3 +65,5 @@
     - ansible.builtin.import_tasks: tasks/ssh.yml
     - ansible.builtin.import_tasks: tasks/credentials.yml
       when: development_source is defined
+    - ansible.builtin.import_tasks: tasks/github.yml
+      when: development_source is defined

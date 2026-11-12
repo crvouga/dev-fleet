@@ -1,7 +1,7 @@
 Feature: A worker installs only what its profile declares and keeps its own credentials
   A worker installs a declared subset of the tools, every version still coming
-  from the locked pins. It renews its own Vault session and takes its GitHub
-  service token from that session; no login directory is ever copied to it.
+  from the locked pins. It renews its own Vault session; no login directory is
+  ever copied to it. Its GitHub sign-in is specified in features/github.
 
   Rule: The worker tool profile selects pinned tools only
 
@@ -59,15 +59,3 @@ Feature: A worker installs only what its profile declares and keeps its own cred
         | A successful answer with a lease is a renewal  | 0      | {"auth":{"client_token":"PRIVATE_SENTINEL","lease_duration":86400}} | renewed     |
         | A failed renewal is not one                    | 1      | PRIVATE_SENTINEL                                                    | not renewed |
         | An answer without a lease is not a renewal     | 0      | {}                                                                  | not renewed |
-
-  Rule: The GitHub service token comes from the worker's own Vault session
-
-    Scenario: The declared account is validated before the token from Vault is stored
-      Given the worker is not signed in to GitHub
-      And Vault holds the GitHub service token "PRIVATE_SENTINEL_TOKEN"
-      And GitHub says a token belongs to "example-user"
-      And GitHub accepts a login with a token
-      When the worker signs in to GitHub
-      Then the worker is signed in
-      And the GitHub token appears in no command line
-      And the last command was given "PRIVATE_SENTINEL_TOKEN" and a new line on standard input

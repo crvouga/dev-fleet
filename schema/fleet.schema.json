@@ -611,8 +611,24 @@
                     }
                   },
                   "description": "Only with the ntfy notify target: the ntfy topic URL fleet-watch publishes to."
+                },
+                "github-token": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  }
                 }
-              }
+              },
+              "description": "Required for every secret except github-token, which defaults to the field GITHUB_TOKEN beside proxy-client-key."
             }
           }
         }
@@ -660,6 +676,68 @@
           "type": "integer",
           "minimum": 0,
           "maximum": 720
+        }
+      }
+    },
+    "github": {
+      "description": "How every node signs in to GitHub. The fleet login is worker.githubLogin.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "manager": {
+          "description": "fleet: the manager signs in as the fleet login. {login}: a person's own login, checked and never replaced.",
+          "oneOf": [
+            {
+              "const": "fleet"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["login"],
+              "properties": {
+                "login": {
+                  "type": "string",
+                  "pattern": "^[a-zA-Z0-9-]{1,39}$"
+                }
+              }
+            }
+          ]
+        },
+        "credential": {
+          "description": "shared: one github-token for every node. per-node: github-token-<node> for each node.",
+          "enum": ["shared", "per-node"]
+        },
+        "scopes": {
+          "description": "Token scopes every node must have, such as repo and workflow.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z:_]{1,40}$"
+          }
+        },
+        "repositories": {
+          "description": "owner/name of repositories every node must be able to push to.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$"
+          }
+        },
+        "organizations": {
+          "description": "Organisations whose single sign-on must have authorised the token.",
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9-]{1,39}$"
+          }
+        },
+        "sandbox": {
+          "type": "string",
+          "pattern": "^[a-zA-Z0-9-]{1,39}/[A-Za-z0-9._-]{1,100}$",
+          "description": "owner/name of a repository fleet-github-verify branches, pushes to and opens pull requests on, then cleans up."
         }
       }
     }

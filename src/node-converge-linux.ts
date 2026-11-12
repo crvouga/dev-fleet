@@ -66,7 +66,7 @@ export async function convergeLinux(
   checks.push(...(await t3AfterBaseline(root, { node, baseline, run })));
   checks.push(
     ...(await attempt('workstation:configuration', () =>
-      configureWorkstation(root, run)
+      configureWorkstation(root, run, node)
     ))
   );
   checks.push(
@@ -169,7 +169,7 @@ async function applyBaseline(
     },
     {
       name: 'ubuntu-baseline',
-      sources: [ubuntu],
+      sources: [ubuntu, resolve(root, 'ansible/github')],
       force,
       verify: () => baselineServicesActive(run),
     }
@@ -207,6 +207,7 @@ async function baselineServicesActive(run: Runner): Promise<boolean> {
     'is-active',
     '--quiet',
     'personal-worker-auth.timer',
+    'personal-worker-github.timer',
   ]);
   return user.ok;
 }

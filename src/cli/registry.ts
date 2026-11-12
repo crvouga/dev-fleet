@@ -161,6 +161,13 @@ export const COMMANDS: CommandSpec[] = [
       ['accounts', 'login', 'relogin', 'remove', 'add', 'sign in'],
       true,
     ],
+    [
+      'fleet-github-verify',
+      'Verify the GitHub workflow from this machine',
+      'Against the sandbox repository fleet.json declares (github.sandbox): clone, push a uniquely named branch, open a draft pull request, read its checks and comment, then close it and delete the branch whatever failed. Fails at the named step.',
+      ['github', 'verify', 'pull request', 'push', 'permissions', 'workflow'],
+      true,
+    ],
   ]),
   ...group('T3', [
     [
