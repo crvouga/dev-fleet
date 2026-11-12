@@ -25,12 +25,18 @@ Feature: Every pull request is checked the way machines run
       | ansible   |
       | manager   |
 
-  Scenario: The fresh worker check covers both architectures a worker may have
+  Scenario: The fresh worker check covers every accepted release on both architectures a worker may have
+    A release is accepted when every fresh-box scenario passes on it, so each
+    release the Ubuntu policy accepts runs them on each architecture.
     Then the "CI" workflow runs on "pull_request"
     And its "fresh-box" job runs once for each of:
-      | architecture | runner           |
-      | amd64        | ubuntu-latest    |
-      | arm64        | ubuntu-24.04-arm |
+      | release | architecture | runner           |
+      | 26.04   | amd64        | ubuntu-latest    |
+      | 26.04   | arm64        | ubuntu-24.04-arm |
+      | 24.04   | amd64        | ubuntu-latest    |
+      | 24.04   | arm64        | ubuntu-24.04-arm |
+    And its "fresh-box" job runs every release the Ubuntu policy accepts
+    And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX_RELEASE" to "${{ matrix.release }}"
 
   Scenario: A fresh worker is bootstrapped over SSH on every pull request
     Then the "CI" workflow runs on "pull_request"

@@ -70,7 +70,7 @@ Feature: The fleet configuration
 
       Examples: Workers run a release of the support matrix, and fleet-watch a known target
         | rule                                        | field          | value                 | code               | path             |
-        | the release is one the support matrix lists | ubuntu.release | "24.04"               | DEFINITION_INVALID | $.ubuntu.release |
+        | the release is one the support matrix lists | ubuntu.release | "22.04"               | DEFINITION_INVALID | $.ubuntu.release |
         | a notify target is webhook or ntfy          | notify         | {"targets":["pager"]} | DEFINITION_INVALID | $.notify         |
 
       Examples: The previous owner/parent shape is rejected

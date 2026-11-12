@@ -7,8 +7,13 @@ Feature: A fresh Ubuntu machine becomes a worker over SSH
   connection against a disposable machine, and only when
   DEVFLEET_TEST_FRESH_BOX is set, because it downloads the worker toolchain.
 
+  The machine runs the Ubuntu release under test:
+  DEVFLEET_TEST_FRESH_BOX_RELEASE, or else the newest release the Ubuntu
+  policy accepts. CI runs these scenarios once for every accepted release,
+  so each passes the same scenarios.
+
   Background:
-    Given a fresh Ubuntu 26.04 machine with an SSH server and an account that can use sudo
+    Given a fresh machine of the Ubuntu release under test, with an SSH server and an account that can use sudo
     And the manager reaches it over SSH with its own key and the machine's verified host key
 
   Scenario: The machine starts with none of the tools dev-fleet needs
@@ -42,7 +47,7 @@ Feature: A fresh Ubuntu machine becomes a worker over SSH
       | codex  | codex --version  |
       | claude | claude --version |
       | go     | go version       |
-    And these packages are installed at the exact version the Ubuntu policy pins:
+    And these packages are installed at the exact version the Ubuntu policy pins for the release:
       | git             |
       | curl            |
       | ca-certificates |

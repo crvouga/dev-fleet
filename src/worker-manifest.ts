@@ -21,6 +21,7 @@ export interface WorkerManifest {
 /** The policy a worker's manifest is measured against. */
 interface UbuntuPolicy {
   packages: Record<string, string>;
+  releases: { release: string; packages?: Record<string, string> }[];
   alwaysOnServices: string[];
 }
 
@@ -41,6 +42,8 @@ export function manifestProbe(services: string[]): string {
     "mise ls --current --json 2>/dev/null | tr -d '\\n'; echo",
     'echo @units',
     `for unit in ${units}; do printf '%s=%s/%s\\n' "$unit" "$(systemctl is-enabled "$unit" 2>/dev/null)" "$(systemctl is-active "$unit" 2>/dev/null)"; done`,
+    'echo @release',
+    '(. /etc/os-release 2>/dev/null && echo "$VERSION_ID")',
   ].join('; ');
 }
 
@@ -95,6 +98,14 @@ export function parseManifest(stdout: string): WorkerManifest {
   };
 }
 
+/** The release the probe reported. It is kept apart from the manifest, so
+ * the manifest and its digest are what they were before releases differed. */
+export function manifestRelease(stdout: string): string | null {
+  const lines = stdout.split('\n').map((line) => line.trim());
+  const at = lines.indexOf('@release');
+  return (at >= 0 && lines.slice(at + 1).find(Boolean)) || null;
+}
+
 /** The same manifest always has the same digest. */
 export function manifestDigest(manifest: WorkerManifest): string {
   return createHash('sha256').update(JSON.stringify(manifest)).digest('hex');
@@ -133,10 +144,17 @@ export function diffManifests(
  */
 export function declaredDifferences(
   manifest: WorkerManifest,
-  policy: UbuntuPolicy
+  policy: UbuntuPolicy,
+  release: string | null = null
 ): ManifestDifference[] {
   const differences: ManifestDifference[] = [];
-  for (const [name, version] of Object.entries(policy.packages)) {
+  // The release's own pins over the common ones, as tasks/release.yml
+  // combines them.
+  const pins = {
+    ...policy.packages,
+    ...policy.releases.find((entry) => entry.release === release)?.packages,
+  };
+  for (const [name, version] of Object.entries(pins)) {
     const actual = manifest.packages[name] ?? null;
     if (actual !== version)
       differences.push({
@@ -191,11 +209,16 @@ export async function measureManifest(
   node: FleetNode,
   run: Runner,
   policy: UbuntuPolicy
-): Promise<{ manifest: WorkerManifest } | { check: Check }> {
+): Promise<
+  { manifest: WorkerManifest; release: string | null } | { check: Check }
+> {
   const result = await run(
     [...sshArgs(node), manifestProbe(policy.alwaysOnServices)],
     { timeoutMs: 60_000 }
   );
   if (!result.ok) return { check: sshFailure(result) };
-  return { manifest: parseManifest(result.stdout) };
+  return {
+    manifest: parseManifest(result.stdout),
+    release: manifestRelease(result.stdout),
+  };
 }

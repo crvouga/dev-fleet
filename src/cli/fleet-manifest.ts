@@ -75,9 +75,9 @@ export async function fleetManifest(
         checks: [measured.check],
       },
     };
-  const { manifest } = measured;
+  const { manifest, release } = measured;
   const differences = [
-    ...declaredDifferences(manifest, policy),
+    ...declaredDifferences(manifest, policy, release),
     ...(fresh ? diffManifests(fresh, manifest) : []),
   ];
   const check = manifestCheck(differences);

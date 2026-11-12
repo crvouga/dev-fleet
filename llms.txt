@@ -1,6 +1,6 @@
 # dev-fleet
 
-> dev-fleet keeps a set of development machines in sync: one macOS **manager** and any number of Ubuntu 26.04 **workers** reached over SSH and Tailscale. It is used as the npm package `@crvouga/dev-fleet` (CLI `devfleet`) from a project of your own that holds `fleet.json` and pins the package version; one command, `devfleet fleet-sync`, converges every machine to the commit that version was published from. The fleet state lives in an S3-compatible bucket you own.
+> dev-fleet keeps a set of development machines in sync: one macOS **manager** and any number of Ubuntu (26.04 or 24.04) **workers** reached over SSH and Tailscale. It is used as the npm package `@crvouga/dev-fleet` (CLI `devfleet`) from a project of your own that holds `fleet.json` and pins the package version; one command, `devfleet fleet-sync`, converges every machine to the commit that version was published from. The fleet state lives in an S3-compatible bucket you own.
 
 Rules for an agent working in a project that uses dev-fleet:
 

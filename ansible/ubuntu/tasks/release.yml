@@ -12,9 +12,15 @@
       - ansible_facts.distribution_release == ubuntu_release.codename
       - "(ansible_facts.architecture | replace('x86_64', 'amd64') | replace('aarch64', 'arm64')) in ubuntu_release.architectures"
     fail_msg: UBUNTU_BASELINE_MISMATCH; workers run a release docs/support-matrix.md lists. No distribution upgrade is permitted.
+# What differs between accepted releases is data of the release's entry in
+# policy.json, selected above by the release the facts report: its package
+# pins, its browser library pins and, where Tailscale signs its suite with
+# another key, that key's digest. Everything not named there is common.
 - name: Pin the packages of this release, its own pins over the common ones
   ansible.builtin.set_fact:
     packages: '{{ packages | combine(ubuntu_release.packages | default({})) }}'
+    browser: "{{ browser | combine({'packages': browser.packages | combine(ubuntu_release.browserPackages | default({}))}) }}"
+    tailscale: "{{ tailscale | combine({'keySha256': ubuntu_release.tailscaleKeySha256 | default(tailscale.keySha256)}) }}"
 - name: Read the kernel release to tell WSL2 apart from a machine of its own
   ansible.builtin.slurp:
     src: /proc/sys/kernel/osrelease

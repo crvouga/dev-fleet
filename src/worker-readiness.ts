@@ -6,7 +6,7 @@ import { workerSelection } from '../bootstrap/worker-tools';
 import { browserCheck, dockerRunCheck } from './worker-capability-checks';
 import { gitChecks } from './git-identity';
 import type { Check, Runner } from './types';
-import { workerHostChecks } from './worker-host-checks';
+import { UBUNTU_WORKER } from './platform/ubuntu-worker';
 import { workerAccessChecks } from './worker-access-checks';
 import { record } from './config';
 
@@ -15,7 +15,7 @@ export async function workerReadiness(
   nodeId = hostId(hostname()),
   root = process.cwd()
 ): Promise<Check[]> {
-  const host = await workerHostChecks(userInfo().username, run);
+  const host = await UBUNTU_WORKER.hostChecks(userInfo().username, run);
   const access = await workerAccessChecks(run, nodeId);
   const revision = await run(['git', 'rev-parse', 'HEAD']);
   const singleton = await run(

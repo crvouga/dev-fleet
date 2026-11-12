@@ -115,6 +115,14 @@ Feature: What a machine becomes is declared, once
         | release  | [ "$VERSION_ID" = 26.04 ] && echo accepted |
         | codename | Suites: resolute resolute-updates          |
 
+    Scenario: A release's own pins only replace pins the Ubuntu policy declares
+      A release entry pins the versions of its own snapshot for packages the
+      policy already pins; a name there that the policy does not pin is a
+      misspelling, or a package nothing would measure.
+      When the release entries of the Ubuntu policy are read
+      Then each pins only packages the policy's "packages" pins
+      And each pins only browser libraries the policy's "browser.packages" pins
+
     Scenario: A package version that contains a release number is not a release
       When this text is searched for a release or codename the Ubuntu policy accepts:
         """

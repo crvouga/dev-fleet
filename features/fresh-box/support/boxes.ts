@@ -2,6 +2,7 @@ import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { loadDefinition } from '../../../src/definition';
+import { UBUNTU_RELEASES } from '../../../src/platform/ubuntu-release';
 import {
   bootstrapRemote,
   prepareBootstrap,
@@ -17,7 +18,14 @@ import type { Check, FleetNode, Runner } from '../../../src/types';
  */
 
 export const repo = resolve(import.meta.dir, '../../..');
-const image = 'dev-fleet-fresh-box';
+
+/** The Ubuntu release the machines run: DEVFLEET_TEST_FRESH_BOX_RELEASE, or
+ * the newest the Ubuntu policy accepts. CI runs the features once for every
+ * accepted release; the Dockerfile pins the image of each.
+ */
+export const RELEASE_UNDER_TEST =
+  process.env['DEVFLEET_TEST_FRESH_BOX_RELEASE'] || UBUNTU_RELEASES[0]!.release;
+const image = `dev-fleet-fresh-box:${RELEASE_UNDER_TEST}`;
 
 /** The commands a machine must not have before the fleet bootstraps it. */
 export const BEFOREHAND = [
@@ -154,6 +162,8 @@ async function createBox(name: string, options: BoxOptions): Promise<Box> {
     'docker',
     'build',
     '-q',
+    '--build-arg',
+    `RELEASE=${RELEASE_UNDER_TEST}`,
     '-t',
     image,
     '-f',

@@ -141,16 +141,19 @@ jobs:
           converge --check --diff
           [ "$(changed)" = changed=0 ] || { echo '::error::A dry run on the converged manager reports a change.'; exit 1; }
   fresh-box:
-    name: Fresh worker over SSH (${{ matrix.architecture }})
+    name: Fresh worker over SSH (${{ matrix.release }}, ${{ matrix.architecture }})
     # A disposable Ubuntu machine that has only an SSH server and an account
     # with sudo, bootstrapped by the production code over a real SSH
     # connection: features/fresh-box. It downloads the worker toolchain.
+    # Once for every release ansible/ubuntu/policy.json accepts.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { architecture: amd64, runner: ubuntu-latest }
-          - { architecture: arm64, runner: ubuntu-24.04-arm }
+          - { release: '26.04', architecture: amd64, runner: ubuntu-latest }
+          - { release: '26.04', architecture: arm64, runner: ubuntu-24.04-arm }
+          - { release: '24.04', architecture: amd64, runner: ubuntu-latest }
+          - { release: '24.04', architecture: arm64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 45
     steps:
@@ -164,6 +167,7 @@ jobs:
         env:
           # A missing Docker or SSH client fails here instead of skipping.
           DEVFLEET_TEST_FRESH_BOX: required
+          DEVFLEET_TEST_FRESH_BOX_RELEASE: ${{ matrix.release }}
   agent-box:
     name: Monitoring agent on systemd
     # The Beszel agent playbook applied for real on a disposable Ubuntu
