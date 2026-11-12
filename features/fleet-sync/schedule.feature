@@ -127,13 +127,58 @@ Feature: The manager's schedule changes only when that is authorized
       When the schedule is checked at "2026-11-02T08:00:00Z"
       Then there is no schedule check
 
-  Rule: The schedule's logs stay under a fixed size
+  Rule: How often the schedule runs is set in the fleet configuration
 
-    Scenario: A scheduled run caps the schedule's logs and leaves other files alone
-      Given the schedule's log "personal-fleet-sync.out.log" holds 2048 KiB of lines
-      And the schedule's log "personal-fleet-sync.err.log" holds 16 KiB of lines
-      And the schedule's log "other.txt" holds 2048 KiB of lines
-      When a scheduled run starts, with logs capped at 1024 KiB
-      Then the log "personal-fleet-sync.out.log" holds at most 1024 KiB, and ends with a whole line
-      And the log "personal-fleet-sync.err.log" still holds 16 KiB
-      And the log "other.txt" still holds 2048 KiB
+    Scenario: The schedule runs as often as the fleet configuration says
+      Given the CLI is the published release "1.4.0" of the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      And npm installs any package it is asked to
+      And the platform installs a scheduled job it is asked to
+      And the fleet configuration sets the manager's schedule to:
+        """
+        { "syncMinutes": 45 }
+        """
+      When the schedule action "enable" is requested with authorization
+      Then the command exits with 0
+      And the scheduled job "personal-fleet-sync" runs every 45 minutes
+      And the fleet state records the schedule as on, every 45 minutes
+
+    Scenario Outline: An interval of <minutes> minutes is refused
+      When a fleet configuration that sets the manager's schedule to { "<job>": <minutes> } is read
+      Then reading it fails at "$.manager.schedule.<job>"
+
+      Examples:
+        | job          | minutes |
+        | syncMinutes  | 4       |
+        | watchMinutes | 1441    |
+        | syncMinutes  | 7.5     |
+
+  Rule: The logs of the manager's scheduled jobs stay under a fixed size
+    newsyslog rotates them, from the drop-in the manager's one grant
+    (ansible/macos/manager-privilege.yml) installs, at the size jobLogs in
+    ansible/macos/policy.json names. manager:job-logs measures both.
+
+    Scenario: The grant rotates each log of both scheduled jobs at the size the policy names
+      When the newsyslog drop-in of "ansible/macos/manager-privilege.yml" is read for the user "dev"
+      Then it rotates exactly these logs under "/Users/dev/.local/share/personal/fleet/manager/logs", at 1024 KiB, keeping 3:
+        | personal-fleet-sync.out.log      |
+        | personal-fleet-sync.err.log      |
+        | dev.devfleet.fleet-watch.out.log |
+        | dev.devfleet.fleet-watch.err.log |
+      And it is checked with newsyslog before it is installed
+
+    Scenario: Logs under the rotation size pass
+      Given the newsyslog drop-in for the manager's job logs is installed
+      And the job log "personal-fleet-sync.out.log" holds 1500 KiB of lines
+      When the manager's job logs are checked
+      Then the check "manager:job-logs" passes
+
+    Scenario: A log past twice the rotation size warns that newsyslog does not rotate it
+      Given the newsyslog drop-in for the manager's job logs is installed
+      And the job log "dev.devfleet.fleet-watch.err.log" holds 2100 KiB of lines
+      When the manager's job logs are checked
+      Then the check "manager:job-logs" warns with "MANAGER_JOB_LOG_OVERSIZED 1 logs"
+
+    Scenario: A manager without the drop-in is told to give the grant
+      When the manager's job logs are checked
+      Then the check "manager:job-logs" warns with "MANAGER_JOB_LOG_ROTATION_MISSING"
+      And the remedy of the check "manager:job-logs" names "ansible/macos/manager-privilege.yml"

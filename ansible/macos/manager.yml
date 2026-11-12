@@ -1,11 +1,17 @@
 ---
+# The manager's own policy, applied by fleet-sync on every applying run:
+# check mode first, then for real, with a receipt (macos-manager) that a full
+# re-apply replaces at least once a day. It never asks for a password and no
+# play becomes root: what needs root runs through the narrow grant
+# manager-privilege.yml installs once (with the T3 policy and the log
+# rotation), and without the grant it is skipped here and reported by its
+# check.
+#
 # Manager power policy. Workers depend on the manager's singleton services
 # (CLI proxy, Beszel hub), so the manager never sleeps on AC power and starts
 # again by itself when power returns (autorestart). Sleep on battery is left
 # to the human. The settings are the `pmset` object in policy.json; fleet-sync
-# measures the same object as manager:power and applies this playbook on every
-# run, without a prompt, because `pmset -c` runs through the narrow grant
-# manager-privilege.yml installs once.
+# measures the same object as manager:power.
 - name: Keep the fleet manager awake on AC power
   hosts: localhost
   connection: local
@@ -19,6 +25,18 @@
       changed_when: false
       check_mode: false
       register: pmset_custom
+    # Lists, never runs: whether `pmset -c` may run without a password.
+    - name: Inspect the manager's power grant
+      ansible.builtin.command:
+        argv: [/usr/bin/sudo, -n, -l, /usr/bin/pmset, -c, sleep, '0']
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: pmset_grant
+    - name: Report that the power settings wait for the grant
+      ansible.builtin.debug:
+        msg: 'The power grant is not in place; manager:power says how to give it once.'
+      when: pmset_grant.rc != 0
     # pmset accepts a setting this Mac does not have and keeps nothing (a
     # virtual Mac has no Wake-on-LAN, so no womp): applying it again on every
     # run would never converge. It is reported instead of applied.
@@ -48,7 +66,9 @@
       vars:
         ac_section: "{{ pmset_custom.stdout.split('AC Power:') | last }}"
         observed: "{{ ac_section | regex_findall('^\\s*' ~ item.key ~ '\\s+(\\S+)', multiline=True) | first | default('') }}"
-      when: observed not in ['', item.value]
+      when:
+        - pmset_grant.rc == 0
+        - observed not in ['', item.value]
       changed_when: true
 
 # Docker Desktop hosts the CLI proxy and the monitoring hub, so it starts at
@@ -87,5 +107,119 @@
         - docker_settings_file.stat.exists
         - not (current[dockerDesktop.key] | default(false) | bool)
 
-- name: Stage the fleet's T3 policy
-  ansible.builtin.import_playbook: t3-policy.yml
+# fleet-watch compares the fleet's health with its last run, notifies on a
+# change and stores the heartbeat the off-machine workflow
+# (.github/workflows/fleet-heartbeat.yml) reads. It runs from the checkout
+# fleet-sync last applied (fleet/current) with that checkout's locked Bun, on
+# the interval `manager.schedule.watchMinutes` in fleet.json sets
+# (fleet_watch_minutes), or else policy.json's. manager:watch measures it.
+- name: Watch the fleet on a schedule
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+  gather_subset: ['!all']
+  vars_files:
+    - policy.json
+  vars:
+    watch_home: '{{ ansible_facts.env.HOME }}'
+    watch_label: '{{ fleetWatch.label }}'
+    watch_minutes: '{{ fleet_watch_minutes | default(fleetWatch.intervalMinutes) | int }}'
+    watch_logs: '{{ watch_home }}/{{ jobLogs.directory }}'
+    watch_plist: '{{ watch_home }}/Library/LaunchAgents/{{ watch_label }}.plist'
+    watch_domain: 'gui/{{ ansible_facts.user_uid }}'
+  tasks:
+    - name: Require an interval the schema allows
+      ansible.builtin.assert:
+        that:
+          - watch_minutes | int >= 5
+          - watch_minutes | int <= 1440
+        fail_msg: MANAGER_WATCH_INTERVAL_INVALID; manager.schedule.watchMinutes is from 5 to 1440.
+    - name: Create the directories of the watch job
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop:
+        - '{{ watch_logs }}'
+        - '{{ watch_home }}/Library/LaunchAgents'
+    - name: Install the fleet-watch launch agent
+      ansible.builtin.copy:
+        dest: '{{ watch_plist }}'
+        mode: '0644'
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!-- Managed by dev-fleet: fleet-watch -->
+          <plist version="1.0"><dict>
+            <key>Label</key><string>{{ watch_label }}</string>
+            <key>ProgramArguments</key><array>
+              <string>{{ watch_home }}/.local/bin/mise</string>
+              <string>exec</string>
+              <string>--locked</string>
+              <string>bun</string>
+              <string>--</string>
+              <string>bun</string>
+              <string>src/cli/cli.ts</string>
+              <string>fleet-watch</string>
+              <string>--json</string>
+            </array>
+            <key>WorkingDirectory</key><string>{{ watch_home }}/.local/share/personal/fleet/current</string>
+            <key>EnvironmentVariables</key><dict>
+              <key>PATH</key><string>{{ watch_home }}/.local/share/mise/shims:{{ watch_home }}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+              <key>DEVFLEET_TRIGGER</key><string>watch</string>
+            </dict>
+            <key>StartInterval</key><integer>{{ watch_minutes | int * 60 }}</integer>
+            <key>ProcessType</key><string>Background</string>
+            <key>LowPriorityIO</key><true/>
+            <key>Nice</key><integer>10</integer>
+            <key>Umask</key><integer>63</integer>
+            <key>StandardOutPath</key><string>{{ watch_logs }}/{{ watch_label }}.out.log</string>
+            <key>StandardErrorPath</key><string>{{ watch_logs }}/{{ watch_label }}.err.log</string>
+          </dict></plist>
+      register: watch_agent
+    - name: Inspect whether the watch job is loaded
+      ansible.builtin.command:
+        argv: [/bin/launchctl, print, '{{ watch_domain }}/{{ watch_label }}']
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: watch_loaded
+    # launchd caches a loaded definition: a changed plist needs a reload.
+    - name: Unload a stale watch job definition
+      ansible.builtin.command:
+        argv: [/bin/launchctl, bootout, '{{ watch_domain }}/{{ watch_label }}']
+      when: watch_agent.changed and watch_loaded.rc == 0
+      failed_when: false
+      changed_when: true
+    - name: Load the watch job
+      ansible.builtin.command:
+        argv:
+          [/bin/launchctl, bootstrap, '{{ watch_domain }}', '{{ watch_plist }}']
+      when: watch_agent.changed or watch_loaded.rc != 0
+      changed_when: true
+
+# A skewed clock breaks TLS, token validation and Vault logins with errors
+# that never mention time, and every worker's offset is measured against the
+# manager's. macOS keeps its own time service; this asserts it is on.
+# Reading it needs root, through the grant manager-privilege.yml installs;
+# without the grant it is not asserted here, and manager:clock says so.
+- name: Keep the manager's clock on network time
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  tasks:
+    - name: Read whether network time is on
+      ansible.builtin.command:
+        argv: [/usr/bin/sudo, -n, /usr/sbin/systemsetup, -getusingnetworktime]
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: network_time
+    - name: Require network time
+      ansible.builtin.assert:
+        that:
+          - "network_time.stdout is search('Network Time:\\s*On')"
+        fail_msg: MANAGER_CLOCK_NOT_SYNCHRONISED; turn on Set time and date automatically in System Settings > General > Date & Time.
+      when: network_time.rc == 0

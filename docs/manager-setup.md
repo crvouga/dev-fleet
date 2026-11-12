@@ -22,6 +22,13 @@ step added here must be added there too, with the check that verifies it.
 
 <!-- /human-steps -->
 
-The grant lets the manager's user run exactly `pmset -c` without a password,
-so later syncs never prompt. Run the same playbook with `-e grant=absent` to
-remove it.
+The grant lets the manager's user run exactly `pmset -c` and
+`systemsetup -getusingnetworktime` without a password, so later syncs never
+prompt. The same playbook, run as an administrator, also installs what only
+root may write: the newsyslog drop-in that keeps the logs of the scheduled
+jobs under a fixed size (`manager:job-logs`) and T3's administrator policy
+(`t3:updates`). Every `fleet-sync` then applies `ansible/macos/manager.yml`
+unattended: in check mode first, then for real, with a receipt like the
+workers' and a full re-apply at least once a day (`manager:playbook`). Run the
+grant again when `manager:clock` or `manager:job-logs` asks for it after an
+upgrade, or with `-e grant=absent` to remove it.

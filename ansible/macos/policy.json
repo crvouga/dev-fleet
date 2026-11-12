@@ -21,5 +21,18 @@
   "dockerDesktop": {
     "settings": "Library/Group Containers/group.com.docker/settings-store.json",
     "key": "AutoStart"
+  },
+  "fleetSync": {
+    "label": "personal-fleet-sync",
+    "intervalMinutes": 30
+  },
+  "fleetWatch": {
+    "label": "dev.devfleet.fleet-watch",
+    "intervalMinutes": 15
+  },
+  "jobLogs": {
+    "directory": ".local/share/personal/fleet/manager/logs",
+    "maxKiB": 1024,
+    "keep": 3
   }
 }

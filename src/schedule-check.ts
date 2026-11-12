@@ -1,8 +1,27 @@
+import macos from '../ansible/macos/policy.json';
+import type { ManagerDefinition } from './definition';
 import type { History } from './state/history';
 import type { Check } from './types';
 
-/** How often the manager's schedule runs fleet-sync. */
-export const SCHEDULE_INTERVAL_SECONDS = 1800;
+/** How often the manager's schedule runs fleet-sync by default. */
+export const SCHEDULE_INTERVAL_SECONDS = macos.fleetSync.intervalMinutes * 60;
+
+/** How often the manager's scheduled jobs run: `manager.schedule` in
+ * fleet.json, or the defaults of `ansible/macos/policy.json`.
+ */
+export function scheduleIntervals(
+  manager: Pick<ManagerDefinition, 'schedule'>
+): {
+  syncSeconds: number;
+  watchMinutes: number;
+} {
+  return {
+    syncSeconds:
+      (manager.schedule?.syncMinutes ?? macos.fleetSync.intervalMinutes) * 60,
+    watchMinutes:
+      manager.schedule?.watchMinutes ?? macos.fleetWatch.intervalMinutes,
+  };
+}
 
 /** `manager:schedule`: a schedule that is on must have succeeded within two
  * of its intervals. A schedule that was never turned on is no check at all.

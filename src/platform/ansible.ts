@@ -45,7 +45,11 @@ export function variablesDirectory(home = homedir()): string {
 export async function runAnsible(
   run: Runner,
   playbook: string,
-  options: CommandOptions & { input: string },
+  options: CommandOptions & {
+    input: string;
+    /** Run in check mode: report what would change, change nothing. */
+    check?: boolean;
+  },
   scratch = variablesDirectory()
 ): Promise<CommandResult> {
   if (Buffer.byteLength(options.input) > 256 * 1024)
@@ -55,9 +59,15 @@ export async function runAnsible(
   const path = join(directory, 'variables.json');
   try {
     await writeFile(path, options.input, { mode: 0o600, flag: 'wx' });
-    const { input: _input, ...commandOptions } = options;
+    const { input: _input, check, ...commandOptions } = options;
     return await run(
-      [...ansibleCommand(), playbook, '--extra-vars', '@' + path],
+      [
+        ...ansibleCommand(),
+        playbook,
+        ...(check ? ['--check'] : []),
+        '--extra-vars',
+        '@' + path,
+      ],
       commandOptions
     );
   } finally {

@@ -61,7 +61,8 @@ Feature: Every pull request is checked the way machines run
     The manager runs only on macOS: launchd, pmset and Docker Desktop are
     proven there and not by stand-ins alone. The manager playbook is converged
     on the runner, then applied again and checked, and neither may change
-    anything.
+    anything. The one administrator grant (sudoers, newsyslog drop-in, T3
+    policy) is applied the same way, with the runner's sudo.
     Then the "CI" workflow runs on "pull_request"
     And its "manager" job has no condition
     And its "manager" job runs on "macos-latest"
@@ -69,6 +70,7 @@ Feature: Every pull request is checked the way machines run
     And its "manager" job runs "ansible/macos/manager.yml"
     And its "manager" job runs "converge --check --diff"
     And its "manager" job runs "changed=0"
+    And its "manager" job runs "ansible/macos/manager-privilege.yml"
 
   Scenario: The real Ubuntu machine is tested weekly and can be run by hand
     Then the "Ubuntu VM" workflow runs on "schedule"

@@ -14,7 +14,14 @@ Feature: A person does only a few, written-down steps on the manager
       | manager:power       |
     And every check that verifies one is a check fleet-sync reports
 
-  Scenario: The power settings need no administrator after the one grant
+  Scenario: The manager playbook needs no administrator after the one grant
+    fleet-sync applies it on every run, unattended: no play becomes root, and
+    what needs root runs through sudo -n, which the one grant allows for
+    exactly these commands (ansible/macos/manager-privilege.yml).
     When the playbook "ansible/macos/manager.yml" is read
-    Then it does not become another user
+    Then no play of it becomes another user
     And it changes the power settings only through "sudo -n"
+    And everything it runs through sudo is one of:
+      | -l /usr/bin/pmset                   |
+      | /usr/bin/pmset -c                   |
+      | /usr/sbin/systemsetup -getusingnetworktime |

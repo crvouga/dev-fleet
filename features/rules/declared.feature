@@ -147,6 +147,7 @@ Feature: What a machine becomes is declared, once
         | .github/workflows/release.yml    |
         | .github/workflows/pins.yml       |
         | .github/workflows/vm.yml         |
+        | .github/workflows/cliproxy-health.yml |
         | .github/actions/mise/action.yml  |
 
     Scenario Outline: <workflow> takes nothing from the runner's distribution
