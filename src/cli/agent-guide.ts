@@ -63,7 +63,7 @@ export function agentGuide(release: Release) {
       'devfleet --interactive (explicit opt-in; TTY required, disabled in CI)',
     groups: {
       'fleet-*':
-        'Developer computers: fleet-status, fleet-discover, fleet-sync, fleet-state, fleet-node-sync, fleet-repair, fleet-nodes, fleet-node-add',
+        'Developer computers: fleet-status, fleet-discover, fleet-sync, fleet-state, fleet-report, fleet-node-sync, fleet-repair, fleet-nodes, fleet-node-add',
       't3-*': 'Declared T3 provider instances: t3-status, t3-apply, t3-cleanup',
       cliproxy: 'The CLI proxy service on the manager; arguments are forwarded',
     },
@@ -89,9 +89,11 @@ export function agentGuide(release: Release) {
         '130': 'Cancelled',
       },
       errors:
-        '{version:1,ok:false,code,error}; raw subprocess output and exception details are withheld',
+        'schema/output/error.schema.json: {version:1,ok:false,code,error}; raw subprocess output and exception details are withheld',
       reports:
-        '{version:1,command,ok,generatedAt,nodes:[{node,checks:[{id,status,summary,remedy?}]}],summary,coverage}',
+        'Each output has a JSON schema in this package; parse by it and by its version. Diagnostic reports (fleet-status, fleet-state, fleet-repair): schema/output/report.schema.json, version 1. fleet-sync: schema/output/fleet-sync.schema.json, version 3 (a --dry-run adds plan). fleet-report: schema/output/fleet-report.schema.json, version 1.',
+      checks:
+        'schema/check-ids.json lists every check ID with what a passing check means; * stands for a name. Each failing check carries its own remedy.',
       statuses: ['pass', 'warn', 'fail', 'skip'],
       coverage:
         'Default fleet-status tests the manager and all configured nodes. --local tests only this manager; --tailnet and --workers cover Tailscale computers. A missing roster fails explicitly. T3/VS Code end-to-end checks remain manual.',

@@ -333,18 +333,18 @@ fleet.json contents.
 
 ## Repository layout
 
-| Path         | What                                                              |
-| ------------ | ----------------------------------------------------------------- |
-| `src/`       | Inventory, orchestration, verification, the report; `src/cli` CLI |
-| `src/state/` | The fleet state database and its replication to the bucket        |
-| `ansible/`   | Machine policy: `ubuntu/`, `macos/`, `monitoring/`                |
-| `agents/`    | Agent launchers T3 runs, and their registry                       |
-| `cliproxy/`  | The CLIProxyAPI service: install, audit, backup, model health     |
-| `bootstrap/` | Toolchain bootstrap and the manager and worker entry scripts      |
-| `schema/`    | JSON schemas for `fleet.json` and the private roster              |
-| `examples/`  | A complete example configuration                                  |
-| `features/`  | What dev-fleet does, as Gherkin features: the tests               |
-| `bin/`       | The entry point of the published package                          |
+| Path         | What                                                                    |
+| ------------ | ----------------------------------------------------------------------- |
+| `src/`       | Inventory, orchestration, verification, the report; `src/cli` CLI       |
+| `src/state/` | The fleet state database and its replication to the bucket              |
+| `ansible/`   | Machine policy: `ubuntu/`, `macos/`, `monitoring/`                      |
+| `agents/`    | Agent launchers T3 runs, and their registry                             |
+| `cliproxy/`  | The CLIProxyAPI service: install, audit, backup, model health           |
+| `bootstrap/` | Toolchain bootstrap and the manager and worker entry scripts            |
+| `schema/`    | JSON schemas for `fleet.json`, the roster and command output; check IDs |
+| `examples/`  | A complete example configuration                                        |
+| `features/`  | What dev-fleet does, as Gherkin features: the tests                     |
+| `bin/`       | The entry point of the published package                                |
 
 ## Develop
 

@@ -1,0 +1,474 @@
+{
+  "$comment": "Every check ID dev-fleet reports, and what a passing check means. A * stands for a name (an agent, a tool, a phase). features/rules/contracts.feature fails when the code reports an ID this registry lacks, or this registry names one the code no longer reports.",
+  "version": 1,
+  "checks": [
+    {
+      "id": "agent:*",
+      "meaning": "A coding agent CLI is installed at its pinned version on this machine."
+    },
+    {
+      "id": "agent:*:*:*",
+      "meaning": "A coding agent launches with its fleet profile on this machine."
+    },
+    {
+      "id": "agent:*:session",
+      "meaning": "The shared account of a coding agent is signed in and usable."
+    },
+    {
+      "id": "agent:*:version",
+      "meaning": "A coding agent runs the version the fleet pins."
+    },
+    {
+      "id": "agent:profiles",
+      "meaning": "The fleet's agent profiles are written on this machine."
+    },
+    {
+      "id": "agent:service-environment",
+      "meaning": "The environment agent services start with is complete."
+    },
+    {
+      "id": "agent:verification",
+      "meaning": "Every coding agent was verified; fails when verification could not run."
+    },
+    {
+      "id": "auth:*",
+      "meaning": "A required login or capability works in this process context."
+    },
+    {
+      "id": "auth:toolchain",
+      "meaning": "The pinned toolchain, dependencies and Docker could be checked."
+    },
+    {
+      "id": "auth:vault",
+      "meaning": "This machine has its own Vault session."
+    },
+    {
+      "id": "beszel:*",
+      "meaning": "A monitoring (Beszel) check of this machine."
+    },
+    {
+      "id": "beszel:access",
+      "meaning": "The monitoring dashboard answers privately."
+    },
+    {
+      "id": "beszel:backup",
+      "meaning": "The monitoring hub's data is backed up."
+    },
+    {
+      "id": "beszel:disk",
+      "meaning": "The monitoring hub's disk use could be verified."
+    },
+    {
+      "id": "beszel:enrollment",
+      "meaning": "This machine is enrolled in the monitoring hub."
+    },
+    {
+      "id": "beszel:hub",
+      "meaning": "The monitoring hub runs on the manager."
+    },
+    {
+      "id": "beszel:hub-connection",
+      "meaning": "The monitoring agent reaches the hub."
+    },
+    {
+      "id": "beszel:installation",
+      "meaning": "The monitoring agent is installed at its pinned version."
+    },
+    {
+      "id": "beszel:lock",
+      "meaning": "Monitoring changes could take the machine's operation lock."
+    },
+    {
+      "id": "beszel:operation",
+      "meaning": "The monitoring operation completed."
+    },
+    {
+      "id": "beszel:protocol",
+      "meaning": "The machine's monitoring evidence is a valid fleet document."
+    },
+    {
+      "id": "beszel:public-endpoint",
+      "meaning": "The public monitoring dashboard answers."
+    },
+    {
+      "id": "beszel:public-viewer",
+      "meaning": "The public read-only viewer account works."
+    },
+    {
+      "id": "beszel:service",
+      "meaning": "The monitoring agent service runs."
+    },
+    {
+      "id": "bootstrap:*",
+      "meaning": "A phase of the remote bootstrap (lock, resources, source-transfer, prerequisites, source-verification, toolchain, configuration and others) completed."
+    },
+    {
+      "id": "bootstrap:attached",
+      "meaning": "The manager followed this machine's running operation of the same revision and reports its result."
+    },
+    {
+      "id": "bootstrap:exit",
+      "meaning": "The remote bootstrap exited without failure."
+    },
+    {
+      "id": "bootstrap:privilege",
+      "meaning": "The development account may use sudo without a password."
+    },
+    {
+      "id": "bootstrap:protocol",
+      "meaning": "The remote bootstrap answered with a valid fleet document."
+    },
+    {
+      "id": "configuration:apply",
+      "meaning": "The node's configuration (agent profiles, launcher) was applied."
+    },
+    {
+      "id": "configuration:operation",
+      "meaning": "The remote configuration operation completed."
+    },
+    {
+      "id": "enrollment:connection",
+      "meaning": "The manager has an enrolled connection to this worker."
+    },
+    {
+      "id": "fleet:enrollment:*",
+      "meaning": "A declared worker has a verified SSH and checkout registration."
+    },
+    {
+      "id": "fleet:probe",
+      "meaning": "The remote probe could be prepared and completed."
+    },
+    {
+      "id": "fleet:registration",
+      "meaning": "The machine is registered in the roster."
+    },
+    {
+      "id": "fleet:roster",
+      "meaning": "A fleet roster is configured."
+    },
+    {
+      "id": "git:clean",
+      "meaning": "The checkout has no uncommitted changes."
+    },
+    {
+      "id": "login:*",
+      "meaning": "A native per-machine login is in place."
+    },
+    {
+      "id": "macos:release",
+      "meaning": "The manager runs a supported macOS release."
+    },
+    {
+      "id": "manager:docker",
+      "meaning": "The manager runs the pinned Docker Desktop."
+    },
+    {
+      "id": "manager:identity",
+      "meaning": "This machine is the declared fleet manager."
+    },
+    {
+      "id": "manager:power",
+      "meaning": "The manager never sleeps on AC power."
+    },
+    {
+      "id": "manager:preflight",
+      "meaning": "fleet-sync could start on the manager; its summary names the reason when not."
+    },
+    {
+      "id": "manager:schedule",
+      "meaning": "The manager's schedule converged the fleet within two of its intervals."
+    },
+    {
+      "id": "platform:unsupported",
+      "meaning": "The machine runs a supported operating system."
+    },
+    {
+      "id": "provider:*:authentication",
+      "meaning": "A proxy provider authenticates unattended."
+    },
+    {
+      "id": "provider:*:inference",
+      "meaning": "A proxy provider answers a bounded inference round trip."
+    },
+    {
+      "id": "provider:verification",
+      "meaning": "Every proxy provider was verified; fails when verification could not run."
+    },
+    {
+      "id": "proxy:*",
+      "meaning": "A phase of the CLI proxy's reconciliation completed."
+    },
+    {
+      "id": "proxy:configuration",
+      "meaning": "The CLI proxy's configuration was reconciled."
+    },
+    {
+      "id": "repair:*",
+      "meaning": "An automated repair completed."
+    },
+    {
+      "id": "repair:inputs",
+      "meaning": "The checkout inputs are unchanged since the diagnostics a repair plan used."
+    },
+    {
+      "id": "repair:operation",
+      "meaning": "A repair could be prepared and completed."
+    },
+    {
+      "id": "repair:recheck",
+      "meaning": "Diagnostics completed again after a repair."
+    },
+    {
+      "id": "repair:workspace",
+      "meaning": "A complete checkout exists for repairs."
+    },
+    {
+      "id": "rollout:evidence",
+      "meaning": "A worker's rollout produced verification evidence."
+    },
+    {
+      "id": "rollout:operation",
+      "meaning": "The remote rollout operation completed."
+    },
+    {
+      "id": "rollout:prerequisites",
+      "meaning": "A worker met the rollout's prerequisites."
+    },
+    {
+      "id": "rollout:promotion",
+      "meaning": "The canary proved the revision, so promotion to this worker went ahead."
+    },
+    {
+      "id": "source:bootstrap",
+      "meaning": "The approved bootstrap source is available on the manager."
+    },
+    {
+      "id": "ssh:agent",
+      "meaning": "The SSH agent exposes at least one identity."
+    },
+    {
+      "id": "ssh:auth",
+      "meaning": "SSH key or agent authentication succeeded."
+    },
+    {
+      "id": "ssh:disconnected",
+      "meaning": "The SSH session was not lost while an operation ran."
+    },
+    {
+      "id": "ssh:dns",
+      "meaning": "The SSH host name resolved."
+    },
+    {
+      "id": "ssh:fresh-session",
+      "meaning": "A fresh, host-key-verified SSH session succeeded."
+    },
+    {
+      "id": "ssh:host-key",
+      "meaning": "The worker's SSH host key is known and unchanged."
+    },
+    {
+      "id": "ssh:missing",
+      "meaning": "The local SSH client could be started."
+    },
+    {
+      "id": "ssh:network",
+      "meaning": "The SSH endpoint is reachable."
+    },
+    {
+      "id": "ssh:probe",
+      "meaning": "A remote probe over SSH succeeded."
+    },
+    {
+      "id": "ssh:protocol",
+      "meaning": "The remote answer is a supported fleet document."
+    },
+    {
+      "id": "ssh:runtime",
+      "meaning": "The remote workspace and runtime exist for non-login SSH sessions."
+    },
+    {
+      "id": "ssh:session",
+      "meaning": "A noninteractive SSH session and probe succeeded."
+    },
+    {
+      "id": "ssh:tailscale-check",
+      "meaning": "Tailscale SSH did not require interactive reauthentication."
+    },
+    {
+      "id": "ssh:timeout",
+      "meaning": "SSH and the remote probe finished within their deadline."
+    },
+    {
+      "id": "state:*",
+      "meaning": "A document of the fleet state (definition, roster, enrollment) is stored."
+    },
+    {
+      "id": "state:bucket",
+      "meaning": "A bucket for the fleet state is configured and reachable."
+    },
+    {
+      "id": "state:replica",
+      "meaning": "The bucket holds this manager's fleet state."
+    },
+    {
+      "id": "t3:api",
+      "meaning": "The local T3 API answers."
+    },
+    {
+      "id": "t3:end-to-end",
+      "meaning": "T3 relay and peer access, which need an operator test."
+    },
+    {
+      "id": "t3:manager-endpoint",
+      "meaning": "The manager reaches the worker's private T3 endpoint."
+    },
+    {
+      "id": "t3:manager-origin",
+      "meaning": "The manager's T3 origin is configured."
+    },
+    {
+      "id": "t3:paired-access",
+      "meaning": "The manager's T3 is linked to this worker."
+    },
+    {
+      "id": "t3:policy-loaded",
+      "meaning": "The running T3 loaded the managed policy."
+    },
+    {
+      "id": "t3:policy-staged",
+      "meaning": "The managed T3 policy is installed."
+    },
+    {
+      "id": "t3:prerequisites",
+      "meaning": "The T3 baseline prerequisites are present."
+    },
+    {
+      "id": "t3:private-route",
+      "meaning": "T3's private HTTPS route is served."
+    },
+    {
+      "id": "t3:provider-names",
+      "meaning": "T3 lists the fleet's provider names."
+    },
+    {
+      "id": "t3:providers",
+      "meaning": "T3's provider instances are the declared ones."
+    },
+    {
+      "id": "t3:service",
+      "meaning": "The pinned T3 app runs."
+    },
+    {
+      "id": "t3:settings",
+      "meaning": "T3 settings are readable."
+    },
+    {
+      "id": "tailscale:configuration",
+      "meaning": "Tailscale is configured as declared."
+    },
+    {
+      "id": "tailscale:discovery",
+      "meaning": "Tailscale computers could be discovered."
+    },
+    {
+      "id": "tailscale:enrolled-identity",
+      "meaning": "The Tailscale identity matches the enrollment."
+    },
+    {
+      "id": "tailscale:identity",
+      "meaning": "A machine's Tailscale identity is unambiguous."
+    },
+    {
+      "id": "tailscale:membership",
+      "meaning": "A registered machine is in the visible tailnet."
+    },
+    {
+      "id": "tailscale:online",
+      "meaning": "Tailscale is online on this machine."
+    },
+    {
+      "id": "tailscale:reachability",
+      "meaning": "The machine is online in the tailnet."
+    },
+    {
+      "id": "tool:*",
+      "meaning": "A pinned tool, or the global mise configuration (tool:global-mise-config), is as the revision declares."
+    },
+    {
+      "id": "ubuntu:baseline",
+      "meaning": "The Ubuntu baseline policy is applied."
+    },
+    {
+      "id": "ubuntu:boot-policy",
+      "meaning": "The no-sleep and session boot policy is active."
+    },
+    {
+      "id": "ubuntu:prerequisites",
+      "meaning": "The Ubuntu prerequisites are installed."
+    },
+    {
+      "id": "ubuntu:release",
+      "meaning": "The worker runs the supported Ubuntu release."
+    },
+    {
+      "id": "ubuntu:resource-safety",
+      "meaning": "The OOM killer, disk guard and resource caps are active."
+    },
+    {
+      "id": "vscode:forwarding",
+      "meaning": "VS Code Remote-SSH forwarding, which needs an operator test."
+    },
+    {
+      "id": "worker:*",
+      "meaning": "A worker readiness gate."
+    },
+    {
+      "id": "worker:capacity",
+      "meaning": "CPU, memory and disk evidence is available."
+    },
+    {
+      "id": "worker:capacity:*",
+      "meaning": "A worker meets one capacity floor (load, memory, disk)."
+    },
+    {
+      "id": "worker:desired-source",
+      "meaning": "The worker runs the declared revision."
+    },
+    {
+      "id": "worker:github-principal",
+      "meaning": "The worker's GitHub login is the declared account."
+    },
+    {
+      "id": "worker:power-loss-recovery",
+      "meaning": "The worker powers on after AC loss."
+    },
+    {
+      "id": "worker:proxy-authentication",
+      "meaning": "The worker authenticates to the shared proxy."
+    },
+    {
+      "id": "worker:proxy-singleton",
+      "meaning": "The worker is a proxy client, not a second gateway."
+    },
+    {
+      "id": "worker:readiness",
+      "meaning": "The worker readiness checks could run."
+    },
+    {
+      "id": "worker:service-recovery",
+      "meaning": "Worker services recover after failure."
+    },
+    {
+      "id": "worker:vault-renewal",
+      "meaning": "The worker renews its Vault identity unattended."
+    },
+    {
+      "id": "workstation:configuration",
+      "meaning": "The devfleet launcher is installed and linked."
+    },
+    {
+      "id": "workstation:installation",
+      "meaning": "The devfleet launcher could be installed."
+    }
+  ]
+}

@@ -15,6 +15,8 @@ Feature: The published package is the whole CLI and nothing else
       | cliproxy/scripts/cli.py        |
       | examples/fleet.json            |
       | schema/fleet.schema.json       |
+      | schema/check-ids.json          |
+      | schema/output/fleet-sync.schema.json |
       | mise.toml                      |
       | mise.lock                      |
 

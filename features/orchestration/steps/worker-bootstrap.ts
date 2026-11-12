@@ -85,7 +85,11 @@ const waiting = new WeakMap<OrchestrationWorld, Waiting>();
 function waits(world: OrchestrationWorld): Waiting {
   let found = waiting.get(world);
   if (!found) {
-    found = { paused: [], progress: [], at: Date.parse('2026-11-01T10:00:00Z') };
+    found = {
+      paused: [],
+      progress: [],
+      at: Date.parse('2026-11-01T10:00:00Z'),
+    };
     waiting.set(world, found);
   }
   return found;
@@ -204,11 +208,14 @@ Given(
   }
 );
 
-Then('the manager paused for {int} seconds in all', (world, seconds: number) => {
-  expect(waits(world).paused.reduce((sum, ms) => sum + ms, 0)).toBe(
-    seconds * 1000
-  );
-});
+Then(
+  'the manager paused for {int} seconds in all',
+  (world, seconds: number) => {
+    expect(waits(world).paused.reduce((sum, ms) => sum + ms, 0)).toBe(
+      seconds * 1000
+    );
+  }
+);
 
 Then('while it followed, the manager showed:', (world, table: DataTable) => {
   expect(waits(world).progress).toEqual(table.list());

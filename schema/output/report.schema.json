@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "report.schema.json",
+  "title": "A dev-fleet diagnostic report, version 1",
+  "description": "What fleet-status, fleet-state and the other diagnostic commands print with --json.",
+  "type": "object",
+  "required": ["version", "command", "ok", "generatedAt", "nodes", "summary"],
+  "properties": {
+    "version": { "const": 1 },
+    "command": { "type": "string" },
+    "ok": { "type": "boolean" },
+    "generatedAt": { "type": "string" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node", "checks"],
+        "properties": {
+          "node": { "type": "string" },
+          "checks": {
+            "type": "array",
+            "items": { "$ref": "check.schema.json" }
+          }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["pass", "warn", "fail", "skip"],
+      "properties": {
+        "pass": { "type": "integer" },
+        "warn": { "type": "integer" },
+        "fail": { "type": "integer" },
+        "skip": { "type": "integer" }
+      }
+    }
+  }
+}

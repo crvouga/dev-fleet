@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fleet-sync.schema.json",
+  "title": "The fleet-sync report, version 3",
+  "description": "What devfleet fleet-sync prints with --json. A preview (--dry-run) adds plan.",
+  "type": "object",
+  "required": [
+    "version",
+    "command",
+    "execution",
+    "ok",
+    "applied",
+    "desiredRevision",
+    "checks",
+    "nodes",
+    "candidates",
+    "dashboardUrl"
+  ],
+  "properties": {
+    "version": { "const": 3 },
+    "command": { "const": "fleet-sync" },
+    "execution": { "const": "manager-push" },
+    "ok": { "type": "boolean" },
+    "applied": { "type": "boolean" },
+    "desiredRevision": { "type": ["string", "null"] },
+    "checks": { "type": "array", "items": { "$ref": "check.schema.json" } },
+    "candidates": { "type": "integer" },
+    "dashboardUrl": { "type": ["string", "null"] },
+    "planFingerprint": { "type": "string" },
+    "nodes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "node",
+          "checks",
+          "reachability",
+          "desiredRevision",
+          "appliedRevision",
+          "durationMs"
+        ],
+        "properties": {
+          "node": { "type": "string" },
+          "role": { "enum": ["manager", "worker"] },
+          "reachability": {
+            "enum": ["online", "offline", "missing", "conflict", "unknown"]
+          },
+          "desiredRevision": { "type": ["string", "null"] },
+          "appliedRevision": { "type": ["string", "null"] },
+          "durationMs": { "type": "number" },
+          "checks": {
+            "type": "array",
+            "items": { "$ref": "check.schema.json" }
+          }
+        }
+      }
+    },
+    "plan": {
+      "type": "object",
+      "required": ["state", "revision", "known", "tools", "restarts", "nodes"],
+      "properties": {
+        "state": { "type": "string" },
+        "known": { "type": "boolean" },
+        "revision": {
+          "type": "object",
+          "required": ["from", "to"],
+          "properties": {
+            "from": { "type": ["string", "null"] },
+            "to": { "type": "string" }
+          }
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["tool", "from", "to"],
+            "properties": {
+              "tool": { "type": "string" },
+              "from": { "type": ["string", "null"] },
+              "to": { "type": ["string", "null"] }
+            }
+          }
+        },
+        "restarts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["service", "reason", "endsRunningTurns"],
+            "properties": {
+              "service": { "type": "string" },
+              "reason": { "type": "string" },
+              "endsRunningTurns": { "type": "boolean" }
+            }
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["node", "from", "to", "changes"],
+            "properties": {
+              "node": { "type": "string" },
+              "from": { "type": ["string", "null"] },
+              "to": { "type": "string" },
+              "changes": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "error.schema.json",
+  "title": "A dev-fleet error, version 1",
+  "description": "What a command prints with --json when it fails before a report: raw subprocess output and exception details are withheld.",
+  "type": "object",
+  "required": ["version", "ok", "code", "error"],
+  "properties": {
+    "version": { "const": 1 },
+    "ok": { "const": false },
+    "code": { "type": "string" },
+    "error": { "type": "string" }
+  }
+}
