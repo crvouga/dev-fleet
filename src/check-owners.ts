@@ -112,6 +112,11 @@ export const CHECK_OWNERS: CheckOwner[] = [
     manual:
       'Uncommitted or unpushed work belongs to a person; dev-fleet never resets a checkout.',
   },
+  {
+    pattern: 'git:configuration',
+    manual:
+      'fleet-sync writes the Git identity and credential helper with ansible/github/git.yml; run it from the manager.',
+  },
   { pattern: 'fleet:*', manual: DECLARATION },
   { pattern: 'enrollment:*', manual: DECLARATION },
   { pattern: 'notify:*', manual: DECLARATION },
