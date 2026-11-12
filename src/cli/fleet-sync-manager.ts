@@ -9,8 +9,9 @@ import { verifyNativeAgents } from '../agents/native-verify';
 import { convergeManagerHub } from '../monitoring/manager-hub';
 import { enrollManagerMonitoring } from './fleet-sync-monitoring';
 import { installConfig } from '../fleet-config';
-import { machineProviders } from '../t3/providers';
-import { providerNames } from '../t3/names-check';
+import { IDES } from '../ide';
+import { enabled, managerChecks } from '../ide/orchestrate';
+import { idesOf } from '../ide/definition';
 import macos from '../../ansible/macos/policy.json';
 import { ansibleCommand } from '../platform/ansible';
 import { PACKAGE_ROOT } from '../package-info';
@@ -39,8 +40,15 @@ export async function convergeManager(
     if (input.apply) installConfig();
     checks.push(await managerPower(run, input.workspace));
     checks.push(await managerDocker(run));
-    checks.push(await machineProviders(id, input.workspace, input.apply));
-    checks.push(await providerNames(id, input.workspace, input.apply));
+    // Each enabled IDE: its settings, pinned version and policy.
+    checks.push(
+      ...(await managerChecks(enabled(idesOf(definition), IDES), {
+        id,
+        workspace: input.workspace,
+        apply: input.apply,
+        run,
+      }))
+    );
     if (input.apply) {
       // Same provider profiles and the same Vault gateway credential as every
       // worker: the instances above launch from these profiles, and the check

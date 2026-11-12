@@ -110,20 +110,6 @@ export class WindowsPlatform implements Platform {
     );
   }
 
-  vscodeSettingsPath(): string | null {
-    const base =
-      process.env['APPDATA']?.trim() || join(homedir(), 'AppData/Roaming');
-    return join(base, 'Code/User/settings.json');
-  }
-
-  vscodeCliBinaries(): readonly string[] {
-    const base =
-      process.env['LOCALAPPDATA']?.trim() || join(homedir(), 'AppData/Local');
-    return [join(base, 'Programs/Microsoft VS Code/bin/code.cmd')].filter((p) =>
-      existsSync(p)
-    );
-  }
-
   installScheduledJob(job: ScheduledJob): NotifierTestResult {
     return {
       ok: false,

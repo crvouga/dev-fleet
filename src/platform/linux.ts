@@ -115,16 +115,6 @@ export class LinuxPlatform implements Platform {
     );
   }
 
-  vscodeSettingsPath(): string | null {
-    const base =
-      process.env['XDG_CONFIG_HOME']?.trim() || join(homedir(), '.config');
-    return join(base, 'Code/User/settings.json');
-  }
-
-  vscodeCliBinaries(): readonly string[] {
-    return ['/usr/share/code/bin/code'].filter((p) => existsSync(p));
-  }
-
   installScheduledJob(job: ScheduledJob): NotifierTestResult {
     return installSystemdJob(job);
   }

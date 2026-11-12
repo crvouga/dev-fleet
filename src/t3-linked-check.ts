@@ -103,7 +103,7 @@ function linkedEvidence(
   };
 }
 
-async function observedIdentity(
+export async function observedIdentity(
   node: FleetNode,
   run: Runner
 ): Promise<string | undefined> {

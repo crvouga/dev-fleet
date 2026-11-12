@@ -1,7 +1,8 @@
-import { verifyT3Linked } from '../t3-linked-check';
-import { T3_RESTARTED_SUMMARY } from '../platform/t3-policy';
 import { createHash } from 'node:crypto';
-import { verifyT3Endpoint } from '../t3-endpoint';
+import { IDES } from '../ide';
+import { enabled, workerChecks } from '../ide/orchestrate';
+import { idesOf } from '../ide/definition';
+import { rememberEnvironment } from '../t3/pairing';
 import { authorizePrivilege } from './fleet-sync-privilege';
 import { authorizeVault } from './fleet-sync-vault';
 import { managerFailure } from '../manager-failure';
@@ -92,7 +93,11 @@ export async function selected(
         ),
     },
     run,
-    deployWithMonitoring(payload, canonical, run, ui)
+    deployWithMonitoring(payload, canonical, run, {
+      ...ui,
+      workspace: settings.workspace,
+      roster: settings.config,
+    })
   ).finally(() => ui.progress.stop());
   if (settle) report.checks.push(await settle(report));
   return outcome(report, planFingerprint, started);
@@ -157,6 +162,9 @@ function deployWithMonitoring(
   ui: {
     progress: SyncProgress;
     interactiveAuthorization: boolean;
+    /** The manager's checkout, and the roster an identity is recorded in. */
+    workspace: string;
+    roster: string;
   }
 ): DeployNode {
   return async (node, revision) => {
@@ -194,16 +202,15 @@ function deployWithMonitoring(
     // Workers are Linux by definition.
     ui.progress.step(node.id, 'Verifying SSH, OS and T3');
     result.checks.push(...(await inspectBootstrap(node, run, 'linux')));
-    result.checks.push(...(await verifyT3Endpoint(node, run)));
-    // A worker T3 restarted by this sync (idle policy heal) needs a minute or
-    // two before the manager's link reconnects.
-    const restarted = result.checks.some(
-      (check) => check.summary === T3_RESTARTED_SUMMARY
-    );
     result.checks.push(
-      await verifyT3Linked(node, run, {
-        reconnectMs: restarted ? 180_000 : 0,
-      })
+      ...(await workerChecks(enabled(idesOf(canonical), IDES), node, {
+        run,
+        workspace: ui.workspace,
+        earlier: result.checks,
+        remember: async (id, identity) => {
+          await rememberEnvironment(ui.roster, id, identity);
+        },
+      }))
     );
     if (
       result.checks.some(

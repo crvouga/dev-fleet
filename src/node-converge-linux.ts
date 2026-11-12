@@ -6,8 +6,10 @@ import { verifyUbuntuBoot } from './platform/ubuntu-verify';
 import { verifyResourceSafety } from './platform/resource-verify';
 import { convergeT3Route, T3_ROUTE } from './platform/t3-route';
 import { convergeProxy } from './proxy-converge';
-import { providerNames } from './t3/names-check';
-import { machineProviders } from './t3/providers';
+import { IDES } from './ide';
+import { enabled, settingsChecks } from './ide/orchestrate';
+import { idesOf } from './ide/definition';
+import { fleet } from './fleet-config';
 import { quotaLimited, verifyFleetProviders } from './agents/fleet-verify';
 import { verifyNativeAgents } from './agents/native-verify';
 import { managedT3, managedT3Desktop } from '../bootstrap/native-t3';
@@ -236,10 +238,16 @@ async function convergeT3(
         restarted: startedAt !== (await t3StartedAt(run)),
       })
     );
-  // Settings are watched by T3: providers arrive and stale ones leave at once.
-  checks.push(await machineProviders(node, root, true));
-  // Names live in the same settings, so they conform without a restart.
-  checks.push(await providerNames(node, root, true));
+  // Settings are watched by T3: providers, names and the profile apply
+  // without a restart.
+  checks.push(
+    ...(await settingsChecks(enabled(idesOf(fleet), IDES), {
+      id: node,
+      workspace: root,
+      apply: true,
+      run,
+    }))
+  );
   const serviceReady = checks.some(
     (check) => check.id === 't3:service' && check.status === 'pass'
   );

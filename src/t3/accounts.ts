@@ -46,6 +46,12 @@ const TOOLS: Record<
   },
 };
 
+/** The T3 instance of one account, and the T3 driver that runs its tool. */
+export const accountInstanceId = (account: Account): string =>
+  `personal_${slug(account.prefix)}`.slice(0, 64);
+export const accountDriver = (tool: string): string | undefined =>
+  TOOLS[tool]?.driver;
+
 /** One `<Provider> <account email>` instance per signed-in account, identical
  * on every machine because every machine reads the same proxy.
  */
@@ -61,7 +67,7 @@ export function accountInstances(
       ...variables,
       account: slug(account.email),
     };
-    instances[`personal_${slug(account.prefix)}`.slice(0, 64)] = {
+    instances[accountInstanceId(account)] = {
       driver: tool.driver,
       displayName: `${tool.label} ${account.email}`,
       enabled: true,
