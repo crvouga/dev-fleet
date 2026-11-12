@@ -73,6 +73,13 @@ Feature: Every pull request is checked the way machines run
     And its "ansible" job runs "--syntax-check"
     And ".ansible-lint.yml" requires the profile "production"
 
+  Scenario: Every pinned Ubuntu package is found in the pinned snapshot on every pull request
+    A pin moved without its snapshot has no installation candidate, which a
+    machine only learns when its baseline fails.
+    Then the "CI" workflow runs on "pull_request"
+    And its "ansible" job has no condition
+    And its "ansible" job runs "ansible/ubuntu/tests/snapshot-pins.py"
+
   Scenario: The manager is checked on macOS on every pull request
     The manager runs only on macOS: launchd, pmset and Docker Desktop are
     proven there and not by stand-ins alone. The manager playbook is converged
@@ -119,6 +126,14 @@ Feature: Every pull request is checked the way machines run
     And its "tailnet" job calls ".github/workflows/tailnet.yml" for the commit "pack" packed
     When the "Publish to npm" step of the "Release" workflow is read
     Then it runs "npm publish \"$TARBALL\"" before "--provenance"
+
+  Scenario: A version that is on npm from another commit is never tagged on this one
+    A release that published and then failed leaves its version on npm with
+    no tag. The next merge computes the same version: tagging it there would
+    name a commit the package does not hold.
+    When the "Publish to npm" step of the "Release" workflow is read
+    Then it runs "npm view \"$NAME@$VERSION\" gitHead" before "npm publish"
+    And it runs "[ \"$published\" = \"$COMMIT\" ]" before "exit 1"
 
   Scenario: A release is described by the commits it contains
     When the "Tag and release" step of the "Release" workflow is read

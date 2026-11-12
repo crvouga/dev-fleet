@@ -148,6 +148,9 @@ export async function selected(
   ).finally(() => ui.progress.stop());
   if (options.enrollment) reportEnrollment(report, options.enrollment);
   report.checks.push(...notes);
+  // A worker that could not be retired, like any other failed check of the
+  // fleet, means the run did not converge: it is not recorded as applied.
+  if (notes.some(blocking)) report.ok = false;
   if (settle) report.checks.push(await settle(report));
   return outcome(report, planFingerprint, started);
 }

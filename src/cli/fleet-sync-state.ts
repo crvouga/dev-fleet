@@ -1,6 +1,6 @@
 import type { Enrollment } from '../machine/state';
 import { replicaCheck } from '../state/check';
-import { storeEnrollment } from '../state/enrollment';
+import { loadEnrollment, storeEnrollment } from '../state/enrollment';
 import { adoptEarlier } from '../state/legacy';
 import { databasePath, stateRoot } from '../state/paths';
 import { writeDocument } from '../state/store';
@@ -75,24 +75,30 @@ export function runRecord(
     },
     async settle(converged, applied = {}) {
       settled = true;
-      const workers = Object.keys(applied).length
-        ? { workers: { ...previous?.workers, ...applied } }
-        : {};
-      if (!converged && workers.workers)
-        storeEnrollment({ ...approval, ...workers }, env);
-      if (converged)
+      if (converged || Object.keys(applied).length) {
+        // What was recorded since the approval stands: the run itself
+        // retires a worker whose record was removed, and another command
+        // may have. Only what this run decided is written over it.
+        const stored = (await loadEnrollment(null, env)) ?? approval;
         storeEnrollment(
           {
-            ...approval,
-            ...workers,
-            appliedRevision: revision,
-            ...(previous?.appliedRevision &&
-            previous.appliedRevision !== revision
-              ? { previousRevision: previous.appliedRevision }
+            ...stored,
+            ...(Object.keys(applied).length
+              ? { workers: { ...stored.workers, ...applied } }
+              : {}),
+            ...(converged
+              ? {
+                  appliedRevision: revision,
+                  ...(previous?.appliedRevision &&
+                  previous.appliedRevision !== revision
+                    ? { previousRevision: previous.appliedRevision }
+                    : {}),
+                }
               : {}),
           },
           env
         );
+      }
       // The fleet converged either way: a bucket problem is reported, not fatal.
       return replicaCheck(await publish().catch(() => 'unreachable' as const), {
         advisory: true,

@@ -109,6 +109,10 @@ jobs:
           install_args: uv
       - name: Lint every playbook
         run: mise exec uv -- uv run --project ansible --locked --isolated --group lint ansible-lint
+      # A pin moved without its snapshot has no installation candidate on a
+      # machine: read the snapshot's own indexes for every pinned package.
+      - name: Find every pinned Ubuntu package in the pinned snapshot
+        run: python3 -I ansible/ubuntu/tests/snapshot-pins.py
       - name: Syntax-check every playbook
         run: |
           for playbook in ansible/*/*.yml; do
