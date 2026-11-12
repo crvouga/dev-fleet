@@ -20,6 +20,7 @@ import {
 import { parseNotify, type NotifyConfig } from './notify';
 import { UBUNTU_RELEASES, ubuntuRelease } from './platform/ubuntu-release';
 import { parseGithubPolicy, type GithubPolicy } from './github/policy';
+import { parseTailnetConfig, type TailnetConfig } from './tailnet-control';
 
 export interface MachineDefinition {
   id: string;
@@ -91,6 +92,10 @@ export interface FleetDefinition {
   ubuntu: { release: string; architectures: string[] };
   /** How every node signs in to GitHub; defaults when absent. */
   github?: GithubPolicy;
+  /** The tailnet control plane new workers are enrolled with, unattended.
+   * Absent, a worker joins the tailnet through its own login.
+   */
+  tailnet?: TailnetConfig;
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
 export interface AccountPolicy {
@@ -313,6 +318,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'git',
       'notify',
       'github',
+      'tailnet',
     ],
     '$'
   );
@@ -374,6 +380,20 @@ export function parseDefinition(value: unknown): FleetDefinition {
       : {
           github: block('$.github', () => parseGithubPolicy(fields['github'])),
         }),
+    ...tailnet(fields['tailnet']),
+  };
+}
+/** The tailnet control plane new workers are enrolled with, when declared. */
+function tailnet(value: unknown): { tailnet?: TailnetConfig } {
+  if (value === undefined) return {};
+  return {
+    tailnet:
+      parseTailnetConfig(value) ??
+      fail(
+        '$.tailnet',
+        'api (tailscale or headscale), an https url (required, with user, for headscale) and a tag:name',
+        value
+      ),
   };
 }
 /** The canary is one of the declared workers. */

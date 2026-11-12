@@ -25,7 +25,14 @@ export interface SeedInput {
   tailscale: { version: string; keySha256: string };
   /** The codename of the fleet's Ubuntu release, from the Ubuntu policy. */
   codename: string;
+  /** A self-hosted control server the machine joins; the hosted Tailscale's
+   * when absent.
+   */
+  loginServer?: string;
 }
+
+/** The login server the Tailscale client uses when it is told none. */
+const TAILSCALE_LOGIN_SERVER = 'https://controlplane.tailscale.com';
 
 const PUBLIC_KEY =
   /^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{16,}( [^\n]*)?$/;
@@ -48,7 +55,14 @@ export async function seedUserData(
     throw new FleetUsageError(
       'The manager public key is not one OpenSSH public key line.'
     );
-  if (!/^tskey-auth-[A-Za-z0-9-]{8,200}$/.test(input.authKey))
+  // A Headscale key has no fixed prefix; the hosted Tailscale's does.
+  if (
+    !(
+      input.loginServer
+        ? /^[A-Za-z0-9_-]{16,256}$/
+        : /^tskey-auth-[A-Za-z0-9-]{8,200}$/
+    ).test(input.authKey)
+  )
     throw new FleetUsageError(
       'The tailnet-auth-key secret is not a Tailscale auth key (tskey-auth-…). Use a short-lived, single-use, tagged key.'
     );
@@ -62,6 +76,7 @@ export async function seedUserData(
     TAILSCALE_VERSION: input.tailscale.version,
     TAILSCALE_KEY_SHA256: input.tailscale.keySha256,
     CODENAME: input.codename,
+    LOGIN_SERVER: input.loginServer ?? TAILSCALE_LOGIN_SERVER,
   };
   const template = parse(
     await readFile(join(root, 'bootstrap/worker-seed.yaml'), 'utf8')

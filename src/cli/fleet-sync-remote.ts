@@ -19,9 +19,25 @@ import type { FleetDefinition } from '../definition';
 import { fleet as definition } from '../fleet-config';
 import { synchronizeManager } from '../manager-sync';
 import { inspectBootstrap } from '../manager-sync';
-import { prepareBootstrap, bootstrapRemote } from '../remote-bootstrap';
+import {
+  prepareBootstrap,
+  bootstrapRemote,
+  readsTailnetKey,
+} from '../remote-bootstrap';
+import { secret } from '../fleet-config';
+import { fleetTailnetControl, type TailnetControl } from '../tailnet-control';
+import { discoverTailnet, type TailnetComputer } from '../tailscale';
+import { deployWorker } from './fleet-sync-worker';
+import { packagePlaybook } from '../platform/ansible';
 import { machineRoot } from './fleet-sync';
-import type { Check, Runner } from '../types';
+import {
+  blocking,
+  type Check,
+  type FleetNode,
+  type NodeReport,
+  type Runner,
+} from '../types';
+import { diagnostic } from '../diagnostics';
 import type { DeployNode, ManagerReport } from '../manager-sync';
 import type { FleetSyncOptions } from './fleet-sync';
 import type { Settings } from './settings';
@@ -79,6 +95,7 @@ export async function selected(
       revision: options.revision,
       apply: Boolean(options.apply),
       ...canary(canonical, options),
+      ...serial(options),
       progress: (node, phase) => ui.progress.step(node, phase),
       finished: (node) => ui.progress.finished(node),
       manager: () =>
@@ -97,10 +114,48 @@ export async function selected(
       ...ui,
       workspace: settings.workspace,
       roster: settings.config,
+      ...rebootOptions(options),
     })
   ).finally(() => ui.progress.stop());
+  if (options.enrollment) reportEnrollment(report, options.enrollment);
   if (settle) report.checks.push(await settle(report));
   return outcome(report, planFingerprint, started);
+}
+
+/** Maintenance reboots go one worker at a time, and a worker that does not
+ * come back ready stops the others.
+ */
+function serial(options: FleetSyncOptions): { serial?: true } {
+  return options.maintenanceReboot ? { serial: true } : {};
+}
+
+function rebootOptions(options: FleetSyncOptions): {
+  readyBefore: string[];
+  maintenanceReboot?: true;
+  force?: true;
+} {
+  return {
+    readyBefore: options.readyBefore ?? [],
+    ...(options.maintenanceReboot ? { maintenanceReboot: true } : {}),
+    ...(options.force ? { force: true } : {}),
+  };
+}
+
+/** The workers this run enrolled, and why another was not: the checks land
+ * on the worker they are about.
+ */
+export function reportEnrollment(
+  report: ManagerReport,
+  enrollment: NonNullable<FleetSyncOptions['enrollment']>
+): void {
+  report.enrolled = enrollment.enrolled;
+  for (const { node, check } of enrollment.checks) {
+    const entry = report.nodes.find((candidate) => candidate.node === node);
+    if (!entry) continue;
+    entry.checks.unshift(check);
+    entry.diagnostics = entry.checks.map((each) => diagnostic(node, each));
+    if (blocking(check)) report.ok = false;
+  }
 }
 
 /** A revision new to the fleet is proven on one worker before the rest: the
@@ -176,8 +231,15 @@ function deployWithMonitoring(
     workspace: string;
     roster: string;
     passwordLogin: boolean;
+    readyBefore: string[];
+    maintenanceReboot?: boolean;
+    force?: boolean;
   }
 ): DeployNode {
+  // Asked once per run, and only when a worker needs them.
+  let control: Promise<TailnetControl | null> | undefined;
+  let computers: Promise<TailnetComputer[]> | undefined;
+  const converge = convergeWorker(payload, canonical, run, ui);
   return async (node, revision) => {
     if (!payload || payload.revision !== revision)
       return {
@@ -194,10 +256,50 @@ function deployWithMonitoring(
           },
         ],
       };
+    return deployWorker(node, revision, {
+      definition: canonical,
+      playbook: packagePlaybook(run),
+      converge,
+      control: () =>
+        (control ??= fleetTailnetControl(canonical.tailnet, secret)),
+      computers: () =>
+        (computers ??= discoverTailnet(run).then((found) => found.computers)),
+      readyBefore: ui.readyBefore,
+      ...(ui.maintenanceReboot ? { maintenanceReboot: true } : {}),
+      ...(ui.force ? { force: true } : {}),
+      acceptsTailnetKey: readsTailnetKey(payload.script),
+    });
+  };
+}
+
+/** One converge of a worker: privilege, Vault, the bootstrap, then what is
+ * verified from the manager and the worker's monitoring.
+ */
+function convergeWorker(
+  payload: Awaited<ReturnType<typeof prepareBootstrap>>,
+  canonical: FleetDefinition,
+  run: Runner,
+  ui: {
+    progress: SyncProgress;
+    interactiveAuthorization: boolean;
+    workspace: string;
+    roster: string;
+    passwordLogin: boolean;
+  }
+) {
+  return async (
+    node: FleetNode,
+    revision: string,
+    tailnetKey?: string
+  ): Promise<NodeReport> => {
     // Password prompts need a quiet terminal: no spinner while authorizing.
     if (ui.interactiveAuthorization) {
       ui.progress.stop();
-      const checks = await authorizePrivilege(node, payload.authorizeSudo, run);
+      const checks = await authorizePrivilege(
+        node,
+        payload!.authorizeSudo,
+        run
+      );
       if (checks.length) return { node: node.id, checks };
     }
     const vault = {
@@ -207,8 +309,9 @@ function deployWithMonitoring(
     if (ui.interactiveAuthorization) ui.progress.stop();
     const before = await authorizeVault(node, vault, run);
     ui.progress.step(node.id, 'Converging (remote lock, install, verify)');
-    const result = await bootstrapRemote(node, payload, run, {
+    const result = await bootstrapRemote(node, payload!, run, {
       progress: (line) => ui.progress.step(node.id, line),
+      ...(tailnetKey ? { tailnetKey } : {}),
     });
     // A fresh node gets vault from the bootstrap; log it in now. Its provider
     // checks in this run predate the login, so the next sync verifies them.

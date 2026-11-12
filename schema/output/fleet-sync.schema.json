@@ -27,6 +27,12 @@
     "candidates": { "type": "integer" },
     "dashboardUrl": { "type": ["string", "null"] },
     "planFingerprint": { "type": "string" },
+    "canary": { "type": "string" },
+    "enrolled": {
+      "description": "The workers this run enrolled: added to the roster, or bound to their tailnet device.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
     "nodes": {
       "type": "array",
       "items": {

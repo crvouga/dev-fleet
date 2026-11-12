@@ -107,12 +107,17 @@ async function bundleRevision(
     await unlink(path).catch(() => undefined);
   }
 }
+/** `tailnetKey` is a single-use enrolment key for a worker not on the tailnet
+ * yet. It travels on the session's stdin, after the configuration, and only
+ * to a bootstrap script that reads it: never as an argument.
+ */
 export async function bootstrapRemote(
   node: FleetNode,
   payload: BootstrapPayload,
   run: Runner,
-  follow: Follow = {}
+  options: Follow & { tailnetKey?: string } = {}
 ): Promise<NodeReport> {
+  const { tailnetKey, ...follow } = options;
   const clock = follow.clock ?? realClock;
   const cached = await cachedRevision(node, payload.revision, run, clock);
   if (typeof cached !== 'boolean') return { node: node.id, checks: [cached] };
@@ -135,7 +140,14 @@ export async function bootstrapRemote(
   const checks = await bootstrapSessions(
     node,
     payload,
-    { command, input: bootstrapInput(payload.config, transfer.bundle) },
+    {
+      command,
+      input: bootstrapInput(
+        payload.config,
+        transfer.bundle,
+        readsTailnetKey(payload.script) ? (tailnetKey ?? '') : null
+      ),
+    },
     { run, follow: { ...follow, clock } }
   );
   return { node: node.id, checks };
@@ -198,14 +210,24 @@ function locked(checks: Check[]): boolean {
 
 /** What the bootstrap reads on stdin: one line with the fleet configuration
  * (installed under the remote lock, so overlapping runs never both write it),
- * then the bundle when the worker lacks the revision.
+ * one line with the tailnet enrolment key (empty when there is none; absent
+ * for a script of an earlier revision, which reads no such line), then the
+ * bundle when the worker lacks the revision.
  */
 export function bootstrapInput(
   config: string | undefined,
-  bundle: string
+  bundle: string,
+  tailnetKey: string | null = null
 ): string {
   const line = config ? Buffer.from(config).toString('base64') : '';
-  return `${line}\n${bundle}`;
+  return tailnetKey === null
+    ? `${line}\n${bundle}`
+    : `${line}\n${tailnetKey}\n${bundle}`;
+}
+
+/** A bootstrap script reads the key line since the revision that added it. */
+export function readsTailnetKey(script: string): boolean {
+  return script.includes('read -r tailnet_key');
 }
 
 async function cachedRevision(

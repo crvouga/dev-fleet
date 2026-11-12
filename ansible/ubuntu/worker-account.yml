@@ -1,0 +1,114 @@
+---
+# The declared worker account on a machine whose image lets only root in
+# (many rented servers). fleet-sync applies it from the manager, once, over
+# the root login: it creates workers[].network.user with the key root was
+# reached with and the fleet's sudo rule (the path and marker
+# authorize-sudo.sh writes), then continues as that account. The developer
+# toolchain never runs as root. Turning root login off afterwards is the SSH
+# policy's. Variables: target (the SSH alias), login (root, or empty for the
+# alias's own user, which is root), user (the declared account).
+- name: Address the worker over its root login
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check the request
+      ansible.builtin.assert:
+        that:
+          - "target is match('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$')"
+          - "user is match('^[a-z_][a-z0-9_-]{0,31}$')"
+          - user != 'root'
+          - login | default('') in ['', 'root']
+        fail_msg: WORKER_ACCOUNT_UNDECLARED; declare workers[].network.user as a non-root account.
+    - name: Address the worker by its alias and its own user, with strict host keys
+      ansible.builtin.add_host:
+        name: '{{ target }}'
+        groups: [fleet_account]
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
+        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        account_user: '{{ user }}'
+      changed_when: false
+      when: login | default('') == ''
+    - name: Address the worker by its alias as root, with strict host keys
+      ansible.builtin.add_host:
+        name: '{{ target }}'
+        groups: [fleet_account]
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
+        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        ansible_user: root
+        account_user: '{{ user }}'
+      changed_when: false
+      when: login | default('') == 'root'
+
+- name: Create the declared worker account
+  hosts: fleet_account
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Ask which account the login is
+      ansible.builtin.command:
+        argv: [id, -u]
+      register: login_uid
+      changed_when: false
+      check_mode: false
+    - name: Require the root login
+      ansible.builtin.assert:
+        that: login_uid.stdout == '0'
+        fail_msg: WORKER_ACCOUNT_ROOT_REQUIRED; only a root login creates the declared account.
+    - name: Create the account, its home and its sudo group membership
+      ansible.builtin.user:
+        name: '{{ account_user }}'
+        home: '/home/{{ account_user }}'
+        create_home: true
+        shell: /bin/bash
+        groups: [sudo]
+        append: true
+        password_lock: true
+    - name: Create the account's SSH directory
+      ansible.builtin.file:
+        path: '/home/{{ account_user }}/.ssh'
+        state: directory
+        owner: '{{ account_user }}'
+        group: '{{ account_user }}'
+        mode: '0700'
+    # The key the manager reached root with; an account that already holds
+    # keys of its own keeps them.
+    - name: Authorise the key root was reached with
+      ansible.builtin.copy:
+        src: /root/.ssh/authorized_keys
+        remote_src: true
+        dest: '/home/{{ account_user }}/.ssh/authorized_keys'
+        owner: '{{ account_user }}'
+        group: '{{ account_user }}'
+        mode: '0600'
+        force: false
+    - name: Inspect an existing sudo rule of the account
+      ansible.builtin.stat:
+        path: '/etc/sudoers.d/personal-fleet-{{ account_user }}'
+      register: sudo_rule
+    - name: Read the ownership marker of the existing rule
+      ansible.builtin.command:
+        argv:
+          - grep
+          - -qxF
+          - '# Managed by personal Fleet: designated development user'
+          - '/etc/sudoers.d/personal-fleet-{{ account_user }}'
+      register: sudo_marker
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      when: sudo_rule.stat.exists
+    - name: Never take over a rule the fleet did not write
+      ansible.builtin.assert:
+        that: not sudo_rule.stat.exists or sudo_marker.rc == 0
+        fail_msg: SUDOERS_OWNERSHIP_CONFLICT; preserve and review the existing fragment before adoption.
+    - name: Grant the account the fleet's sudo rule
+      ansible.builtin.copy:
+        dest: '/etc/sudoers.d/personal-fleet-{{ account_user }}'
+        content: "# Managed by personal Fleet: designated development user\n{{ account_user }} ALL=(ALL:ALL) NOPASSWD: ALL\n"
+        owner: root
+        group: root
+        mode: '0440'
+        validate: visudo -cf %s

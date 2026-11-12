@@ -6,6 +6,13 @@ import { ubuntuRelease } from '../platform/ubuntu-release';
 import { FleetUsageError } from '../errors';
 import { fleet, secret } from '../fleet-config';
 import type { SecretsProvider } from '../secrets';
+import {
+  controlRemedy,
+  fleetTailnetControl,
+  loginServer,
+  TailnetControlError,
+  type ControlHttp,
+} from '../tailnet-control';
 import type { Check } from '../types';
 import {
   generateHostKey,
@@ -36,6 +43,8 @@ export interface NodeSeedServices extends Pick<
   definition: () => FleetDefinition;
   secret: SecretsProvider;
   home: string;
+  /** The tailnet control plane's HTTP; answered in scenarios. */
+  http?: ControlHttp;
 }
 
 export function seedServices(roster: string): NodeSeedServices {
@@ -75,11 +84,8 @@ export async function fleetNodeSeed(
       `No manager public key at ${keyFile}; name one with --public-key PATH.`
     );
   });
-  const authKey = await services.secret('tailnet-auth-key');
-  if (!authKey)
-    throw new FleetUsageError(
-      'The secrets provider holds no tailnet-auth-key. Store a short-lived, single-use, tagged Tailscale auth key there first.'
-    );
+  const tailnet = services.definition().tailnet;
+  const authKey = await seedAuthKey(worker.id, services);
   const release = ubuntuRelease(services.definition().ubuntu.release);
   if (!release)
     throw new FleetUsageError(
@@ -94,6 +100,7 @@ export async function fleetNodeSeed(
       hostKey,
       tailscale: await tailscalePins(),
       codename: release.codename,
+      ...(loginServer(tailnet) ? { loginServer: loginServer(tailnet)! } : {}),
     }),
     Boolean(options.autoinstall)
   );
@@ -148,4 +155,32 @@ export async function fleetNodeSeed(
         '.',
     ].join('\n'),
   };
+}
+
+/** The key the seed carries: one minted for this worker by the control plane
+ * fleet.json declares, or else the secret tailnet-auth-key.
+ */
+async function seedAuthKey(
+  worker: string,
+  services: NodeSeedServices
+): Promise<string> {
+  const config = services.definition().tailnet;
+  if (config)
+    try {
+      const control = await fleetTailnetControl(
+        config,
+        services.secret,
+        services.http
+      );
+      return (await control!.createAuthKey({ worker })).key;
+    } catch (error) {
+      if (!(error instanceof TailnetControlError)) throw error;
+      throw new FleetUsageError(`${error.code}: ${controlRemedy(error.code)}`);
+    }
+  const key = await services.secret('tailnet-auth-key');
+  if (!key)
+    throw new FleetUsageError(
+      'The secrets provider holds no tailnet-auth-key. Declare tailnet in fleet.json with the secret tailnet-admin so a key is minted per worker, or store a short-lived, single-use, tagged Tailscale auth key there first.'
+    );
+  return key;
 }

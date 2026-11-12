@@ -1,0 +1,86 @@
+---
+# One worker rebooted from the manager, only while its T3 runs no agent turn
+# (a reboot ends every running turn), then waited for until it answers again.
+# fleet-sync applies it for a worker's first converge, which nothing can be
+# running on yet, and for --maintenance-reboot, one worker at a time. After
+# it returns, fleet-sync converges the worker again to verify it is ready.
+# Variables: target (the SSH alias), login (empty for the alias's own user),
+# home (the account's home directory),
+# revision (the checkout whose t3-idle.py is asked), reason (first-converge
+# or maintenance) and force (reboot even while agent turns run).
+- name: Address the worker
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check the request
+      ansible.builtin.assert:
+        that:
+          - "target is match('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$')"
+          - "home is match('^/[A-Za-z0-9._/-]{1,4000}$')"
+          - "revision is match('^[a-f0-9]{40}$')"
+          - reason in ['first-converge', 'maintenance']
+    - name: Address the worker by its alias, with strict host keys
+      ansible.builtin.add_host:
+        name: '{{ target }}'
+        groups: [fleet_reboot]
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
+        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        worker_home: '{{ home }}'
+        worker_revision: '{{ revision }}'
+        reboot_reason: '{{ reason }}'
+        reboot_force: '{{ force | default(false) | bool }}'
+      changed_when: false
+      when: login | default('') == ''
+    # A worker whose account fleet-sync created this run, over an alias that
+    # still logs in as root.
+    - name: Address the worker by its alias as the declared account
+      ansible.builtin.add_host:
+        name: '{{ target }}'
+        groups: [fleet_reboot]
+        ansible_python_interpreter: /usr/bin/python3
+        ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
+        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        ansible_user: '{{ login }}'
+        worker_home: '{{ home }}'
+        worker_revision: '{{ revision }}'
+        reboot_reason: '{{ reason }}'
+        reboot_force: '{{ force | default(false) | bool }}'
+      changed_when: false
+      when: login | default('') is match('^[a-z_][a-z0-9_-]{0,31}$')
+
+- name: Reboot the worker while it runs no agent turn
+  hosts: fleet_reboot
+  gather_facts: false
+  serial: 1
+  tasks:
+    - name: Find the state T3 records its runs in
+      ansible.builtin.stat:
+        path: '{{ worker_home }}/.t3/userdata/statev2.sqlite'
+      register: t3_state
+    - name: Ask T3 whether an agent turn is running
+      ansible.builtin.command:
+        argv:
+          - python3
+          - -I
+          - -B
+          - '{{ worker_home }}/.local/share/personal/fleet/revisions/{{ worker_revision }}/ansible/ubuntu/t3-idle.py'
+          - --state
+          - '{{ worker_home }}/.t3/userdata/statev2.sqlite'
+      register: t3_idle
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      when: t3_state.stat.exists
+    # A worker that never ran T3 has no turn to end. One that cannot tell
+    # counts as busy: a reboot never ends a turn on a guess.
+    - name: Refuse while an agent turn runs
+      ansible.builtin.assert:
+        that: not t3_state.stat.exists or t3_idle.rc == 0 or reboot_force | bool
+        fail_msg: WORKER_REBOOT_BUSY; an agent turn is running on the worker, so it was not rebooted.
+    - name: Reboot, and wait for the worker to answer again
+      become: true
+      ansible.builtin.reboot:
+        msg: dev-fleet {{ reboot_reason }} reboot
+        reboot_timeout: 900

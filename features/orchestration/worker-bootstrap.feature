@@ -219,6 +219,51 @@ Feature: A worker is bootstrapped over SSH with one verified revision
       When the worker is bootstrapped
       Then a check says "REMOTE_BOOTSTRAP_EXIT_FAILED"
 
+  Rule: A tailnet key reaches the worker on the session's stdin, never as an argument
+
+    Background:
+      Given the manager has these workers registered:
+        | id     | ssh    | workspace |
+        | devbox | devbox | /unused   |
+      And a bootstrap payload of:
+        | revision | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                         |
+        | digest   | bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb |
+        | bundle   | ZmFrZS1idW5kbGU=                                                 |
+      And the payload carries the fleet configuration:
+        """
+        {"manager":{"id":"manager"}}
+        """
+      And the worker answers that it holds the revision
+      And the bootstrap on the worker succeeds, printing:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" }] }
+        """
+
+    Scenario: A bootstrap that reads the key is fed it after the configuration
+      Given the bootstrap script of the payload is:
+        """
+        #!/bin/sh
+        IFS= read -r configuration || configuration=''
+        IFS= read -r tailnet_key || tailnet_key=''
+        """
+      When the worker is bootstrapped, with a tailnet key generated for this scenario
+      Then the bootstrap was fed, before anything else, the fleet configuration:
+        """
+        {"manager":{"id":"manager"}}
+        """
+      And the bootstrap was fed the key on the line after the configuration
+      And no command line holds the key
+
+    Scenario: The bootstrap of an earlier revision, which reads no key, is never fed one
+      Given the bootstrap script of the payload is:
+        """
+        #!/bin/sh
+        IFS= read -r configuration || configuration=''
+        """
+      When the worker is bootstrapped, with a tailnet key generated for this scenario
+      Then nothing the bootstrap was fed holds the key
+      And the bootstrap was fed no bundle
+
   Rule: The bundle holds the approved commit and none of its history
 
     Scenario: A checkout that is shallow at the commit accepts a bundle that carries only that commit

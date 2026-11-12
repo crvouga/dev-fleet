@@ -12,6 +12,7 @@ import {
   type TailnetComputer,
 } from './tailscale';
 import { matchComputers } from './tailnet-matching';
+import { rebootStopsRollout } from './worker-reboot';
 import { sshArgs, sshFailure } from './ssh';
 import type { FleetDefinition, MachineDefinition } from './definition';
 import { publicHubUrl } from './monitoring/beszel';
@@ -39,6 +40,10 @@ export interface ManagerReport {
   desiredRevision: string | null;
   /** The worker that proved a revision new to the fleet first, when one did. */
   canary?: string;
+  /** The workers this run enrolled (added to the roster, or bound to their
+   * tailnet device).
+   */
+  enrolled?: string[];
   checks: Check[];
   nodes: ManagerNode[];
   candidates: number;
@@ -98,6 +103,10 @@ export async function synchronizeManager(
     revision: string;
     apply: boolean;
     canary?: string;
+    /** One worker at a time, canary first; a worker a reboot left unready
+     * stops the ones after it.
+     */
+    serial?: boolean;
     progress?: (node: string, phase: string) => void;
     /** Called once per node as soon as its result is final. */
     finished?: (node: ManagerNode) => void;
@@ -192,6 +201,7 @@ async function applyNodes(
     nodes: FleetNode[];
     revision: string;
     canary?: string;
+    serial?: boolean;
     progress?: (node: string, phase: string) => void;
     finished?: (node: ManagerNode) => void;
   },
@@ -216,7 +226,16 @@ async function applyNodes(
     const deployable = await step(canary);
     if (!deployable || canary.checks.some(blocksPromotion)) blocked = true;
   }
-  await Promise.all(workers.filter((node) => node !== canary).map(step));
+  const rest = workers.filter((node) => node !== canary);
+  if (!input.serial) {
+    await Promise.all(rest.map(step));
+    return;
+  }
+  if (canary && rebootStopsRollout(canary)) blocked = true;
+  for (const node of rest) {
+    await step(node);
+    if (rebootStopsRollout(node)) blocked = true;
+  }
 }
 
 /** A revision new to the fleet is proven on one worker first: the preferred

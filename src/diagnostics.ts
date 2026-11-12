@@ -59,7 +59,9 @@ export function diagnostic(node: string, check: Check): Diagnostic {
     observed: check.summary,
     scope: scope(check.id),
     durationMs: check.phaseDurationMs ?? null,
-    retryable: failed && /OFFLINE|UNREACHABLE|METRICS_STALE|TIMEOUT/.test(code),
+    retryable:
+      failed &&
+      /OFFLINE|UNREACHABLE|METRICS_STALE|TIMEOUT|FIRST_BOOT_PENDING/.test(code),
     actionRequired: failed,
     remedy: {
       owner: owner(phase),

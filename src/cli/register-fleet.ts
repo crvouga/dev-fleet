@@ -230,6 +230,14 @@ function registerSync({ program, defaults, complete }: Registration) {
     )
     .option('--yes', 'Accepted for compatibility with --apply')
     .option(
+      '--maintenance-reboot',
+      'Reboot each worker whose installed updates wait for a reboot: one at a time, canary first, only while it runs no agent turn, verified ready before the next'
+    )
+    .option(
+      '--force',
+      'With --maintenance-reboot: reboot a worker even while agent turns run (they end)'
+    )
+    .option(
       '--take-over',
       'Make this machine the manager while another one still holds the manager lease'
     )

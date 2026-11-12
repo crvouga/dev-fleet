@@ -122,6 +122,8 @@ export function managerText(
     lines.push(
       `${c.dim('report   ')}  ${options.reportPath} ${c.dim('(full JSON; or rerun with --json)')}`
     );
+  if (report.enrolled?.length)
+    lines.push(`${c.dim('enrolled ')}  ${report.enrolled.join(', ')}`);
   if (report.candidates)
     lines.push(
       `${c.dim('tailnet  ')}  ${report.candidates} unmanaged device(s) seen; discovery never enrolls them`

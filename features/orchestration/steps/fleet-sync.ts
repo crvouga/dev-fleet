@@ -73,6 +73,13 @@ Given('deploying a worker reports these checks:', (world, table: DataTable) => {
 });
 
 Given(
+  'deploying {string} reports these checks:',
+  (world, id: string, table: DataTable) => {
+    world.sync.byWorker[id] = checksIn(table);
+  }
+);
+
+Given(
   'deploying a worker fails with the error {string}',
   (world, message: string) => {
     world.sync.error = message;
@@ -106,8 +113,13 @@ function tailscaleStatus(computers: TailnetComputer[]): string {
 }
 
 When(
-  /^fleet-sync (applies|previews) the approved revision(?: with "([^"]+)" as its canary)?$/,
-  async (world, mode: string, canary: string | undefined) => {
+  /^fleet-sync (applies|previews) the approved revision(?: with "([^"]+)" as its canary)?(, one worker at a time)?$/,
+  async (
+    world,
+    mode: string,
+    canary: string | undefined,
+    serial: string | undefined
+  ) => {
     world.commands.answer(
       (command) => command[0] === 'tailscale',
       succeeded(tailscaleStatus(world.computers))
@@ -119,6 +131,7 @@ When(
         revision: need(world.sync.revision, 'an approved revision'),
         apply: mode === 'applies',
         ...(canary ? { canary } : {}),
+        ...(serial ? { serial: true } : {}),
         finished: (node) => world.sync.finished.push(node.node),
       },
       world.run,
@@ -127,7 +140,9 @@ When(
         if (world.sync.error !== undefined) throw new Error(world.sync.error);
         return {
           node: node.id,
-          checks: world.sync.checks.map((check) => ({ ...check })),
+          checks: (world.sync.byWorker[node.id] ?? world.sync.checks).map(
+            (check) => ({ ...check })
+          ),
         };
       }
     );

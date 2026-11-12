@@ -66,12 +66,14 @@ ssh_keys:
             if attempt.returncode == 0:
                 break
             time.sleep(2)
-        run(ssh + ['cloud-init status --wait --long'])
-        print('fresh verified SSH and cloud-init complete', flush=True)
         if BOOTSTRAP:
+            # The bootstrap starts as soon as SSH answers, as a pipeline would:
+            # it waits for the machine's own first boot (cloud-init) itself.
+            print('fresh verified SSH; first boot may still be running', flush=True)
             # The official cloud image includes Git. Remove it only in this
-            # disposable fixture to exercise the minimal-target boundary.
-            run(ssh + ['sudo apt-get remove --yes git'])
+            # disposable fixture to exercise the minimal-target boundary,
+            # waiting for any package work first boot is still doing.
+            run(ssh + ['sudo apt-get -o DPkg::Lock::Timeout=900 remove --yes git'])
             run(ssh + ['! command -v node && ! command -v bun && ! command -v mise && ! command -v git'])
             print('fresh target has no Node, Bun, mise or Git; invoking production SSH bootstrap', flush=True)
             run(ssh + ['mkdir -p work && printf preserved > work/uncommitted'])
@@ -86,6 +88,10 @@ ssh_keys:
             assert run(ssh + [evidence]).stdout == before, 'repeat changed work, SSH identity or unchanged managed files'
             print('production remote bootstrap and repeat passed the baseline; live auth remains unverified', flush=True)
             return
+        # The baseline-only run applies Ansible directly, which first boot
+        # installs (packages above): it waits for first boot itself.
+        run(ssh + ['cloud-init status --wait --long'])
+        print('fresh verified SSH and cloud-init complete', flush=True)
         verification = Path('/verification/verify')
         assert verification.exists(), 'Compile the tracked runtime-check.ts fixture and mount /verification first'
         subprocess.run(ssh + ['cat > verify && chmod 700 verify'], input=verification.read_bytes(), capture_output=True, check=True, timeout=60)

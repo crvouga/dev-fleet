@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 251 codes; 31 need a person.
+There are 265 codes; 38 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -179,6 +179,28 @@ There are 251 codes; 31 need a person.
 - `TAILSCALE_SETUP_OR_LOGIN_REQUIRED`: tailscale setup or login required. **Needs a person.**
 - `TAILSCALE_SOURCE_OWNER_CONFLICT`: tailscale source owner conflict. **Needs a person.**
 - `TAILSCALE_UPGRADE_PENDING`: tailscale upgrade pending. **Needs a person.**
+
+## A new worker with no hands on it
+
+- **Meaning:** A machine created without a person (from a pipeline or infrastructure-as-code) could not be enrolled, joined to the tailnet, given its account or brought to ready in one run: its first boot is still running or failed, the tailnet control plane refused a key, the image lets only root in and the account could not be created, or its first-converge or maintenance reboot did not happen.
+- **Confirm:** The `bootstrap:first-boot`, `tailscale:enrolment-key`, `worker:account` and `worker:reboot` checks of the report `devfleet fleet-sync --json` prints; on the worker, `cloud-init status --long`.
+- **Fix:** FIRST_BOOT_PENDING and WORKER_REBOOT_BUSY clear on their own: run `devfleet fleet-sync` again later. A TAILNET code names what to fix in `tailnet` of `fleet.json` or in the secret `tailnet-admin`; then run `devfleet fleet-sync`.
+- **Escalate:** A first boot that failed means the image or its user data is wrong: recreate the machine. A root login that cannot create the declared account needs a person on the machine (`useradd --create-home --shell /bin/bash --groups sudo USER`).
+
+- `FIRST_BOOT_FAILED`: first boot failed: cloud-init ended in an error. **Needs a person.**
+- `FIRST_BOOT_PENDING`: first boot pending: cloud-init still runs; retryable.
+- `TAILNET_ADMIN_REQUIRED`: tailnet admin required: fleet.json declares tailnet without the secret. **Needs a person.**
+- `TAILNET_CONTROL_DENIED`: tailnet control denied the tailnet-admin credential. **Needs a person.**
+- `TAILNET_CONTROL_REJECTED`: tailnet control rejected the request (tag or user). **Needs a person.**
+- `TAILNET_CONTROL_RESPONSE_INVALID`: tailnet control response invalid.
+- `TAILNET_CONTROL_UNAVAILABLE`: tailnet control unavailable.
+- `TAILNET_KEY_DELIVERY_FAILED`: tailnet key delivery failed.
+- `TAILNET_KEY_INVALID`: tailnet key invalid.
+- `WORKER_ACCOUNT_CREATION_FAILED`: worker account creation failed. **Needs a person.**
+- `WORKER_ACCOUNT_ROOT_REQUIRED`: worker account root required. **Needs a person.**
+- `WORKER_ACCOUNT_UNDECLARED`: worker account undeclared in workers[].network.user. **Needs a person.**
+- `WORKER_REBOOT_BUSY`: worker reboot busy: an agent turn runs.
+- `WORKER_REBOOT_FAILED`: worker reboot failed.
 
 ## T3 Code
 

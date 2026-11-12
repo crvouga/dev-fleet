@@ -68,6 +68,26 @@ export const CHECK_OWNERS: CheckOwner[] = [
       'Re-converge the worker with fleet-sync: it applies the whole worker policy at the approved revision.',
   },
   { pattern: 'worker:power-loss-recovery', manual: HARDWARE },
+  {
+    pattern: 'worker:account',
+    manual:
+      'fleet-sync creates the declared account over a root login; when it cannot, the account is created by the operator on the machine, or declared in fleet.json.',
+  },
+  {
+    pattern: 'worker:reboot',
+    manual:
+      'A reboot ends running agent turns, so it waits for them: rerun fleet-sync --maintenance-reboot once they end, or with --force.',
+  },
+  {
+    pattern: 'tailscale:enrolment-key',
+    manual:
+      'The tailnet-admin credential and the tag it may use are the operator’s, kept in the secrets provider and the control plane.',
+  },
+  {
+    pattern: 'tailscale:key-expiry-policy',
+    manual:
+      'The tailnet-admin credential and the tag it may use are the operator’s, kept in the secrets provider and the control plane.',
+  },
   { pattern: 'worker:github-principal', manual: IDENTITY },
   { pattern: 'worker:vault-renewal', manual: IDENTITY },
   {

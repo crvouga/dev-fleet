@@ -8,7 +8,7 @@ import {
 import { managerFailure } from '../manager-failure';
 import { managerText, stdoutColor } from './fleet-sync-output';
 import { managerSchedule, type ScheduleAction } from './fleet-sync-schedule';
-import { enrollManager } from './fleet-sync-enrollment';
+import { enrollManager, type EnrollmentResult } from './fleet-sync-enrollment';
 import { authorizeManager } from './fleet-sync-vault';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -87,6 +87,19 @@ export interface FleetSyncOptions {
   expectedPlanFingerprint?: string;
   /** Take the manager lease from another manager before it expired. */
   takeOver?: boolean;
+  /** Opt-in: reboot each worker whose installed updates wait for a reboot,
+   * one at a time, canary first, only while it runs no agent turn, and
+   * verify it is ready before the next.
+   */
+  maintenanceReboot?: boolean;
+  /** With --maintenance-reboot: reboot even while agent turns run. */
+  force?: boolean;
+  /** Internal: what this run's enrollment did, for the report. */
+  enrollment?: EnrollmentResult;
+  /** Internal: the workers that converged in an earlier run. One that never
+   * did may be rebooted once after its first converge.
+   */
+  readyBefore?: string[];
 }
 export function machineRoot(): string {
   const root = join(homedir(), '.local/share/personal/fleet/manager');
@@ -308,15 +321,28 @@ async function authorizeAndApply(
   context: ApplyContext
 ): Promise<CommandOutcome> {
   const { settings, run, revision } = context;
-  const request = { ...options, revision, apply: true, yes: true };
-  if (!interactive(options)) return applyLocked(root, state, request, context);
-  await enrollManager(settings.config, run);
+  const request = {
+    ...options,
+    revision,
+    apply: true,
+    yes: true,
+    readyBefore: readyBefore(state),
+  };
+  const person = interactive(options);
+  // A run without a person enrolls a worker only when every fact it needs
+  // is verified; it never prompts.
+  const enrollment = await enrollManager(settings.config, run, {
+    interactive: person,
+    joinable: Boolean(canonicalDefinition.tailnet),
+  });
+  if (!person)
+    return applyLocked(root, state, { ...request, enrollment }, context);
   // Needed to hand each node its own Vault token; nodes report any gap.
   await authorizeManager({ interactive: true }, run);
   return applyLocked(
     root,
     state,
-    { ...request, interactiveAuthorization: true },
+    { ...request, enrollment, interactiveAuthorization: true },
     context
   );
 }
@@ -441,9 +467,23 @@ function validate(options: FleetSyncOptions): void {
     );
   validateOnly(options);
   validateRollback(options);
+  validateMaintenance(options);
   if (options.dryRun && (options.apply || options.yes))
     throw new FleetUsageError(
       '--dry-run cannot be combined with apply confirmation.'
+    );
+}
+function validateMaintenance(options: FleetSyncOptions): void {
+  if (options.force && !options.maintenanceReboot)
+    throw new FleetUsageError(
+      '--force only goes with --maintenance-reboot: it reboots a worker even while agent turns run.'
+    );
+  if (
+    options.maintenanceReboot &&
+    (options.dryRun || options.schedule || options.only)
+  )
+    throw new FleetUsageError(
+      '--maintenance-reboot reboots workers; it takes neither --dry-run, --schedule nor --only.'
     );
 }
 function validateRollback(options: FleetSyncOptions): void {
@@ -487,6 +527,17 @@ async function onlyAccounts(
       'No revision is applied yet. Run a full fleet-sync first.'
     );
   return syncAccounts(options, settings, { revision, run });
+}
+
+/** The workers that converged before this run. A fleet state written before
+ * it recorded each worker's revision counts every worker of a fleet that
+ * was applied as converged.
+ */
+function readyBefore(state: Enrollment | null): string[] {
+  if (state?.workers) return Object.keys(state.workers);
+  return state?.appliedRevision
+    ? canonicalDefinition.workers.map((worker) => worker.id)
+    : [];
 }
 
 function interactive(options: FleetSyncOptions): boolean {
