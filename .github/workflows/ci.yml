@@ -1,15 +1,21 @@
 name: CI
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled]
+    types: [opened, synchronize, reopened]
+  # By hand, by auto-merge.yml for a merge to main that started no run of its
+  # own, and by pins.yml for the pull request it opens.
   workflow_dispatch: {}
   push:
     branches: [main]
 permissions:
   contents: read
+# A newer push to a pull request replaces the run of the older one. A run on
+# main is never cut short: a merge waits for the run before it, and only a
+# merge that is still waiting gives way to a newer one, whose release carries
+# everything since the last tag.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
     name: Check
@@ -103,6 +109,10 @@ jobs:
           install_args: uv
       - name: Lint every playbook
         run: mise exec uv -- uv run --project ansible --locked --isolated --group lint ansible-lint
+      # A pin moved without its snapshot has no installation candidate on a
+      # machine: read the snapshot's own indexes for every pinned package.
+      - name: Find every pinned Ubuntu package in the pinned snapshot
+        run: python3 -I ansible/ubuntu/tests/snapshot-pins.py
       - name: Syntax-check every playbook
         run: |
           for playbook in ansible/*/*.yml; do
@@ -157,21 +167,67 @@ jobs:
           [ "$(changed)" = changed=0 ] || { echo '::error::A second grant changed the manager.'; exit 1; }
           sudo -n -l /usr/sbin/systemsetup -getusingnetworktime
   fresh-box:
-    name: Fresh worker over SSH (${{ matrix.release }}, ${{ matrix.architecture }})
+    name: Fresh worker over SSH (${{ matrix.release }}, ${{ matrix.architecture }}, ${{ matrix.feature }})
     # A disposable Ubuntu machine that has only an SSH server and an account
     # with sudo, bootstrapped by the production code over a real SSH
     # connection: features/fresh-box. It downloads the worker toolchain.
-    # Once for every release ansible/ubuntu/policy.json accepts.
+    # Once for every release ansible/ubuntu/policy.json accepts, on both
+    # architectures, and each feature of features/fresh-box in a job of its
+    # own: side by side they end in the time of the longer one.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - { release: '26.04', architecture: amd64, runner: ubuntu-latest }
-          - { release: '26.04', architecture: arm64, runner: ubuntu-24.04-arm }
-          - { release: '24.04', architecture: amd64, runner: ubuntu-latest }
-          - { release: '24.04', architecture: arm64, runner: ubuntu-24.04-arm }
+          - {
+              release: '26.04',
+              architecture: amd64,
+              runner: ubuntu-latest,
+              feature: fresh-box,
+            }
+          - {
+              release: '26.04',
+              architecture: amd64,
+              runner: ubuntu-latest,
+              feature: fleet,
+            }
+          - {
+              release: '26.04',
+              architecture: arm64,
+              runner: ubuntu-24.04-arm,
+              feature: fresh-box,
+            }
+          - {
+              release: '26.04',
+              architecture: arm64,
+              runner: ubuntu-24.04-arm,
+              feature: fleet,
+            }
+          - {
+              release: '24.04',
+              architecture: amd64,
+              runner: ubuntu-latest,
+              feature: fresh-box,
+            }
+          - {
+              release: '24.04',
+              architecture: amd64,
+              runner: ubuntu-latest,
+              feature: fleet,
+            }
+          - {
+              release: '24.04',
+              architecture: arm64,
+              runner: ubuntu-24.04-arm,
+              feature: fresh-box,
+            }
+          - {
+              release: '24.04',
+              architecture: arm64,
+              runner: ubuntu-24.04-arm,
+              feature: fleet,
+            }
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 45
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -184,6 +240,7 @@ jobs:
           # A missing Docker or SSH client fails here instead of skipping.
           DEVFLEET_TEST_FRESH_BOX: required
           DEVFLEET_TEST_FRESH_BOX_RELEASE: ${{ matrix.release }}
+          DEVFLEET_TEST_FRESH_BOX_FEATURE: ${{ matrix.feature }}
   agent-box:
     name: Monitoring agent on systemd
     # The Beszel agent playbook applied for real on a disposable Ubuntu
@@ -201,3 +258,20 @@ jobs:
         run: bun test features/monitoring
         env:
           DEVFLEET_TEST_AGENT_BOX: required
+  required:
+    name: Required checks
+    # The one check the ruleset of main requires. It passes only when every
+    # job above passed, so a job that is added, renamed or split is required
+    # from the pull request that does it, with no change to the ruleset.
+    if: always()
+    needs: [check, state, workflows, ansible, manager, fresh-box, agent-box]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          jq -r 'to_entries[] | "\(.key): \(.value.result)"' <<< "$RESULTS"
+          jq -e 'all(.[]; .result == "success")' <<< "$RESULTS" > /dev/null ||
+            { echo '::error::A job of this run did not pass.'; exit 1; }

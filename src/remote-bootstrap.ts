@@ -125,9 +125,9 @@ export async function bootstrapRemote(
 ): Promise<NodeReport> {
   const { tailnetKey, ...follow } = options;
   const clock = follow.clock ?? realClock;
-  const cached = await cachedRevision(node, payload.revision, run, clock);
-  if (typeof cached !== 'boolean') return { node: node.id, checks: [cached] };
-  const transfer = cached
+  const held = await cachedRevision(node, payload.revision, run, clock);
+  if ('id' in held) return { node: node.id, checks: [held] };
+  const transfer = held.cached
     ? { mode: 'cached', bundle: '' }
     : { mode: 'transfer', bundle: payload.bundle };
   const command = [
@@ -155,7 +155,7 @@ export async function bootstrapRemote(
         readsTailnetKey(payload.script) ? (tailnetKey ?? '') : null
       ),
     },
-    { run, follow: { ...follow, clock } }
+    { run, follow: { ...follow, clock, earlier: held.earlier } }
   );
   return { node: node.id, checks };
 }
@@ -237,13 +237,17 @@ export function readsTailnetKey(script: string): boolean {
   return script.includes('read -r tailnet_key');
 }
 
+/** Whether the worker holds a clean checkout of the revision, and when the
+ * operation its record says had finished there started: that one ended
+ * before this run, so its result is never taken for this run's.
+ */
 async function cachedRevision(
   node: FleetNode,
   revision: string,
   run: Runner,
   clock: Clock
-): Promise<boolean | Check> {
-  const command = `d="$HOME/.local/share/personal/fleet/revisions/${revision}"; test ! -L "$d" && test -d "$d/.git" && test "$(git -C "$d" rev-parse HEAD 2>/dev/null)" = '${revision}' && test "$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" = "$d" && clean=$(git -C "$d" status --porcelain 2>/dev/null) && test -z "$clean" && printf ready`;
+): Promise<{ cached: boolean; earlier: number | null } | Check> {
+  const command = `r="$HOME/.local/share/personal/fleet"; sed -n 's/^{.*"started":\\([0-9][0-9]*\\),.*"finished":[0-9].*$/finished=\\1/p' "$r/remote-operation.json" 2>/dev/null | head -n 1; d="$r/revisions/${revision}"; test ! -L "$d" && test -d "$d/.git" && test "$(git -C "$d" rev-parse HEAD 2>/dev/null)" = '${revision}' && test "$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" = "$d" && clean=$(git -C "$d" status --porcelain 2>/dev/null) && test -z "$clean" && printf ready`;
   const result = await retrying(
     () => run([...sshArgs(node), command], { timeoutMs: 20_000 }),
     clock
@@ -252,7 +256,12 @@ async function cachedRevision(
     const failure = sshFailure(result);
     if (result.reason !== 'exit' || failure.id !== 'ssh:probe') return failure;
   }
-  return result.ok && result.stdout === 'ready';
+  const lines = result.stdout.split('\n');
+  const finished = /^finished=(\d{1,12})$/.exec(lines[0] ?? '');
+  return {
+    cached: result.ok && lines.at(-1) === 'ready',
+    earlier: finished ? Number(finished[1]) : null,
+  };
 }
 
 function parseEvidence(result: {

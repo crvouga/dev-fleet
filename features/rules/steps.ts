@@ -42,6 +42,7 @@ interface Located {
 }
 interface WorkflowStep {
   name?: string;
+  if?: string;
   uses?: string;
   run?: string;
   with?: Record<string, unknown>;
@@ -49,7 +50,8 @@ interface WorkflowStep {
 }
 interface Workflow {
   name: string;
-  on: Record<string, unknown>;
+  on: Record<string, { types?: string[]; workflows?: string[] } | null>;
+  concurrency?: { 'cancel-in-progress'?: unknown };
   jobs: Record<
     string,
     {
@@ -753,6 +755,93 @@ Then(
   }
 );
 
+// ── Pull requests ────────────────────────────────────────────────────────
+
+Then(
+  'every other job of the {string} workflow is needed by its {string} job',
+  async (world, name: string, needing: string) => {
+    world.workflow = await workflow(name);
+    expect([job(world, needing).needs ?? []].flat().sort()).toEqual(
+      Object.keys(world.workflow.jobs)
+        .filter((other) => other !== needing)
+        .sort()
+    );
+  }
+);
+
+Then('its {string} job runs whatever became of them', (world, name: string) => {
+  expect(job(world, name).if).toBe('always()');
+});
+
+Then(
+  'the {string} workflow cancels a run in progress only for {string}',
+  async (_world, name: string, event: string) => {
+    expect((await workflow(name)).concurrency?.['cancel-in-progress']).toBe(
+      `\${{ github.event_name == '${event}' }}`
+    );
+  }
+);
+
+Then(
+  'the {string} workflow runs on {string} only when one is:',
+  async (_world, name: string, event: string, table: DataTable) => {
+    expect((await workflow(name)).on[event]?.types).toEqual(table.list());
+  }
+);
+
+Then(
+  'the {string} workflow follows the {string} workflow',
+  async (_world, name: string, followed: string) => {
+    expect((await workflow(name)).on['workflow_run']?.workflows).toContain(
+      followed
+    );
+  }
+);
+
+When(
+  'the workflows that run in this repository by themselves are listed',
+  async (world) => {
+    // A workflow only another repository calls reports there.
+    world.found = (await files('.github/workflows/*.yml'))
+      .map((path) => parse(read(path)) as Workflow)
+      .filter((entry) =>
+        Object.keys(entry.on).some((event) => event !== 'workflow_call')
+      )
+      .map((entry) => entry.name);
+  }
+);
+
+Then(
+  'each is followed by the {string} workflow',
+  async (world, name: string) => {
+    const followed = (await workflow(name)).on['workflow_run']?.workflows ?? [];
+    expect(world.found.filter((entry) => entry !== name).sort()).toEqual(
+      [...followed].sort()
+    );
+  }
+);
+
+Then(
+  'the {string} workflow follows no run of a pull request',
+  async (_world, name: string) => {
+    for (const entry of Object.values((await workflow(name)).jobs))
+      expect(entry.if).toContain(
+        "github.event.workflow_run.event != 'pull_request'"
+      );
+  }
+);
+
+Then(
+  'its {string} job keeps {string} when it fails',
+  (world, name: string, path: string) => {
+    const keeper = (job(world, name).steps ?? []).find((step) =>
+      step.uses?.startsWith('actions/upload-artifact@')
+    );
+    expect(keeper?.if).toBe('failure()');
+    expect(String(keeper?.with?.['path'])).toContain(path);
+  }
+);
+
 // ── Convergence ──────────────────────────────────────────────────────────
 
 /** Tooling that runs on the developer's machine or in CI, never a fleet machine's. */
@@ -1022,6 +1111,18 @@ Then(
         [key!]: String(value),
       }));
     expect(rows).toEqual(table.hashes());
+  }
+);
+
+Then(
+  'its {string} job runs every feature of {string}',
+  async (world, name: string, directory: string) => {
+    const rows = job(world, name).strategy?.matrix?.include ?? [];
+    expect(
+      [
+        ...new Set(rows.map((row) => `${directory}/${row['feature']}.feature`)),
+      ].sort()
+    ).toEqual((await files(`${directory}/*.feature`)).sort());
   }
 );
 

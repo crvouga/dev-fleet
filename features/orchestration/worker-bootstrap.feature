@@ -180,6 +180,24 @@ Feature: A worker is bootstrapped over SSH with one verified revision
       And a check says "Real failure"
       And the manager paused for 25 seconds in all
 
+    Scenario: A session that could not be opened is not answered with the result of an earlier run
+      The worker converged this revision before, and the record of that run
+      is still on it. Nothing ran this time: the manager opens the session
+      again instead of reporting what the earlier run found.
+      Given the worker answers that it holds the revision, and that its last operation had finished
+      And the bootstrap session cannot be opened, printing "ssh: connect to host devbox port 22: Network is unreachable"
+      And the worker says the operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" has finished, with the result:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "pass", "summary": "Earlier run" }] }
+        """
+      And the bootstrap on the worker succeeds, printing:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" }] }
+        """
+      When the worker is bootstrapped
+      Then 4 SSH sessions were opened, and nothing else was run
+      And the first check says "Verified fixture"
+
     Scenario: A session lost before the worker started anything is opened again
       Given the worker answers that it does not hold the revision
       And the bootstrap session cannot be opened, printing "ssh: connect to host devbox port 22: Network is unreachable"

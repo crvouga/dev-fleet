@@ -197,6 +197,11 @@ export interface RunOptions<W extends World> {
   skip?: (tags: string[]) => boolean;
   /** For one scenario; `@slow` scenarios get ten times as long. */
   timeoutMs?: number;
+  /** Run this one feature file of the directory (its name without
+   * `.feature`) and no other. A name that is no feature of the directory is
+   * an error, so a job that runs one part can never pass by running nothing.
+   */
+  only?: string | undefined;
 }
 
 /** Registers every scenario under `directory` as a test. A step with no
@@ -215,7 +220,19 @@ export function runFeatures<W extends World>(options: RunOptions<W>): void {
       throw error;
     }
   };
-  for (const path of featureFiles(options.directory)) {
+  const every = featureFiles(options.directory);
+  const chosen = every.filter(
+    (path) =>
+      !options.only ||
+      relative(options.directory, path) === `${options.only}.feature`
+  );
+  if (chosen.length === 0)
+    throw new Error(
+      `${options.only} is no feature of ${options.directory}: ${every
+        .map((path) => relative(options.directory, path))
+        .join(', ')}`
+    );
+  for (const path of chosen) {
     const feature = parse(path, relative(options.directory, path));
     const names = titles(feature.pickles);
     describe(feature.name, () => {

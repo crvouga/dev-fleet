@@ -30,13 +30,24 @@ Feature: Every pull request is checked the way machines run
     release the Ubuntu policy accepts runs them on each architecture.
     Then the "CI" workflow runs on "pull_request"
     And its "fresh-box" job runs once for each of:
-      | release | architecture | runner           |
-      | 26.04   | amd64        | ubuntu-latest    |
-      | 26.04   | arm64        | ubuntu-24.04-arm |
-      | 24.04   | amd64        | ubuntu-latest    |
-      | 24.04   | arm64        | ubuntu-24.04-arm |
+      | release | architecture | runner           | feature   |
+      | 26.04   | amd64        | ubuntu-latest    | fresh-box |
+      | 26.04   | amd64        | ubuntu-latest    | fleet     |
+      | 26.04   | arm64        | ubuntu-24.04-arm | fresh-box |
+      | 26.04   | arm64        | ubuntu-24.04-arm | fleet     |
+      | 24.04   | amd64        | ubuntu-latest    | fresh-box |
+      | 24.04   | amd64        | ubuntu-latest    | fleet     |
+      | 24.04   | arm64        | ubuntu-24.04-arm | fresh-box |
+      | 24.04   | arm64        | ubuntu-24.04-arm | fleet     |
     And its "fresh-box" job runs every release the Ubuntu policy accepts
     And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX_RELEASE" to "${{ matrix.release }}"
+
+  Scenario: Each fresh worker feature runs in a job of its own, and none is left out
+    Side by side they end in the time of the longer one. A job that names a
+    feature that does not exist fails instead of passing with nothing run.
+    Then the "CI" workflow runs on "pull_request"
+    And its "fresh-box" job runs every feature of "features/fresh-box"
+    And its "fresh-box" job sets "DEVFLEET_TEST_FRESH_BOX_FEATURE" to "${{ matrix.feature }}"
 
   Scenario: A fresh worker is bootstrapped over SSH on every pull request
     Then the "CI" workflow runs on "pull_request"
@@ -61,6 +72,13 @@ Feature: Every pull request is checked the way machines run
     And its "ansible" job runs "ansible-lint"
     And its "ansible" job runs "--syntax-check"
     And ".ansible-lint.yml" requires the profile "production"
+
+  Scenario: Every pinned Ubuntu package is found in the pinned snapshot on every pull request
+    A pin moved without its snapshot has no installation candidate, which a
+    machine only learns when its baseline fails.
+    Then the "CI" workflow runs on "pull_request"
+    And its "ansible" job has no condition
+    And its "ansible" job runs "ansible/ubuntu/tests/snapshot-pins.py"
 
   Scenario: The manager is checked on macOS on every pull request
     The manager runs only on macOS: launchd, pmset and Docker Desktop are
@@ -108,6 +126,14 @@ Feature: Every pull request is checked the way machines run
     And its "tailnet" job calls ".github/workflows/tailnet.yml" for the commit "pack" packed
     When the "Publish to npm" step of the "Release" workflow is read
     Then it runs "npm publish \"$TARBALL\"" before "--provenance"
+
+  Scenario: A version that is on npm from another commit is never tagged on this one
+    A release that published and then failed leaves its version on npm with
+    no tag. The next merge computes the same version: tagging it there would
+    name a commit the package does not hold.
+    When the "Publish to npm" step of the "Release" workflow is read
+    Then it runs "npm view \"$NAME@$VERSION\" gitHead" before "npm publish"
+    And it runs "[ \"$published\" = \"$COMMIT\" ]" before "exit 1"
 
   Scenario: A release is described by the commits it contains
     When the "Tag and release" step of the "Release" workflow is read

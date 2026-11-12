@@ -50,6 +50,13 @@ Feature: fleet-sync started on a worker is handed to the manager
       When a worker prepares to hand "fleet-sync --restart-busy --dry-run" at revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to the manager
       Then the manager is asked for exactly "--revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --restart-busy --dry-run"
 
+    Scenario: The hand-off keeps the request to take the manager lease over
+      fleet-sync also runs itself again from the checkout of the revision;
+      a replacement manager that asked for the lease must still hold the
+      request there, or it is told to ask for what it asked for.
+      When a worker prepares to hand "fleet-sync --take-over --yes" at revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" to the manager
+      Then the manager is asked for exactly "--revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --yes --take-over"
+
   Rule: A worker reports what the manager answered and runs nothing itself
 
     Scenario: A worker hands fleet-sync to the manager and reports its result

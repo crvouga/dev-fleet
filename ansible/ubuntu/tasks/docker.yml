@@ -35,10 +35,20 @@
 # image and build a one-line image as the developer, in a fresh session that
 # reads the docker group from scratch. The image is cached here so the same
 # test works offline in worker:docker-run.
+#
+# The fresh session is made here, by runuser as root, and not by
+# `become_user`: Ansible skips becoming the user who already runs the play,
+# which the developer does on a worker. The command then ran in the session
+# that started before the group was granted, and the first sync of a new
+# worker ended with "permission denied" on the Docker socket.
 - name: Look for the cached smoke-test image
   ansible.builtin.command:
     argv:
       [
+        runuser,
+        -u,
+        '{{ development_user }}',
+        --,
         docker,
         image,
         inspect,
@@ -46,23 +56,37 @@
         '{{ "{{.Id}}" }}',
         '{{ dockerSmokeTest.image }}',
       ]
-  become: true
-  become_user: '{{ development_user }}'
+  environment:
+    HOME: '{{ development_home }}'
   check_mode: false
   changed_when: false
   failed_when: false
   register: docker_smoke_image
 - name: Cache the pinned smoke-test image
   ansible.builtin.command:
-    argv: [docker, pull, --quiet, '{{ dockerSmokeTest.image }}']
-  become: true
-  become_user: '{{ development_user }}'
+    argv:
+      [
+        runuser,
+        -u,
+        '{{ development_user }}',
+        --,
+        docker,
+        pull,
+        --quiet,
+        '{{ dockerSmokeTest.image }}',
+      ]
+  environment:
+    HOME: '{{ development_home }}'
   when: docker_smoke_image.rc | default(0) != 0
   changed_when: true
 - name: Run a container as the developer, offline (DOCKER_RUN_FAILED)
   ansible.builtin.command:
     argv:
       [
+        runuser,
+        -u,
+        '{{ development_user }}',
+        --,
         docker,
         run,
         --rm,
@@ -73,20 +97,33 @@
         '{{ dockerSmokeTest.image }}',
         'true',
       ]
-  become: true
-  become_user: '{{ development_user }}'
+  environment:
+    HOME: '{{ development_home }}'
   timeout: '{{ dockerSmokeTest.timeoutSeconds }}'
   changed_when: false
   # Verifies a change a dry run does not make.
   when: not ansible_check_mode
 - name: Build a one-line image as the developer, offline (DOCKER_BUILD_FAILED)
   ansible.builtin.command:
-    argv: [docker, build, --quiet, --pull=false, --network, none, '-']
+    argv:
+      [
+        runuser,
+        -u,
+        '{{ development_user }}',
+        --,
+        docker,
+        build,
+        --quiet,
+        --pull=false,
+        --network,
+        none,
+        '-',
+      ]
     stdin: |
       FROM {{ dockerSmokeTest.image }}
       RUN true
-  become: true
-  become_user: '{{ development_user }}'
+  environment:
+    HOME: '{{ development_home }}'
   timeout: '{{ dockerSmokeTest.timeoutSeconds }}'
   changed_when: false
   # Verifies a change a dry run does not make.

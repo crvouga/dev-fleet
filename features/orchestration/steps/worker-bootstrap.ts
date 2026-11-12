@@ -65,6 +65,15 @@ Given(
 );
 
 Given(
+  'the worker answers that it holds the revision, and that its last operation had finished',
+  (world) => {
+    // The same start the operation probe gives the finished operation.
+    const started = Math.round(waits(world).at / 1000) - 600;
+    nextSession(world, succeeded(`finished=${started}\nready`));
+  }
+);
+
+Given(
   /^the bootstrap on the worker (succeeds|fails), printing:$/,
   (world, outcome: string, output: string) => {
     nextSession(world, {

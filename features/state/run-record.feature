@@ -56,6 +56,46 @@ Feature: A fleet-sync run records its approval and its result in the fleet state
       }
       """
 
+  Scenario: What was recorded while the run ran is kept when it ends
+    A run retires a worker whose record was removed, and records that. Its
+    result is written over what the fleet state holds then, not over what it
+    held when the run started: the retired worker does not come back.
+    Given the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "appliedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workers": { "worker-one": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "worker-two": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      }
+      """
+    And a fleet-sync run for revision "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" is approved
+    And the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workers": { "worker-two": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
+        "retired": { "worker-one": "2026-01-01T00:00:00.000Z" }
+      }
+      """
+    When the run ends without converging, with these workers converged:
+      | worker-two | bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb |
+    Then the enrollment of the manager is exactly:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workers": { "worker-two": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" },
+        "retired": { "worker-one": "2026-01-01T00:00:00.000Z" }
+      }
+      """
+
   Rule: What a run could not upload, the next run uploads
 
     Background:

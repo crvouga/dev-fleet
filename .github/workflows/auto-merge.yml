@@ -1,17 +1,24 @@
 name: Auto-merge
 # Every pull request from a branch of this repository is squash-merged as
-# soon as the required checks pass; the branch is deleted by the repository
+# soon as the required check passes; the branch is deleted by the repository
 # setting. Pull requests from forks and drafts are left to a person.
 #
 # Auto-merge is enabled with AUTO_MERGE_TOKEN (a maintainer's token) when it
 # is set, and with the workflow's own token otherwise. A merge made with the
-# workflow's own token starts no workflow, so after one this workflow starts
-# CI on main itself, and the release follows CI as after any merge.
-# The hourly sweep enables auto-merge on any open pull request that missed
-# its event (one opened while this workflow was failing, for example).
+# workflow's own token starts no workflow at all: no CI on main, and so no
+# release. Nothing can be hung on the merge itself, so this workflow also
+# runs when a CI run ends (the last check of a pull request ending is what
+# merges it) and hourly, and each time starts CI on main when the newest
+# commit there has no run. The release follows that run as after any merge.
+#
+# The hourly run also enables auto-merge on any open pull request that missed
+# its event (one opened by another workflow, for example).
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review, synchronize, closed]
+    types: [opened, reopened, ready_for_review, synchronize]
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
   schedule:
     - cron: '23 * * * *'
   workflow_dispatch: {}
@@ -20,14 +27,13 @@ permissions:
   pull-requests: write
   actions: write
 concurrency:
-  group: auto-merge-${{ github.event.pull_request.number || 'sweep' }}
+  group: auto-merge-${{ github.event.pull_request.number || 'main' }}
   cancel-in-progress: false
 jobs:
   enable:
     name: Enable auto-merge
     if: >-
       github.event_name == 'pull_request' &&
-      github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository &&
       !github.event.pull_request.draft &&
       github.event.pull_request.auto_merge == null
@@ -40,16 +46,18 @@ jobs:
           PR_URL: ${{ github.event.pull_request.html_url }}
         run: gh pr merge --auto --squash "$PR_URL"
 
-  sweep:
-    name: Enable auto-merge on every open pull request
+  reconcile:
+    name: Keep pull requests merging and main checked
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      REPO: ${{ github.repository }}
+      MAIN: ${{ github.event.repository.default_branch }}
     steps:
       - name: Enable squash auto-merge where it is off
         env:
           GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || github.token }}
-          REPO: ${{ github.repository }}
         run: |
           gh pr list --repo "$REPO" --state open --limit 200 \
             --json number,isDraft,isCrossRepository,autoMergeRequest \
@@ -59,20 +67,26 @@ jobs:
             gh pr merge --repo "$REPO" --auto --squash "$number" ||
               echo "::warning::Auto-merge could not be enabled on #$number."
           done
-
-  ci-after-merge:
-    name: Start CI on main after a merge by this workflow
-    if: >-
-      github.event_name == 'pull_request' &&
-      github.event.action == 'closed' &&
-      github.event.pull_request.merged &&
-      github.event.pull_request.base.ref == 'main' &&
-      github.event.pull_request.merged_by.login == 'github-actions[bot]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Dispatch CI on main
+      - name: Start CI on main when its newest commit has no run
         env:
           GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: gh workflow run ci.yml --repo "$REPO" --ref main
+          # The commit of the CI run that just passed, when one did: the
+          # merge of its pull request follows within seconds.
+          PASSED: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch != github.event.repository.default_branch && github.event.workflow_run.head_sha || '' }}
+        run: |
+          if [ -n "$PASSED" ]; then
+            for _ in $(seq 12); do
+              merged=$(gh api "repos/$REPO/commits/$PASSED/pulls" --jq 'map(select(.merged_at != null)) | length')
+              [ "$merged" -gt 0 ] && break
+              sleep 5
+            done
+          fi
+          commit=$(gh api "repos/$REPO/commits/$MAIN" --jq .sha)
+          runs=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$commit&branch=$MAIN" \
+            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")] | length')
+          if [ "$runs" -gt 0 ]; then
+            echo "CI has a run for $commit."
+          else
+            echo "No CI run for $commit: starting one."
+            gh workflow run ci.yml --repo "$REPO" --ref "$MAIN"
+          fi

@@ -62,9 +62,11 @@ the package once, then, for that commit and that tarball:
   a broken bin path or a file missing from `files` fails here;
 - runs the [Ubuntu VM test](../.github/workflows/vm.yml) (a real Ubuntu
   machine: baseline, a second run, drift, reboot, and the production SSH
-  bootstrap of the commit).
+  bootstrap of the commit);
+- runs the [tailnet test](../.github/workflows/tailnet.yml) (a worker joins
+  a self-hosted tailnet unattended and leaves no device behind).
 
-Only when both pass is that same tarball published, and the GitHub Release
+Only when all three pass is that same tarball published, and the GitHub Release
 gets notes written from the Conventional Commits since the last release
 ([`bootstrap/release-notes.ts`](../bootstrap/release-notes.ts)). A commit
 whose change restarts T3 on the workers, and so ends the agent turns running
@@ -84,6 +86,23 @@ git tag vX.Y.Z && git push origin vX.Y.Z
 
 CI never receives an npm token: it publishes through npm Trusted Publishing
 (OIDC).
+
+## When a release fails
+
+A release that fails publishes nothing, and neither does any merge after it
+until one passes: npm stays at the last version. The
+[Failure issues workflow](../.github/workflows/failures.yml) keeps one open
+issue, `Release is failing on main` (label `ci-failure`), with the run, the
+commit and the jobs and steps that failed; a failed VM test keeps its
+redacted results and the guest's logs as an artifact of the run
+(`gh run download <run>`). The next passing release closes the issue and
+publishes everything since the last tag. The same holds for CI on `main`,
+which the release waits for.
+
+A pull request is merged by a workflow, and a merge made with a workflow's
+own token starts no CI on `main`. [`auto-merge.yml`](../.github/workflows/auto-merge.yml)
+starts it when the newest commit on `main` has no run: when a CI run ends,
+and every hour.
 
 ## One-time setup
 

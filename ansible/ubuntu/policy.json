@@ -54,7 +54,7 @@
       }
     }
   ],
-  "snapshot": "20261101T000000Z",
+  "snapshot": "20261108T000000Z",
   "packages": {
     "sudo": "1.9.17p2-1ubuntu3.2",
     "openssh-server": "1:10.2p1-2ubuntu3.8",

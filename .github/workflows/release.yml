@@ -14,9 +14,11 @@ permissions:
   # token. No npm token is stored anywhere.
   id-token: write
 # One release at a time. A newer merge waiting here releases everything since
-# the last tag, so a skipped intermediate run loses nothing.
+# the last tag, so a skipped intermediate run loses nothing. A run that
+# releases nothing (CI failed or was cancelled on main) stays out of the
+# queue: there it would take the place of a release that is waiting.
 concurrency:
-  group: release
+  group: ${{ (github.event_name == 'push' || github.event.workflow_run.conclusion == 'success') && 'release' || format('release-nothing-{0}', github.run_id) }}
   cancel-in-progress: false
 jobs:
   # Choose the version, stamp it and the commit into the package, and pack it
@@ -172,11 +174,18 @@ jobs:
           NAME: ${{ needs.pack.outputs.name }}
           VERSION: ${{ needs.pack.outputs.version }}
           TARBALL: ${{ runner.temp }}/release/${{ needs.pack.outputs.tarball }}
+          COMMIT: ${{ needs.pack.outputs.commit }}
         run: |
-          if npm view "$NAME@$VERSION" version >/dev/null 2>&1; then
-            echo "$NAME@$VERSION is already published"
-          else
+          # A version is one commit: the fleet converges to the commit the
+          # package names, and the tag below must name the same one.
+          published=$(npm view "$NAME@$VERSION" gitHead 2>/dev/null || true)
+          if [ -z "$published" ]; then
             npm publish "$TARBALL" --provenance --access public
+          elif [ "$published" = "$COMMIT" ]; then
+            echo "$NAME@$VERSION is already published from this commit"
+          else
+            echo "::error::$NAME@$VERSION is on npm from commit $published, not $COMMIT. The release of $published published and did not finish: re-run it so it pushes its tag, then re-run this one, which will take the next version."
+            exit 1
           fi
       - name: Tag and release
         env:

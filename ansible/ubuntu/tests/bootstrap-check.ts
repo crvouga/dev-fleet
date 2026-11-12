@@ -2,6 +2,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { installedDefinition, loadDefinition } from '../../../src/definition';
 import { bootstrapRemote } from '../../../src/remote-bootstrap';
 import { runCommand } from '../../../src/runner';
 
@@ -30,6 +31,11 @@ const result = await bootstrapRemote(
     digest: createHash('sha256').update(bundle).digest('hex'),
     bundle: bundle.toString('base64'),
     script: await readFile(join(source, 'bootstrap.sh'), 'utf8'),
+    // The fleet configuration travels beside the code, as fleet-sync sends
+    // it: the example fleet of the repository mounted at /workspace.
+    config: installedDefinition(
+      loadDefinition('/workspace/examples/fleet.json')
+    ),
   },
   (args, options) =>
     runCommand(

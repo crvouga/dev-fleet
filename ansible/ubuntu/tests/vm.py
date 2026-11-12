@@ -24,7 +24,13 @@ IMAGE_SHA = '5645d0318ad21f643ebb1ac4567514620e9893380b07b0201fda163baa5b7eb5'
 
 
 def run(args, **kwargs):
-    result = subprocess.run(args, capture_output=True, text=True, timeout=600, **kwargs)
+    try:
+        result = subprocess.run(args, capture_output=True, text=True, timeout=600, **kwargs)
+    except subprocess.TimeoutExpired as expired:
+        # What the command printed before it was cut off is the evidence.
+        partial = ''.join(part.decode(errors='replace') if isinstance(part, bytes) else part or '' for part in (expired.stdout, expired.stderr))
+        (ROOT / 'last-failure.log').write_text(partial)
+        raise RuntimeError('Disposable VM command did not end within 600 seconds; inspect private artifact last-failure.log') from None
     if result.returncode:
         (ROOT / 'last-failure.log').write_text(result.stdout + result.stderr)
         raise RuntimeError('Disposable VM command failed; inspect private artifact last-failure.log')
@@ -304,6 +310,9 @@ def test_agent(ssh):
     # authenticated connection or fresh-metrics acceptance.
     run(ssh + ["grep -q 'fixture.fixture.ts.net' /etc/hosts || printf '127.0.0.1 fixture.fixture.ts.net\\n' | sudo tee -a /etc/hosts >/dev/null"])
     variables = json.dumps({'beszel_node': 'fixture-node', 'beszel_hub_url': 'https://fixture.fixture.ts.net:8443', 'beszel_public_key': (ROOT / 'host.pub').read_text().strip(), 'beszel_agent_token': 'disposable-fixture-not-a-live-credential'})
+    # The agent play, with the lock and the unit it reads beside it.
+    archive = subprocess.run(['tar', '-C', '/workspace/ansible/monitoring', '--exclude=./tests', '-cf', '-', '.'], capture_output=True, check=True).stdout
+    subprocess.run(ssh + ['mkdir -p beszel/monitoring && tar -C beszel/monitoring -xf -'], input=archive, capture_output=True, check=True, timeout=60)
     command = 'cd beszel/monitoring && ~/verify agent'
     first = run(ssh + [command], input=variables)
     (ROOT / 'agent-first.log').write_text(first.stdout + first.stderr)
