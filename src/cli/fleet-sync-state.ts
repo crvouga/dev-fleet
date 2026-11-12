@@ -4,7 +4,14 @@ import { storeEnrollment } from '../state/enrollment';
 import { adoptEarlier } from '../state/legacy';
 import { databasePath, stateRoot } from '../state/paths';
 import { writeDocument } from '../state/store';
-import { pending, push, type Standing, type StateContext } from '../state/sync';
+import {
+  claimLease,
+  refuseHeldLease,
+  pending,
+  push,
+  type Standing,
+  type StateContext,
+} from '../state/sync';
 import type { Check } from '../types';
 
 /** What one fleet-sync run records in the fleet state: the revision it was
@@ -51,14 +58,17 @@ export function runRecord(
       : Promise.resolve(state.standing);
   return {
     approve: () => {
+      refuseHeldLease(state.context);
       storeEnrollment(approval, env);
-      if (state.definition === undefined) return;
-      adoptEarlier(env);
-      writeDocument(
-        databasePath(stateRoot(env)),
-        'definition',
-        state.definition
-      );
+      if (state.definition !== undefined) {
+        adoptEarlier(env);
+        writeDocument(
+          databasePath(stateRoot(env)),
+          'definition',
+          state.definition
+        );
+      }
+      claimLease(state.context);
     },
     async settle(converged) {
       settled = true;

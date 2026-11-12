@@ -64,9 +64,9 @@ arguments and never written to a report or a log.
 
 **A new fleet.** Nothing more: the first `fleet-sync` seeds the bucket.
 
-**A replacement manager, or a second machine.** Clone your project, `npm ci`,
-and run `fleet-sync` with the credentials. The bucket already holds the fleet,
-so its state is downloaded before anything is changed.
+**A replacement manager.** The bucket already holds the fleet, so its state is
+downloaded before anything is changed. Follow
+[replacing the manager](manager-recovery.md).
 
 **Runs the manager starts by itself.** A worker that hands `fleet-sync` to the
 manager starts a command there that gets no environment and no project. Save
@@ -172,6 +172,7 @@ it records what it applied. Its report carries the result as the
 | `local-ahead`  | This machine has changes the bucket has not received   | The next change, or `--push`, uploads them                 |
 | `bucket-ahead` | Another manager changed the bucket; this copy is stale | The next change or `fleet-sync` takes the bucket's version |
 | `unreachable`  | The bucket did not answer, or did not take an upload   | Changes still apply locally and are uploaded later         |
+| `corrupt`      | The bucket answered with a version that cannot be read | Changes apply locally; `--restore --timestamp` repairs it  |
 | `diverged`     | Both sides changed                                     | Refused. `--restore --yes` takes the bucket's version      |
 
 A stale copy never overwrites the bucket. A machine that was offline while
@@ -210,6 +211,7 @@ once `fleet-sync` has fetched it back.
 | `DEVFLEET_CONFIG`                                                    | A configuration file, instead of the project's `fleet.json`  |
 | `DEVFLEET_STATE`                                                     | Another state directory. Earlier files are not read for it   |
 | `DEVFLEET_BUCKET`                                                    | Another `bucket.json`                                        |
+| `DEVFLEET_MANAGER_HOLDER`                                            | How the manager lease names this machine                     |
 
 How a command reaches the bucket:
 
@@ -254,7 +256,37 @@ mise exec litestream -- litestream restore -no-expand-env \
   ~/.local/share/dev-fleet/state/fleet.db
 ```
 
+`devfleet fleet-state --restore --timestamp 2026-11-01T00:00:00Z --yes` does
+the same and then uploads that version as the bucket's current one. It is the
+remedy for a `corrupt` replica: the bucket answers, but its latest version
+cannot be read.
+
 Litestream is pinned in `mise.toml` and installed the first time it is used.
-The manager is the only machine that runs it. There is one manager, so there is
-one writer; two machines changing the state at the same moment are not
-supported, only detected afterwards.
+The manager is the only machine that runs it.
+
+## One manager at a time
+
+The fleet state carries a **manager lease**: which machine is the manager,
+and until when. Every change takes or renews it, and it reaches the bucket
+with the change. A second machine (a replacement while the old manager still
+runs, or an old manager that wakes up) reads it from the bucket before it
+writes anything and stops with `FLEET_MANAGER_LEASE_HELD`. `fleet-state
+--init` still restores the state on such a machine; it only writes nothing.
+
+The lease runs for seven days after the last change. After that, any machine
+may take it. Before that, `--take-over` (on `fleet-sync`, `fleet-state --init`
+or `fleet-state --import`) makes this machine the manager; use it only once
+the other one is gone ([replacing the manager](manager-recovery.md)).
+
+A machine is named in the lease by a digest of its machine ID
+(`/etc/machine-id` on Linux, the hardware UUID on macOS), never by its host
+name, which a replacement shares. `DEVFLEET_MANAGER_HOLDER` names it instead.
+
+## Schema version
+
+The database records its schema version in `PRAGMA user_version`. The schema
+is a series of numbered migrations (`src/state/migrations/0001-….sql`, …),
+and a command brings an older database forward before it writes. A database a
+newer dev-fleet wrote is refused with `FLEET_STATE_NEWER_THAN_CLI`, read or
+written, and nothing in it changes: install the dev-fleet version the fleet
+runs.

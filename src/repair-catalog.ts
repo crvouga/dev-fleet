@@ -20,6 +20,29 @@ const login = (
   action,
   commands,
 });
+/** "Run play X with tag Y on host Z": every machine repair is a playbook the
+ * worker already applies, restricted to the tag that owns the failing check.
+ */
+const playbook = ({
+  id,
+  title,
+  path,
+  tag,
+  action,
+}: {
+  id: string;
+  title: string;
+  path: string;
+  tag: string;
+  action: string;
+}): RepairRecipe => ({
+  id,
+  title,
+  owner: `${path} (tag ${tag})`,
+  automatic: false,
+  action: `${action} Runs on the worker, in its fleet-owned checkout, with the variables fleet-sync wrote; devfleet fleet-sync --node NODE re-applies the whole policy instead.`,
+  commands: [['ansible-playbook', path, '--tags', tag]],
+});
 export const REPAIR_RECIPES: RepairRecipe[] = [
   {
     id: 'workspace',
@@ -182,6 +205,47 @@ export const REPAIR_RECIPES: RepairRecipe[] = [
       ['bun', 'run', 'password-manager', 'doctor'],
       ['bun', 'run', 'password-manager', 'actions', 'list'],
     ],
+  },
+  playbook({
+    id: 'recovery',
+    title: 'Re-apply the worker recovery policy',
+    path: 'ansible/ubuntu/recovery.yml',
+    tag: 'recovery',
+    action:
+      'Restores the restart and boot triggers of the worker services (worker:service-recovery). Bounded to the recovery play; it never reboots the worker.',
+  }),
+  playbook({
+    id: 'disk',
+    title: 'Re-apply the worker disk and memory safety policy',
+    path: 'ansible/ubuntu/baseline.yml',
+    tag: 'disk',
+    action:
+      'Restores the disk guard and the disk-gc timer that reclaims caches (worker:capacity:*). Bounded to the resource tasks; it deletes nothing outside the caches disk-gc owns.',
+  }),
+  playbook({
+    id: 'monitoring',
+    title: 'Re-apply the worker monitoring agent',
+    path: 'ansible/monitoring/agent.yml',
+    tag: 'monitoring',
+    action:
+      'Reinstalls the pinned Beszel agent and restarts its unit, keeping its runtime identity (beszel:agent, beszel:service).',
+  }),
+  playbook({
+    id: 'network',
+    title: 'Re-apply the worker Tailscale daemon',
+    path: 'ansible/ubuntu/tailscale.yml',
+    tag: 'network',
+    action:
+      'Reinstalls the approved Tailscale and starts its daemon, keeping the device identity. Signing in again (tailscale up) stays with a person.',
+  }),
+  {
+    id: 'state',
+    title: 'Take the fleet state from the bucket again',
+    owner: 'devfleet fleet-state',
+    automatic: false,
+    action:
+      'On the manager: devfleet fleet-state --restore replaces the local copy with the bucket’s (add --yes to give up changes the bucket does not hold). A corrupt replica is restored from an earlier time with --timestamp; see docs/state.md.',
+    commands: [['devfleet', 'fleet-state', '--restore']],
   },
   {
     id: 'operator',

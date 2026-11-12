@@ -304,6 +304,14 @@ The public CLI exposes `devfleet fleet-repair --list` (static catalog) and
 in this package only executes allowlisted existing owner commands. Native
 account logins and unknown/manual checks always remain operator steps.
 
+Every check ID has an owner in `src/check-owners.ts`: a recipe, or the reason
+only a person can repair it, which the plan prints beside the check
+(`manual`). Machine repairs are one tag of a playbook the worker already
+applies: `recovery` (`worker:service-recovery`), `disk`
+(`worker:capacity:*`), `monitoring` (the Beszel agent) and `network` (the
+Tailscale daemon). `state:*` checks take the fleet state from the bucket
+again. A feature fails when a check is reported that has no owner.
+
 Use `--apply --yes` only after review; `--plan-hash` binds application to the
 previewed steps, targets and checkout/shared-input fingerprints. The remote
 protocol independently requires explicit apply, a supported repair action and

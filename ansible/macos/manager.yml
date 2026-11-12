@@ -1,7 +1,8 @@
 ---
 # Manager power policy. Workers depend on the manager's singleton services
-# (CLI proxy, Beszel hub), so the manager never sleeps on AC power. Sleep on
-# battery is left to the human. The settings are the `pmset` object in
+# (CLI proxy, Beszel hub), so the manager never sleeps on AC power and starts
+# again by itself when power returns (autorestart). Sleep on battery is left
+# to the human. The settings are the `pmset` object in
 # policy.json; fleet-sync measures the same object as manager:power. Changing
 # them needs an administrator: ansible-playbook -K manager.yml
 - name: Keep the fleet manager awake on AC power
@@ -28,6 +29,42 @@
         observed: "{{ ac_section | regex_findall('^\\s*' ~ item.key ~ '\\s+(\\S+)', multiline=True) | first | default('') }}"
       when: observed != item.value
       changed_when: true
+
+# Docker Desktop hosts the CLI proxy and the monitoring hub, so it starts at
+# login: after a power cut the manager comes back without a person. The
+# setting is the `dockerDesktop` object in policy.json; fleet-sync measures it
+# as part of manager:boot-recovery. Only that key of the user's settings file
+# is changed.
+- name: Start Docker Desktop at login
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: false
+  vars_files:
+    - policy.json
+  vars:
+    docker_settings: "{{ lookup('ansible.builtin.env', 'HOME') }}/{{ dockerDesktop.settings }}"
+  tasks:
+    - name: Find the Docker Desktop settings
+      ansible.builtin.stat:
+        path: '{{ docker_settings }}'
+      register: docker_settings_file
+    - name: Read the Docker Desktop settings
+      ansible.builtin.slurp:
+        src: '{{ docker_settings }}'
+      register: docker_settings_text
+      when: docker_settings_file.stat.exists
+    - name: Turn on start at login, keeping every other setting
+      ansible.builtin.copy:
+        dest: '{{ docker_settings }}'
+        content: "{{ current | combine({dockerDesktop.key: true}) | to_nice_json(indent=2) }}\n"
+        mode: '0644'
+      vars:
+        current: '{{ docker_settings_text.content | b64decode | from_json }}'
+      # Docker Desktop writes the file the first time it runs.
+      when:
+        - docker_settings_file.stat.exists
+        - (current[dockerDesktop.key] | default(false)) != true
 
 - name: Stage the fleet's T3 policy
   ansible.builtin.import_playbook: t3-policy.yml

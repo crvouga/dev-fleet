@@ -1,7 +1,14 @@
 import { Database } from 'bun:sqlite';
 import { randomUUID } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+} from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FleetUsageError } from '../errors';
 
 /** Everything the manager must not lose, as one JSON text each:
@@ -35,19 +42,64 @@ export interface DocumentInfo {
 
 const MAX_DOCUMENT_BYTES = 1024 * 1024;
 
-const SCHEMA = `
-CREATE TABLE IF NOT EXISTS documents (
-  name TEXT PRIMARY KEY,
-  body TEXT NOT NULL,
-  updated_at TEXT NOT NULL
-) STRICT;
-CREATE TABLE IF NOT EXISTS head (
-  one INTEGER PRIMARY KEY CHECK (one = 1),
-  id TEXT NOT NULL,
-  sequence INTEGER NOT NULL,
-  written_at TEXT NOT NULL
-) STRICT;
-`;
+export interface Migration {
+  version: number;
+  sql: string;
+}
+
+const MIGRATIONS_DIRECTORY = fileURLToPath(
+  new URL('./migrations/', import.meta.url)
+);
+
+/** The schema as numbered files (`0001-documents.sql`, …), applied in order.
+ * A database records the last one it received in `PRAGMA user_version`; one
+ * written before the schema had a version holds exactly the first.
+ */
+export function migrations(directory = MIGRATIONS_DIRECTORY): Migration[] {
+  return readdirSync(directory)
+    .filter((name) => /^\d{4}-[a-z0-9-]+\.sql$/.test(name))
+    .sort()
+    .map((name, index) => {
+      const version = Number(name.slice(0, 4));
+      if (version !== index + 1)
+        throw new Error(`State migrations must be numbered from 1: ${name}`);
+      return { version, sql: readFileSync(join(directory, name), 'utf8') };
+    });
+}
+
+const MIGRATIONS = migrations();
+
+/** The schema version this dev-fleet writes and the newest it can read. */
+export const SCHEMA_VERSION = MIGRATIONS.length;
+
+/** A fleet state written by a newer dev-fleet: this one must neither read nor
+ * change it, or a rollback (or an old second manager) would damage it.
+ */
+export class StateNewerError extends FleetUsageError {}
+
+function schemaVersion(db: Database): number {
+  return (db.query('PRAGMA user_version').get() as { user_version: number })
+    .user_version;
+}
+
+/** Refuses a database a newer dev-fleet wrote; returns its version. */
+function supported(db: Database): number {
+  const version = schemaVersion(db);
+  if (version > SCHEMA_VERSION)
+    throw new StateNewerError(
+      `FLEET_STATE_NEWER_THAN_CLI: the fleet state has schema version ${version}, and this dev-fleet reads version ${SCHEMA_VERSION} at most. Nothing was read or changed. Install the dev-fleet version the fleet runs (npx devfleet --version on the manager that wrote it) and run the command again.`
+    );
+  return version;
+}
+
+/** Brings a database forward to `SCHEMA_VERSION`, one migration at a time. */
+function migrate(db: Database): void {
+  const from = supported(db);
+  for (const migration of MIGRATIONS.filter((entry) => entry.version > from)) {
+    db.exec(migration.sql);
+    db.exec(`PRAGMA user_version = ${migration.version}`);
+  }
+}
 
 function unreadable(): FleetUsageError {
   return new FleetUsageError(
@@ -65,8 +117,10 @@ function reading<T>(file: string, read: (db: Database) => T): T | null {
   let db: Database | undefined;
   try {
     db = new Database(file, { readwrite: true, create: false });
+    supported(db);
     return read(db);
-  } catch {
+  } catch (error) {
+    if (error instanceof FleetUsageError) throw error;
     throw unreadable();
   } finally {
     db?.close();
@@ -82,9 +136,16 @@ function writing<T>(file: string, write: (db: Database) => T): T {
   try {
     db = new Database(file, { create: true, readwrite: true });
     chmodSync(file, 0o600);
+    // Checked before anything is written, the journal mode included.
+    supported(db);
     db.exec('PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
-    db.exec(SCHEMA);
-    return db.transaction(write).immediate(db);
+    const opened = db;
+    return opened
+      .transaction(() => {
+        migrate(opened);
+        return write(opened);
+      })
+      .immediate();
   } catch (error) {
     if (error instanceof FleetUsageError) throw error;
     throw new FleetUsageError(
@@ -140,6 +201,21 @@ export function readHead(file: string): Head | null {
   });
 }
 
+function nextHead(db: Database): Head {
+  const head = db
+    .query('SELECT id, sequence, written_at AS writtenAt FROM head')
+    .get() as Head | null;
+  const next: Head = {
+    id: randomUUID(),
+    sequence: (head?.sequence ?? 0) + 1,
+    writtenAt: new Date().toISOString(),
+  };
+  db.query(
+    'INSERT INTO head (one, id, sequence, written_at) VALUES (1, ?1, ?2, ?3) ON CONFLICT (one) DO UPDATE SET id = ?1, sequence = ?2, written_at = ?3'
+  ).run(next.id, next.sequence, next.writtenAt);
+  return next;
+}
+
 /** Stores one document and advances the head. Writing the text already
  * stored changes nothing, so repeating a command never looks like new state.
  */
@@ -160,17 +236,40 @@ export function writeDocument(
       .query('SELECT id, sequence, written_at AS writtenAt FROM head')
       .get() as Head | null;
     if (head && current?.body === body) return head;
-    const next: Head = {
-      id: randomUUID(),
-      sequence: (head?.sequence ?? 0) + 1,
-      writtenAt: new Date().toISOString(),
-    };
+    const next = nextHead(db);
     db.query(
       'INSERT INTO documents (name, body, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT (name) DO UPDATE SET body = ?2, updated_at = ?3'
     ).run(name, body, next.writtenAt);
-    db.query(
-      'INSERT INTO head (one, id, sequence, written_at) VALUES (1, ?1, ?2, ?3) ON CONFLICT (one) DO UPDATE SET id = ?1, sequence = ?2, written_at = ?3'
-    ).run(next.id, next.sequence, next.writtenAt);
     return next;
+  });
+}
+
+/** Which manager may change the fleet state, and until when. */
+export interface Lease {
+  holder: string;
+  expiresAt: string;
+}
+
+export function readLease(file: string): Lease | null {
+  return reading(file, (db) => {
+    const present = db
+      .query(
+        "SELECT count(*) AS found FROM sqlite_master WHERE type = 'table' AND name = 'lease'"
+      )
+      .get() as { found: number };
+    if (!present.found) return null;
+    return db
+      .query('SELECT holder, expires_at AS expiresAt FROM lease')
+      .get() as Lease | null;
+  });
+}
+
+/** Records the lease and advances the head, so that the bucket carries it. */
+export function writeLease(file: string, lease: Lease): Head {
+  return writing(file, (db) => {
+    db.query(
+      'INSERT INTO lease (one, holder, expires_at) VALUES (1, ?1, ?2) ON CONFLICT (one) DO UPDATE SET holder = ?1, expires_at = ?2'
+    ).run(lease.holder, lease.expiresAt);
+    return nextHead(db);
   });
 }

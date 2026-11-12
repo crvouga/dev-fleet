@@ -1,3 +1,4 @@
+import { checkOwner } from './check-owners';
 import { AUTOMATED_REPAIRS, recipe } from './repair-catalog';
 import type { RepairRecipe } from './repair-catalog';
 import type { Check, FleetNode, NodeReport, Fingerprint } from './types';
@@ -13,21 +14,26 @@ export interface RepairStep extends RepairRecipe {
   checks: string[];
   eligible: boolean;
   next: string[];
+  /** For work left to a person: why no recipe does it, per check. */
+  manual?: { check: string; reason: string }[];
 }
 
 export function repairId(check: Check): string {
-  if (check.id.startsWith('tool:docker-')) return 'docker';
-  if (check.id.startsWith('tool:github-auth')) return 'login:github';
-  if (['dependencies', 'auth:toolchain'].includes(check.id)) return 'workspace';
-  if (check.id.startsWith('tool:')) return 'workspace';
-  if (check.id.startsWith('workstation:')) return 'workstation';
-  if (
-    check.id.startsWith('auth:') &&
-    !['auth:vscode', 'auth:workstation'].includes(check.id)
-  )
-    return `login:${check.id.slice(5)}`;
-  if (check.id === 't3:settings' || check.id === 't3:api') return 't3';
-  return 'operator';
+  const owner = checkOwner(check.id);
+  if (!owner?.repair) return 'operator';
+  return owner.repair === 'login:*'
+    ? `login:${check.id.slice('auth:'.length)}`
+    : owner.repair;
+}
+
+/** Why a check is left to a person, or null when a recipe repairs it. */
+export function manualReason(check: Check): string | null {
+  const owner = checkOwner(check.id);
+  if (owner?.repair) return null;
+  return (
+    owner?.manual ??
+    'No repair recipe is registered for this check: follow its remedy.'
+  );
 }
 
 /** Every nonpassing check is accounted for; unknown checks remain operator work. */
@@ -44,9 +50,14 @@ export function repairPlan(
       const repair = recipe(repairId(check)).id;
       groups.set(repair, [...(groups.get(repair) ?? []), check]);
     }
-    for (const [id, checks] of groups)
+    for (const [id, checks] of groups) {
+      const manual = checks.flatMap((check) => {
+        const reason = manualReason(check);
+        return reason ? [{ check: check.id, reason }] : [];
+      });
       steps.push({
         ...recipe(id),
+        ...(manual.length ? { manual } : {}),
         node: report.node,
         eligible:
           targets.some((target) => target.name === report.node) &&
@@ -60,6 +71,7 @@ export function repairPlan(
           ),
         ],
       });
+    }
   }
   return steps;
 }

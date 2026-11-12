@@ -29,6 +29,12 @@ export class Manager {
   bucket: Bucket | null = null;
   /** Answers the prompts of a command; null where there is no terminal. */
   ask: ((question: string) => Promise<string>) | null = null;
+  /** The machine the manager lease names; none unless a scenario says so. */
+  holder: string | null = null;
+  /** Take the lease from another manager. */
+  takeOver = false;
+  /** The manager's clock, when a scenario moves it. */
+  clock: Date | undefined;
   constructor(
     readonly home: string,
     public run: Runner
@@ -44,7 +50,15 @@ export class Manager {
     return bucketPath(this.env, this.home);
   }
   get context(): StateContext {
-    return { root: this.root, bucket: this.bucket, run: this.run };
+    const clock = this.clock;
+    return {
+      root: this.root,
+      bucket: this.bucket,
+      run: this.run,
+      holder: this.holder,
+      takeOver: this.takeOver,
+      ...(clock ? { now: () => clock } : {}),
+    };
   }
   /** For the functions that are given an environment and no home directory:
    * without DEVFLEET_STATE they would use the fleet state of whoever runs
@@ -62,6 +76,8 @@ export class StateWorld extends World {
   private result: unknown;
   private refusal: Error | undefined;
   private refusalRead = false;
+  /** A time a scenario noted: `$NOTED` in a command. */
+  noted: string | undefined;
   /** A bucket made on the S3 service DEVFLEET_TEST_S3 names. */
   s3: { origin: string; bucket: string; made: boolean } | undefined;
 
@@ -117,6 +133,7 @@ export class StateWorld extends World {
       .replace(/^~(?=\/|$)/, manager.home)
       .replaceAll('$BUCKET', () => this.remote)
       .replaceAll('$EXAMPLE', () => EXAMPLE)
+      .replaceAll('$NOTED', (name) => this.noted ?? name)
       .replaceAll('$S3_BUCKET', (name) => this.s3?.bucket ?? name)
       .replaceAll('$S3', (name) => this.s3?.origin ?? name);
   }

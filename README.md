@@ -170,16 +170,10 @@ says where the bucket is and the command is passed its credentials:
 npx devfleet fleet-state             # where the state is, and how it stands with the bucket
 ```
 
-The copy on the manager is disposable. **To replace the manager**, clone your
-project on the new machine and run the same two commands:
-
-```sh
-npm ci
-npx devfleet fleet-sync              # with the two bucket credentials in the environment
-```
-
-The roster and the approved revision come back from the bucket, and the
-machine is rebuilt from Git.
+The copy on the manager is disposable: the roster and the approved revision
+come back from the bucket, and the machine is rebuilt from Git.
+[Replacing the manager](docs/manager-recovery.md) is the runbook for a new or
+lost manager.
 
 Some runs are started by a machine rather than by you: a worker that hands
 `fleet-sync` to the manager, for example. They get no environment, so save the

@@ -4,6 +4,8 @@
   connection: local
   become: true
   gather_facts: true
+  # fleet-repair re-applies this play alone for a failing tailscale:* check.
+  tags: [network]
   # The approved version and the signing key's digest: `tailscale` in policy.json.
   vars_files:
     - policy.json

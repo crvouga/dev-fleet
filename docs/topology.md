@@ -41,7 +41,8 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
   manager is asleep, closed or offline, workers have no CLI proxy and no
   dashboard; nothing fails over, because a singleton never runs twice.
 - Its state (proxy OAuth/runtime state, the hub database) is backed up off the
-  machine as each service documents, so a replacement manager restores it.
+  machine as each service documents, so a replacement manager restores it
+  ([replacing the manager](manager-recovery.md)).
 
 ## Workers
 
@@ -63,7 +64,5 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
 
 - **Add or replace a worker:** add it to `workers`, enroll it with
   `fleet-sync`, done. Remove it by deleting the entry.
-- **Replace the manager:** edit `manager`, then move each singleton service with
-  its documented fence-and-restore runbook (never two copies at once):
-  [CLI proxy](../cliproxy/docs/migration.md),
-  [Beszel hub](../ansible/monitoring/README.md).
+- **Replace the manager:** follow
+  [replacing the manager](manager-recovery.md).

@@ -22,6 +22,8 @@ writeFileSync(
   process.env['DEVFLEET_CONFIG'],
   JSON.stringify(example, null, 2) + '\n'
 );
+// The manager lease names this process, never the machine it runs on.
+process.env['DEVFLEET_MANAGER_HOLDER'] = 'machine-under-test';
 // Nor with a developer's own bucket credentials.
 delete process.env['DEVFLEET_BUCKET_ACCESS_KEY_ID'];
 delete process.env['DEVFLEET_BUCKET_SECRET_ACCESS_KEY'];

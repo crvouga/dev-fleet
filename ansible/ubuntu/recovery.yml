@@ -4,6 +4,8 @@
   connection: local
   become: true
   gather_facts: false
+  # fleet-repair re-applies this play alone for worker:service-recovery.
+  tags: [recovery]
   tasks:
     - name: Verify the desktop unit runs before adding any recovery trigger
       ansible.builtin.command:

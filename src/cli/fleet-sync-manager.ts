@@ -1,7 +1,6 @@
 import { blocking, type Check, type Runner } from '../types';
 import type { FleetDefinition } from '../definition';
 import type { ManagerNode } from '../manager-sync';
-import { hostId } from '../topology';
 import { convergeProxy } from '../proxy-converge';
 import { attempt } from '../node-converge-shared';
 import { quotaLimited, verifyFleetProviders } from '../agents/fleet-verify';
@@ -14,12 +13,17 @@ import { IDES } from '../ide';
 import { enabled, managerChecks } from '../ide/orchestrate';
 import { idesOf } from '../ide/definition';
 import { convergeGitIdentity, gitChecks } from '../git-identity';
-import macos from '../../ansible/macos/policy.json';
 import { ansibleCommand } from '../platform/ansible';
 import { convergeGithub } from '../github/converge';
 import { PACKAGE_ROOT } from '../package-info';
 import { managerHealth } from '../manager-health';
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import {
+  MACOS_MANAGER,
+  managerHost,
+  type ManagerHost,
+} from '../platform/manager-host';
 import { join } from 'node:path';
 
 /** The manager converges itself locally (never over SSH) before any worker:
@@ -37,12 +41,14 @@ export async function convergeManager(
 ): Promise<ManagerNode> {
   const started = Date.now();
   const id = definition.manager.id;
-  const identity = await managerIdentity(id, run);
+  const host = managerHost(definition.manager.os);
+  const identity = await managerIdentity(id, run, host);
   const checks: Check[] = [identity];
   if (identity.status === 'pass') {
     // Launchers and scheduled jobs on the manager read the installed copy.
     if (input.apply) installConfig();
-    checks.push(await managerPower(run, input.workspace));
+    checks.push(await managerPower(run, input.workspace, host));
+    checks.push(await managerBootRecovery(run, input.workspace, host));
     checks.push(await managerDocker(run));
     // Each enabled IDE: its settings, pinned version and policy.
     checks.push(
@@ -193,9 +199,12 @@ export async function managerAgentProfiles(
 }
 
 /** fleet-sync runs only on the declared manager. */
-export async function managerIdentity(id: string, run: Runner): Promise<Check> {
-  const result = await run(['scutil', '--get', 'LocalHostName']);
-  const local = result.ok ? hostId(result.stdout.trim()) : '';
+export async function managerIdentity(
+  id: string,
+  run: Runner,
+  host: ManagerHost = MACOS_MANAGER
+): Promise<Check> {
+  const local = (await host.localHostName(run)) ?? '';
   return local === id
     ? {
         id: 'manager:identity',
@@ -218,15 +227,10 @@ export async function managerIdentity(id: string, run: Runner): Promise<Check> {
  */
 export async function managerPower(
   run: Runner,
-  workspace = '.'
+  workspace = '.',
+  host: ManagerHost = MACOS_MANAGER
 ): Promise<Check> {
-  const result = await run(['pmset', '-g', 'custom']);
-  const ac = result.ok ? (result.stdout.split('AC Power:')[1] ?? '') : '';
-  const observed = (key: string) =>
-    new RegExp(`^\\s*${key}\\s+(\\S+)`, 'm').exec(ac)?.[1];
-  const drifted = Object.entries(macos.pmset)
-    .filter(([key, value]) => observed(key) !== value)
-    .map(([key]) => key);
+  const drifted = await host.powerDrift(run);
   return drifted.length === 0
     ? {
         id: 'manager:power',
@@ -243,6 +247,40 @@ export async function managerPower(
           action: `Workers lose the CLI proxy and Beszel hub while the manager sleeps. Apply the manager power policy once, as an administrator: cd ${workspace} && ${ansibleCommand().join(' ')} -K ansible/macos/manager.yml`,
         },
       };
+}
+
+/** After a power cut the manager comes back by itself: the machine starts
+ * again, a user session exists for its per-user services, and the container
+ * engine that hosts the proxy and the hub starts with it. A FileVault Mac
+ * waits for a person; that is reported as a warning with its consequence.
+ */
+export async function managerBootRecovery(
+  run: Runner,
+  workspace = '.',
+  host: ManagerHost = MACOS_MANAGER,
+  home = homedir()
+): Promise<Check> {
+  const items = await host.bootRecovery(run, home);
+  const failing = items.filter((entry) => entry.status === 'fail');
+  const warning = items.filter((entry) => entry.status === 'warn');
+  if (!failing.length && !warning.length)
+    return {
+      id: 'manager:boot-recovery',
+      status: 'pass',
+      summary: 'The manager comes back by itself after a power cut or reboot.',
+    };
+  const named = failing.length ? failing : warning;
+  return {
+    id: 'manager:boot-recovery',
+    status: failing.length ? 'fail' : 'warn',
+    summary: `MANAGER_BOOT_RECOVERY_INCOMPLETE ${named.map((entry) => entry.item).join(' ')}`,
+    remedy: {
+      action: [
+        ...[...failing, ...warning].map((entry) => entry.detail),
+        host.bootRemedy(workspace),
+      ].join(' '),
+    },
+  };
 }
 
 /** The Docker Desktop release `mise.toml` pins, as the engine names itself. */

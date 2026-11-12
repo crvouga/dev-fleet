@@ -4,7 +4,8 @@
   "architectures": ["arm64", "x86_64"],
   "pmset": {
     "sleep": "0",
-    "womp": "1"
+    "womp": "1",
+    "autorestart": "1"
   },
   "beszelDaemon": "dev.devfleet.beszel-agent",
   "disk": {
@@ -16,5 +17,9 @@
     "unhealthyChecks": 3,
     "maxRestartsPerHour": 3,
     "intervalSeconds": 60
+  },
+  "dockerDesktop": {
+    "settings": "Library/Group Containers/group.com.docker/settings-store.json",
+    "key": "AutoStart"
   }
 }
