@@ -300,12 +300,54 @@ When(
 );
 
 Then(
-  'the second bootstrap reports {string} with a remedy',
-  (world, code: string) => {
-    const check = world.bootstrap.checks.find(
-      (entry) => entry.summary === code
-    );
-    expect(check?.remedy?.action ?? '').not.toBe('');
+  'the second bootstrap followed the first and reports its node convergence',
+  (world) => {
+    expect(
+      world.bootstrap.checks.some((check) => check.id === 'bootstrap:attached')
+    ).toBe(true);
+    expect(reachedConvergence(world.bootstrap.checks)).toBe(true);
+  }
+);
+
+When(
+  "the manager's SSH connection to {string} drops for {int} seconds while APT runs there",
+  async (world, name: string, seconds: number) => {
+    const machine = named(world, name);
+    world.machine = machine;
+    const { config } = await sshClient();
+    let dropped = false;
+    const dropping: Runner = async (command, options) => {
+      if (dropped || !command.at(-1)?.includes("'fleet-bootstrap'"))
+        return transport(command, options);
+      dropped = true;
+      const child = Bun.spawn(['ssh', '-F', config, ...command.slice(1)], {
+        stdin: new Blob([String(options?.input ?? '')]),
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(await waitFor(machine, 'pgrep -x apt-get', 300_000)).toBe(true);
+      child.kill(9);
+      await child.exited;
+      // The link stays down; nothing reaches the worker until it is back.
+      await Bun.sleep(seconds * 1000);
+      return {
+        ok: false,
+        stdout: '',
+        stderr: `Connection to ${name} closed by remote host.\n`,
+        reason: 'exit',
+      };
+    };
+    world.bootstrap = await bootstrap(machine, dropping);
+  }
+);
+
+Then(
+  'the bootstrap followed the operation and reached node convergence',
+  (world) => {
+    expect(
+      world.bootstrap.checks.some((check) => check.id === 'bootstrap:attached')
+    ).toBe(true);
+    expect(reachedConvergence(world.bootstrap.checks)).toBe(true);
   }
 );
 

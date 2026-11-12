@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "fleet-report.schema.json",
+  "title": "The fleet-report output, version 1",
+  "type": "object",
+  "required": [
+    "version",
+    "command",
+    "ok",
+    "since",
+    "runs",
+    "succeeded",
+    "successRate",
+    "meanDurationMs",
+    "failingChecks",
+    "notReady",
+    "entries"
+  ],
+  "properties": {
+    "version": { "const": 1 },
+    "command": { "const": "fleet-report" },
+    "ok": { "type": "boolean" },
+    "since": { "type": "string" },
+    "runs": { "type": "integer" },
+    "succeeded": { "type": "integer" },
+    "successRate": { "type": ["number", "null"] },
+    "meanDurationMs": { "type": ["number", "null"] },
+    "failingChecks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "runs"],
+        "properties": {
+          "id": { "type": "string" },
+          "runs": { "type": "integer" }
+        }
+      }
+    },
+    "notReady": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node", "ms"],
+        "properties": {
+          "node": { "type": "string" },
+          "ms": { "type": "number" }
+        }
+      }
+    },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "startedAt",
+          "finishedAt",
+          "durationMs",
+          "trigger",
+          "revision",
+          "ok",
+          "exitCode",
+          "failing",
+          "notReady"
+        ],
+        "properties": {
+          "startedAt": { "type": "string" },
+          "finishedAt": { "type": "string" },
+          "durationMs": { "type": "number" },
+          "trigger": { "enum": ["operator", "schedule"] },
+          "revision": { "type": ["string", "null"] },
+          "ok": { "type": "boolean" },
+          "exitCode": { "type": "integer" },
+          "failing": { "type": "array", "items": { "type": "string" } },
+          "notReady": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

@@ -26,6 +26,12 @@ Feature: The manager reaches a worker over SSH
       And its last argument is "dev-one"
       But it does not contain "StrictHostKeyChecking=no"
 
+    Scenario: A session outlasts a minute of silence, so a short network blip does not end a long bootstrap
+      When the SSH command for the worker is built
+      Then it has each of these arguments:
+        | ServerAliveInterval=15 |
+        | ServerAliveCountMax=4  |
+
   Rule: A path is quoted so a POSIX shell evaluates none of it
 
     @posix
@@ -58,14 +64,17 @@ Feature: The manager reaches a worker over SSH
       And nothing reported contains "never-print-this"
 
       Examples:
-        | message                                | check        |
-        | Host key verification failed           | ssh:host-key |
-        | REMOTE HOST IDENTIFICATION HAS CHANGED | ssh:host-key |
-        | Could not resolve hostname internal    | ssh:dns      |
-        | Permission denied (publickey)          | ssh:auth     |
-        | agent refused operation                | ssh:auth     |
-        | Connection refused                     | ssh:network  |
-        | bun: command not found                 | ssh:runtime  |
+        | message                                     | check            |
+        | Host key verification failed                | ssh:host-key     |
+        | REMOTE HOST IDENTIFICATION HAS CHANGED      | ssh:host-key     |
+        | Could not resolve hostname internal         | ssh:dns          |
+        | Permission denied (publickey)               | ssh:auth         |
+        | agent refused operation                     | ssh:auth         |
+        | Connection refused                          | ssh:network      |
+        | Connection to dev-one closed by remote host | ssh:disconnected |
+        | client_loop: send disconnect: Broken pipe   | ssh:disconnected |
+        | Timeout, server dev-one not responding.     | ssh:disconnected |
+        | bun: command not found                      | ssh:runtime      |
 
     Scenario Outline: A session that <ended> is the failure "<check>"
       Given an SSH session that <ended>

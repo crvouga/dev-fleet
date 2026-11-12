@@ -16,6 +16,14 @@ Feature: fleet-status checks the manager and its workers without changing them
       | ssh-add |
     And no probe was bundled for workers
 
+  Scenario: A schedule that has not converged the fleet for two of its intervals fails the manager's check
+    The schedule keeps the fleet converged without anyone running fleet-sync,
+    so a schedule that silently stopped working is a failure, not a detail.
+    Given the fleet state records a schedule turned on at "2026-01-01T00:00:00Z", every 30 minutes, that never succeeded
+    When the operator runs "devfleet fleet-status --local --require none"
+    Then it exits with 1
+    And the check "manager:schedule" has the status "fail"
+
   Scenario: Without a roster the manager is still checked, and the fleet is reported as unknown
     When the operator runs "devfleet fleet-status --all --require none"
     Then it exits with 1

@@ -97,7 +97,18 @@ else
   command -v python3 >/dev/null 2>&1 || die BOOTSTRAP_LOCK_TOOL_REQUIRED
   python3 -c 'import fcntl; fcntl.flock(9, fcntl.LOCK_EX | fcntl.LOCK_NB)' 9>&9 || die FLEET_REMOTE_LOCKED
 fi
-printf '{"version":1,"pid":%s,"revision":"%s","node":"%s"}\n' "$$" "$revision" "$node" >"$root/remote-operation.json"
+# The operation record: a manager that lost its session reads it to follow
+# this operation to its end instead of starting another (see
+# src/remote-operation.ts). The result of the last operation is beside it.
+started=$(date +%s)
+result="$root/remote-operation-result.json"
+[ ! -L "$root/remote-operation.json" ] && [ ! -L "$result" ] || die FLEET_STATE_PATH_UNSAFE
+rm -f -- "$result"
+operation() {
+  printf '{"version":1,"pid":%s,"revision":"%s","node":"%s","started":%s,"phase":"%s"%s}\n' "$$" "$revision" "$node" "$started" "$1" "${2:-}" >"$root/remote-operation.json.new" &&
+    mv -f -- "$root/remote-operation.json.new" "$root/remote-operation.json"
+}
+operation lock
 # The fleet configuration is installed under the lock, so two overlapping
 # runs never write it at once. It holds no secret.
 phase='configuration-install'
@@ -109,6 +120,7 @@ if [ -n "$configuration" ]; then
   mv "$config_dir/fleet.json.new" "$config_dir/fleet.json" || die CONFIGURATION_INSTALL_FAILED
 fi
 phase=resources
+operation resources
 # A bootstrap floor protects source transfer and minimal prerequisites. The
 # Workstation baseline subsequently enforces its stricter declared capacity.
 free_kib=$(df -Pk "$root" | awk 'END {print $4}')
@@ -200,6 +212,7 @@ bundle=''
 clean=$(git -C "$deployment" status --porcelain) || die SOURCE_STATUS_FAILED
 [ -z "$clean" ] || die SOURCE_CHECKOUT_CONFLICT
 phase=toolchain
+operation toolchain
 cd "$deployment"
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin"
 status_file="$root/toolchain-status.json"
@@ -259,5 +272,14 @@ for old in $(ls -1t "$root/revisions"); do
   rm -rf -- "${root:?}/revisions/$old" || true
 done
 phase=configuration
+operation configuration
 trap - EXIT INT TERM
-exec mise exec --locked bun -- bun src/node-converge.ts "$node" "$revision"
+# Node convergence writes its evidence to the result file, not to the SSH
+# session: the session may be gone by the time it ends. The evidence is then
+# printed for the manager that is still connected, under the same lock.
+code=0
+mise exec --locked bun -- bun src/node-converge.ts "$node" "$revision" >"$result.partial" 2>"$root/remote-operation.log" || code=$?
+mv -f -- "$result.partial" "$result"
+operation finished ",\"finished\":$(date +%s),\"exit\":$code"
+cat -- "$result" || true
+exit "$code"

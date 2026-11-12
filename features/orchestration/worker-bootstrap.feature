@@ -105,6 +105,98 @@ Feature: A worker is bootstrapped over SSH with one verified revision
       Then the first check says "FLEET_REMOTE_LOCKED"
       And a check says "FLEET_REMOTE_LOCKED"
 
+    Scenario: A worker held by an operation of the same revision is followed to its end, and its result is reported
+      The run the manager lost (or another run of the same revision) is still
+      converging the worker: the manager follows it instead of failing.
+      Given the worker answers that it holds the revision
+      And the bootstrap on the worker fails, printing:
+        """
+        { "version": 1, "checks": [{ "id": "bootstrap:lock", "status": "fail", "summary": "FLEET_REMOTE_LOCKED" }] }
+        """
+      And the worker says the operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is still running, in the phase "toolchain"
+      And the worker says the operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is still running, in the phase "configuration"
+      And the worker says the operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" has finished, with the result:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" }] }
+        """
+      When the worker is bootstrapped
+      Then 5 SSH sessions were opened, and nothing else was run
+      And the first check is "bootstrap:attached"
+      And a check says "Verified fixture"
+      And while it followed, the manager showed:
+        | Following the running operation (toolchain, 600 s)     |
+        | Following the running operation (configuration, 615 s) |
+
+    Scenario: A worker held by an operation of another revision reports the lock
+      Given the worker answers that it holds the revision
+      And the bootstrap on the worker fails, printing:
+        """
+        { "version": 1, "checks": [{ "id": "bootstrap:lock", "status": "fail", "summary": "FLEET_REMOTE_LOCKED" }] }
+        """
+      And the worker says the operation of the revision "cccccccccccccccccccccccccccccccccccccccc" is still running, in the phase "toolchain"
+      When the worker is bootstrapped
+      Then 3 SSH sessions were opened, and nothing else was run
+      And the first check says "FLEET_REMOTE_LOCKED"
+
+    Scenario: A lock held by something other than a running fleet operation is reported, not followed
+      Given the worker answers that it holds the revision
+      And the bootstrap on the worker fails, printing:
+        """
+        { "version": 1, "checks": [{ "id": "bootstrap:lock", "status": "fail", "summary": "FLEET_REMOTE_LOCKED" }] }
+        """
+      And the worker says something else holds its lock, and its last operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" has finished
+      When the worker is bootstrapped
+      Then 3 SSH sessions were opened, and nothing else was run
+      And the first check says "FLEET_REMOTE_LOCKED"
+
+    Scenario: A session lost mid-bootstrap is followed after a pause, and the operation's real result is reported
+      Given the worker answers that it holds the revision
+      And the bootstrap session is lost, printing "Connection to devbox closed by remote host."
+      And the worker says the operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is still running, in the phase "toolchain"
+      And the worker says the operation of the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" has finished, with the result:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "fail", "summary": "Real failure" }] }
+        """
+      When the worker is bootstrapped
+      Then 4 SSH sessions were opened, and nothing else was run
+      And the first check is "bootstrap:attached"
+      And a check says "Real failure"
+      And the manager paused for 25 seconds in all
+
+    Scenario: A session lost before the worker started anything is opened again
+      Given the worker answers that it does not hold the revision
+      And the bootstrap session cannot be opened, printing "ssh: connect to host devbox port 22: Network is unreachable"
+      And the worker says no operation runs on it
+      And the bootstrap on the worker succeeds, printing:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" }] }
+        """
+      When the worker is bootstrapped
+      Then 4 SSH sessions were opened, and nothing else was run
+      And the first check says "Verified fixture"
+      And the manager paused for 10 seconds in all
+
+    Scenario: A connection that cannot be opened is tried three times over thirty seconds, then named
+      Given the session cannot be opened, printing "ssh: connect to host devbox port 22: Connection refused"
+      And the session cannot be opened, printing "ssh: connect to host devbox port 22: Connection refused"
+      And the session cannot be opened, printing "ssh: connect to host devbox port 22: Connection refused"
+      When the worker is bootstrapped
+      Then 3 SSH sessions were opened, and nothing else was run
+      And the first check is "ssh:network"
+      And the manager paused for 30 seconds in all
+
+    Scenario: A connection that comes back on the second attempt goes on with the bootstrap
+      Given the session cannot be opened, printing "ssh: connect to host devbox port 22: Connection refused"
+      And the worker answers that it holds the revision
+      And the bootstrap on the worker succeeds, printing:
+        """
+        { "version": 1, "checks": [{ "id": "fixture:configuration", "status": "pass", "summary": "Verified fixture" }] }
+        """
+      When the worker is bootstrapped
+      Then 3 SSH sessions were opened, and nothing else was run
+      And the first check says "Verified fixture"
+      And the manager paused for 10 seconds in all
+
     Scenario: An unknown host key stops the bootstrap before anything is sent
       Given every SSH session fails with the error output "Host key verification failed. PRIVATE_SENTINEL"
       When the worker is bootstrapped

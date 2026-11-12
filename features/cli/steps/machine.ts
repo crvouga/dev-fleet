@@ -8,6 +8,7 @@ import { GLOBAL_OPTIONS } from '../../../src/cli/program';
 import { registerFleet } from '../../../src/cli/register-fleet';
 import type { CommandOutcome } from '../../../src/cli/contracts';
 import { probe } from '../../../src/probe';
+import { recordSchedule } from '../../../src/state/history';
 import type { Report, Snapshot } from '../../../src/types';
 import { Commands, failed, succeeded } from '../../support/commands';
 import type { DataTable } from '../../support/gherkin';
@@ -19,6 +20,7 @@ import {
   outcome,
   part,
   proxy,
+  temporary,
   where,
   type CliWorld,
 } from './world';
@@ -385,5 +387,23 @@ Then(
         .nodes.flatMap((node) => node.checks)
         .some((check) => check.id === id && check.status === status)
     ).toBe(true);
+  }
+);
+
+// ── The manager's schedule, as the fleet state records it ────────────────
+
+Given(
+  'the fleet state records a schedule turned on at {string}, every {int} minutes, that never succeeded',
+  async (world, at: string, minutes: number) => {
+    const before = process.env['DEVFLEET_STATE'];
+    process.env['DEVFLEET_STATE'] = await temporary(world, 'fleet-schedule-');
+    world.defer(() => {
+      process.env['DEVFLEET_STATE'] = before;
+    });
+    recordSchedule({
+      enabled: true,
+      intervalSeconds: minutes * 60,
+      changedAt: at,
+    });
   }
 );

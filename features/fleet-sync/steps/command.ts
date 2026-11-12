@@ -3,11 +3,17 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { mergeEnrollment } from '../../../src/cli/fleet-sync-enrollment';
 import { selected } from '../../../src/cli/fleet-sync-remote';
-import { managerSchedule } from '../../../src/cli/fleet-sync-schedule';
+import {
+  managerSchedule,
+  release,
+  type Release,
+} from '../../../src/cli/fleet-sync-schedule';
+import type { ScheduleRecord } from '../../../src/state/history';
+import { succeeded } from '../../support/commands';
 import { capabilities } from '../../../src/cli/options';
 import { execute } from '../../../src/cli/program';
 import { CAPABILITIES } from '../../../src/config';
-import type { Platform } from '../../../src/platform/types';
+import type { Platform, ScheduledJob } from '../../../src/platform/types';
 import type { Capability, FleetNode } from '../../../src/types';
 import type { DataTable } from '../../support/gherkin';
 import {
@@ -23,7 +29,17 @@ const { Given, When, Then } = fleetSync;
 /** What only these steps keep between them. */
 interface Command {
   capabilities: Capability[] | undefined;
-  schedule: { revision: string; config: string } | undefined;
+  schedule:
+    | {
+        revision: string;
+        config: string;
+        release?: Release;
+        root?: string;
+        record?: (schedule: ScheduleRecord) => void;
+      }
+    | undefined;
+  installed: ScheduledJob[];
+  recorded: ScheduleRecord[];
   platform: Platform;
   removed: string[];
   discovered: FleetNode[];
@@ -37,6 +53,8 @@ function state(world: FleetSyncWorld): Command {
     found = {
       capabilities: undefined,
       schedule: undefined,
+      installed: [],
+      recorded: [],
       platform: {} as Platform,
       removed: [],
       discovered: [],
@@ -102,6 +120,92 @@ Given(
   'a schedule request for the revision {string} with the roster {string}',
   (world, revision: string, config: string) => {
     state(world).schedule = { revision, config };
+  }
+);
+
+Given(
+  /^the CLI is the published release "([^"]*)" (?:of the commit "([^"]*)"|built from no commit)$/,
+  (world, version: string, revision: string | undefined) => {
+    const schedule = state(world).schedule!;
+    schedule.release = {
+      ...release(),
+      version,
+      revision: revision ?? null,
+    };
+    schedule.root = temporary(world, 'fleet-schedule-');
+    schedule.record = (record) => state(world).recorded.push(record);
+  }
+);
+
+Given('npm installs any package it is asked to', (world) => {
+  world.commands.answer((command) => command[0] === 'npm', succeeded());
+});
+
+Given('the platform installs a scheduled job it is asked to', (world) => {
+  state(world).platform = {
+    installScheduledJob: (job: ScheduledJob) => {
+      state(world).installed.push(job);
+      return { ok: true, detail: 'raw output' };
+    },
+  } as unknown as Platform;
+});
+
+Then('npm installed exactly {string}', (world, spec: string) => {
+  const installs = world.commands.calls.filter(
+    (call) => call.command[0] === 'npm'
+  );
+  expect(installs).toHaveLength(1);
+  expect(installs[0]!.command.at(-1)).toBe(spec);
+  expect(installs[0]!.command).toContain('--ignore-scripts');
+});
+
+Then(
+  'the scheduled job {string} runs, every {int} minutes:',
+  (world, label: string, minutes: number, table: DataTable) => {
+    const [job] = state(world).installed;
+    expect(job?.label).toBe(label);
+    expect(job?.intervalSeconds).toBe(minutes * 60);
+    const root = state(world).schedule!.root!;
+    expect(job!.command.map((part) => part.replace(root, '{root}'))).toEqual(
+      table.list()
+    );
+  }
+);
+
+Then(
+  'the scheduled job runs with {string} set to {string}',
+  (world, name: string, value: string) => {
+    expect(state(world).installed[0]?.env[name]).toBe(value);
+  }
+);
+
+Then(
+  "the scheduled job's PATH names only the fleet's own tools and the system's",
+  (world) => {
+    const path = state(world).installed[0]?.env['PATH'] ?? '';
+    for (const entry of path.split(':'))
+      expect(entry).toMatch(
+        /(\/\.local\/share\/mise\/shims|\/\.local\/bin|^\/opt\/homebrew\/bin|^\/usr\/local\/bin|^\/usr\/bin|^\/bin)$/
+      );
+    expect(path).not.toContain('node_modules');
+  }
+);
+
+Then('no scheduled job was installed', (world) => {
+  expect(state(world).installed).toEqual([]);
+});
+
+Then(
+  /^the fleet state records the schedule as (on|off), every (\d+) minutes$/,
+  (world, on: string, minutes: string) => {
+    expect(
+      state(world).recorded.map(({ enabled, intervalSeconds }) => ({
+        enabled,
+        intervalSeconds,
+      }))
+    ).toEqual([
+      { enabled: on === 'on', intervalSeconds: Number(minutes) * 60 },
+    ]);
   }
 );
 

@@ -91,6 +91,12 @@ export const COMMANDS: CommandSpec[] = [
       true,
     ],
     [
+      'fleet-report',
+      'Report how reliably fleet-sync runs',
+      'Read-only: success rate, mean duration, the most frequent failing check IDs and how long each machine was not ready, from the history of fleet-sync runs kept in the fleet state. --since 30d (default), 12h or 90m.',
+      ['history', 'reliability', 'report', 'failures', 'sync'],
+    ],
+    [
       'fleet-node-sync',
       'Sync this node',
       'Reconcile locked tools, the personal launcher, Codex proxy profile and owned T3 instances on this machine. Applies by default; --dry-run previews.',

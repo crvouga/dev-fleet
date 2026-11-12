@@ -4,7 +4,22 @@ import { join } from 'node:path';
 import { prepareSource } from './machine/source';
 import { isRevision } from './machine/state';
 import { sshArgs, shellQuote, sshFailure } from './ssh';
-import type { FleetNode, NodeReport, Runner, Check } from './types';
+import type {
+  FleetNode,
+  NodeReport,
+  Runner,
+  Check,
+  CommandResult,
+} from './types';
+import {
+  followOperation,
+  realClock,
+  retrying,
+  RETRY_PAUSES_MS,
+  transient,
+  type Clock,
+  type Follow,
+} from './remote-operation';
 import { record } from './config';
 import { installedDefinition, type FleetDefinition } from './definition';
 import { cleanCheck, validCheck } from './protocol';
@@ -94,9 +109,11 @@ async function bundleRevision(
 export async function bootstrapRemote(
   node: FleetNode,
   payload: BootstrapPayload,
-  run: Runner
+  run: Runner,
+  follow: Follow = {}
 ): Promise<NodeReport> {
-  const cached = await cachedRevision(node, payload.revision, run);
+  const clock = follow.clock ?? realClock;
+  const cached = await cachedRevision(node, payload.revision, run, clock);
   if (typeof cached !== 'boolean') return { node: node.id, checks: [cached] };
   const transfer = cached
     ? { mode: 'cached', bundle: '' }
@@ -113,27 +130,68 @@ export async function bootstrapRemote(
   ]
     .map(shellQuote)
     .join(' ');
-  const result = await run([...sshArgs(node), command], {
-    input: bootstrapInput(payload.config, transfer.bundle),
-    timeoutMs: 5_400_000,
-  });
-  const evidence = parseEvidence(result);
-  if (evidence) return { node: node.id, checks: evidence };
-  if (!result.ok) return { node: node.id, checks: [sshFailure(result)] };
-  return {
-    node: node.id,
-    checks: [
-      {
-        id: 'bootstrap:protocol',
-        status: 'fail',
-        summary: 'REMOTE_BOOTSTRAP_EVIDENCE_INVALID',
-        remedy: {
-          action:
-            'Inspect the source-owned remote operation and lock. Do not assume a manager disconnect stopped installation.',
-        },
+  const checks = await bootstrapSessions(
+    node,
+    payload,
+    { command, input: bootstrapInput(payload.config, transfer.bundle) },
+    { run, follow: { ...follow, clock } }
+  );
+  return { node: node.id, checks };
+}
+
+/** Opens the bootstrap session, and again after a lost one unless the
+ * worker's own operation can be followed to its end instead.
+ */
+async function bootstrapSessions(
+  node: FleetNode,
+  payload: BootstrapPayload,
+  session: { command: string; input: string },
+  context: { run: Runner; follow: Follow & { clock: Clock } }
+): Promise<Check[]> {
+  const { run, follow } = context;
+  let result: CommandResult | undefined;
+  for (const pause of [0, ...RETRY_PAUSES_MS]) {
+    if (result) {
+      // The session was lost, not the operation: the worker keeps running
+      // it, so the manager follows it rather than starting another.
+      await follow.clock.pause(pause);
+      const followed = await followOperation(
+        node,
+        payload.revision,
+        run,
+        follow
+      );
+      if (followed) return followed;
+    }
+    result = await run([...sshArgs(node), session.command], {
+      input: session.input,
+      timeoutMs: 5_400_000,
+    });
+    const evidence = parseEvidence(result);
+    if (evidence && locked(evidence))
+      return (
+        (await followOperation(node, payload.revision, run, follow)) ?? evidence
+      );
+    if (evidence) return evidence;
+    if (result.reason !== 'exit' || !transient(result)) break;
+  }
+  if (!result!.ok) return [sshFailure(result!)];
+  return [
+    {
+      id: 'bootstrap:protocol',
+      status: 'fail',
+      summary: 'REMOTE_BOOTSTRAP_EVIDENCE_INVALID',
+      remedy: {
+        action:
+          'Inspect the source-owned remote operation and lock. Do not assume a manager disconnect stopped installation.',
       },
-    ],
-  };
+    },
+  ];
+}
+
+/** Another operation holds the worker: its lock was the first thing tried. */
+function locked(checks: Check[]): boolean {
+  return checks.some((check) => check.summary === 'FLEET_REMOTE_LOCKED');
 }
 
 /** What the bootstrap reads on stdin: one line with the fleet configuration
@@ -151,10 +209,14 @@ export function bootstrapInput(
 async function cachedRevision(
   node: FleetNode,
   revision: string,
-  run: Runner
+  run: Runner,
+  clock: Clock
 ): Promise<boolean | Check> {
   const command = `d="$HOME/.local/share/personal/fleet/revisions/${revision}"; test ! -L "$d" && test -d "$d/.git" && test "$(git -C "$d" rev-parse HEAD 2>/dev/null)" = '${revision}' && test "$(git -C "$d" rev-parse --show-toplevel 2>/dev/null)" = "$d" && clean=$(git -C "$d" status --porcelain 2>/dev/null) && test -z "$clean" && printf ready`;
-  const result = await run([...sshArgs(node), command], { timeoutMs: 20_000 });
+  const result = await retrying(
+    () => run([...sshArgs(node), command], { timeoutMs: 20_000 }),
+    clock
+  );
   if (!result.ok) {
     const failure = sshFailure(result);
     if (result.reason !== 'exit' || failure.id !== 'ssh:probe') return failure;

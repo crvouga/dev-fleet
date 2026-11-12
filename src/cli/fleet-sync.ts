@@ -21,12 +21,21 @@ import {
 import { loadEnrollment } from '../state/enrollment';
 import { legacyHome } from '../state/paths';
 import {
+  appendRun,
+  summarizeRun,
+  type SyncRun,
+  type Trigger,
+} from '../state/history';
+import { capScheduleLogs } from './schedule-logs';
+import {
   DIVERGED_REMEDY,
+  mutateState,
   refresh,
   stateContext,
   type Standing,
 } from '../state/sync';
 import { runRecord } from './fleet-sync-state';
+import { planSources, planText, syncPlan } from './fleet-sync-plan';
 import { runCommand } from '../runner';
 import type { Runner } from '../types';
 import type { Settings } from './settings';
@@ -84,11 +93,43 @@ export async function fleetSync(
     return offManager(options, settings, run, forward);
   if (options.schedule === 'status') return scheduleStatus(settings, run);
   if (options.only === 'accounts') return onlyAccounts(options, settings, run);
-  return managerSync(options, settings, {
-    run,
-    root: machineRoot(),
-    restart: () => fleetSync(options, settings, run, forward),
-  });
+  const sync = () =>
+    managerSync(options, settings, {
+      run,
+      root: machineRoot(),
+      restart: sync,
+    });
+  if (options.dryRun || options.schedule) return sync();
+  const trigger = runTrigger();
+  if (trigger === 'schedule') capScheduleLogs(join(machineRoot(), 'logs'));
+  const startedAt = new Date();
+  const outcome = await sync();
+  await recordRun(
+    summarizeRun(
+      outcome.data,
+      { startedAt, finishedAt: new Date() },
+      trigger,
+      outcome.exitCode
+    ),
+    run
+  );
+  return outcome;
+}
+
+/** Runs the manager's schedule starts say so in their environment. */
+function runTrigger(env = process.env): Trigger {
+  return env['DEVFLEET_TRIGGER'] === 'schedule' ? 'schedule' : 'operator';
+}
+
+/** Appends the run to the history in the fleet state and uploads it. A
+ * history that cannot be written never changes the run's result.
+ */
+async function recordRun(entry: SyncRun, run: Runner): Promise<void> {
+  try {
+    await mutateState(stateContext(run), () => appendRun(entry));
+  } catch {
+    // Reported by the next fleet-state or fleet-sync run.
+  }
 }
 
 export interface ManagerSync {
@@ -132,9 +173,9 @@ export async function managerSync(
       revision
     );
   if (rehomed !== 'here') return rehomed;
-  if (options.dryRun) return selected({ ...options, revision }, settings, run);
-  // The bucket is the source of truth: a run starts from its version of the
-  // configuration, the roster and the approval, not from a stale local copy.
+  // The bucket is the source of truth: a run, and a preview, starts from its
+  // version of the configuration, the roster and the approval, not from a
+  // stale local copy. Refreshing never uploads.
   const fresh = await refresh(stateContext(run));
   if (fresh.standing === 'diverged')
     return actionRequired('FLEET_STATE_DIVERGED', DIVERGED_REMEDY, revision);
@@ -144,12 +185,53 @@ export async function managerSync(
     reloadFleet();
     return restart();
   }
+  if (options.dryRun)
+    return preview({ ...options, revision }, settings, {
+      run,
+      root,
+      applied: state?.appliedRevision ?? null,
+      standing: fresh.standing,
+    });
   return authorizeAndApply(root, state, options, {
     settings,
     run,
     revision,
     standing: fresh.standing,
   });
+}
+
+/** The preview: the read-only report of every machine, and the plan of what
+ * a sync would change on them.
+ */
+async function preview(
+  options: FleetSyncOptions & { revision: string },
+  settings: Settings,
+  context: {
+    run: Runner;
+    root: string;
+    applied: string | null;
+    standing: Standing;
+  }
+): Promise<CommandOutcome> {
+  const outcome = await selected(options, settings, context.run);
+  const report = outcome.data as { nodes?: { node?: unknown }[] };
+  const plan = await syncPlan(
+    {
+      from: context.applied,
+      to: options.revision,
+      state: context.standing,
+      nodes: (report.nodes ?? [])
+        .map((node) => node.node)
+        .filter((node): node is string => typeof node === 'string'),
+      sources: planSources(settings.workspace, context.root),
+    },
+    context.run
+  );
+  return {
+    ...outcome,
+    data: { ...(outcome.data as object), plan },
+    text: [outcome.text, planText(plan)].filter(Boolean).join('\n'),
+  };
 }
 
 interface ApplyContext {

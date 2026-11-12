@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check.schema.json",
+  "title": "One check of a dev-fleet report",
+  "description": "The id is listed in schema/check-ids.json.",
+  "type": "object",
+  "required": ["id", "status", "summary"],
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+(:[A-Za-z0-9:._-]+)?$" },
+    "status": { "enum": ["pass", "warn", "fail", "skip"] },
+    "summary": { "type": "string" },
+    "required": { "type": "boolean" },
+    "phaseDurationMs": { "type": "number" },
+    "remedy": {
+      "type": "object",
+      "required": ["action"],
+      "properties": {
+        "action": { "type": "string" },
+        "command": { "type": "string" }
+      }
+    }
+  }
+}

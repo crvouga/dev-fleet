@@ -193,7 +193,9 @@ function deployWithMonitoring(
     if (ui.interactiveAuthorization) ui.progress.stop();
     const before = await authorizeVault(node, vault, run);
     ui.progress.step(node.id, 'Converging (remote lock, install, verify)');
-    const result = await bootstrapRemote(node, payload, run);
+    const result = await bootstrapRemote(node, payload, run, {
+      progress: (line) => ui.progress.step(node.id, line),
+    });
     // A fresh node gets vault from the bootstrap; log it in now. Its provider
     // checks in this run predate the login, so the next sync verifies them.
     result.checks.push(

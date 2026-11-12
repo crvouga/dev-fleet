@@ -98,7 +98,11 @@ Ansible policy and verifies the result. It prints one table and writes a full
 JSON report. The first run on a machine installs everything, mise included, so
 Git is the only tool it needs beforehand.
 
-`--dry-run` changes no machine. On the manager it checks the release out into
+`--dry-run` changes no machine. It first brings the manager's copy of the
+fleet state up to the bucket (never uploading), then prints, and adds to
+`--json` as `plan`, what a sync would change: the revision, each tool pin that
+moves, and what restarts because of it (a T3 restart ends its running agent
+turns). On the manager it checks the release out into
 dev-fleet's cache and installs the Bun that release pins beside any others, so
 that it can run; it never installs the toolchain, publishes the global mise
 configuration, edits shell profiles or touches a worker.
@@ -316,9 +320,11 @@ fleet.json contents.
   `fleet-sync` fetches that copy again when it is deleted, but the proxy then
   needs `devfleet cliproxy install` once more.
 - The manager is a Mac host. There is no container image of the manager.
-- `fleet-sync --schedule enable` (unattended runs on a timer) is not available
-  from the published package yet, so nothing re-applies the fleet until you
-  run `fleet-sync`.
+- `fleet-sync --schedule enable --apply --yes` (unattended runs every 30
+  minutes) is installed by that command on the manager, not yet by the
+  manager's playbook, and its interval is not yet part of `fleet.json`.
+  `fleet-sync --schedule status` lists its last runs, and `fleet-status` fails
+  `manager:schedule` when it has not converged the fleet for two intervals.
 - Not everything on a machine is pinned. [What is declared, and
   where](docs/declared.md) lists what is and what is not: most of a worker's
   own packages, the manager's applications and every login are outside it.
@@ -327,18 +333,18 @@ fleet.json contents.
 
 ## Repository layout
 
-| Path         | What                                                              |
-| ------------ | ----------------------------------------------------------------- |
-| `src/`       | Inventory, orchestration, verification, the report; `src/cli` CLI |
-| `src/state/` | The fleet state database and its replication to the bucket        |
-| `ansible/`   | Machine policy: `ubuntu/`, `macos/`, `monitoring/`                |
-| `agents/`    | Agent launchers T3 runs, and their registry                       |
-| `cliproxy/`  | The CLIProxyAPI service: install, audit, backup, model health     |
-| `bootstrap/` | Toolchain bootstrap and the manager and worker entry scripts      |
-| `schema/`    | JSON schemas for `fleet.json` and the private roster              |
-| `examples/`  | A complete example configuration                                  |
-| `features/`  | What dev-fleet does, as Gherkin features: the tests               |
-| `bin/`       | The entry point of the published package                          |
+| Path         | What                                                                    |
+| ------------ | ----------------------------------------------------------------------- |
+| `src/`       | Inventory, orchestration, verification, the report; `src/cli` CLI       |
+| `src/state/` | The fleet state database and its replication to the bucket              |
+| `ansible/`   | Machine policy: `ubuntu/`, `macos/`, `monitoring/`                      |
+| `agents/`    | Agent launchers T3 runs, and their registry                             |
+| `cliproxy/`  | The CLIProxyAPI service: install, audit, backup, model health           |
+| `bootstrap/` | Toolchain bootstrap and the manager and worker entry scripts            |
+| `schema/`    | JSON schemas for `fleet.json`, the roster and command output; check IDs |
+| `examples/`  | A complete example configuration                                        |
+| `features/`  | What dev-fleet does, as Gherkin features: the tests                     |
+| `bin/`       | The entry point of the published package                                |
 
 ## Develop
 

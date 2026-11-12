@@ -8,6 +8,7 @@ import { fleetSync, type FleetSyncOptions } from './fleet-sync';
 import { syncNode, type NodeSyncOptions } from './node-sync';
 import { fleetState, type FleetStateOptions } from './fleet-state';
 import { fleetAccounts, type FleetAccountsOptions } from './fleet-accounts';
+import { fleetReport, type FleetReportOptions } from './fleet-report';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -282,6 +283,18 @@ function registerState({ program, complete }: Registration) {
     });
 }
 
+function registerReport({ program, complete }: Registration) {
+  program
+    .command('fleet-report')
+    .description(
+      'Report how reliably fleet-sync ran: success rate, duration, failing checks and time not ready'
+    )
+    .option('--since <duration>', 'How far back: 30d (default), 12h or 90m')
+    .action((_options, command: Command) => {
+      complete(fleetReport(command.optsWithGlobals<FleetReportOptions>()));
+    });
+}
+
 export function registerFleet(
   program: Command,
   defaults: Settings,
@@ -296,6 +309,7 @@ export function registerFleet(
   );
   registerSync(registration);
   registerState(registration);
+  registerReport(registration);
   registerRepair(registration);
   registerNodes(registration);
   registerAccounts(registration);

@@ -9,7 +9,14 @@ import { FleetUsageError } from '../errors';
  * connection to each worker, `enrollment` the approved and applied revision.
  */
 export const DOCUMENTS = ['definition', 'roster', 'enrollment'] as const;
+/** Kept when there is something to keep; a fleet without them is complete:
+ * `history` is the record of recent fleet-sync runs and of the schedule.
+ */
+export const OPTIONAL_DOCUMENTS = ['history'] as const;
 export type DocumentName = (typeof DOCUMENTS)[number];
+/** Every document the fleet state may hold. */
+export type StoredName = DocumentName | (typeof OPTIONAL_DOCUMENTS)[number];
+const KNOWN: readonly string[] = [...DOCUMENTS, ...OPTIONAL_DOCUMENTS];
 
 /** One version of the whole database. Every change replaces it, so two copies
  * hold the same state exactly when their heads are equal.
@@ -21,7 +28,7 @@ export interface Head {
 }
 
 export interface DocumentInfo {
-  name: DocumentName;
+  name: StoredName;
   bytes: number;
   updatedAt: string;
 }
@@ -100,7 +107,7 @@ function tables(db: Database): boolean {
   );
 }
 
-export function readDocument(file: string, name: DocumentName): string | null {
+export function readDocument(file: string, name: StoredName): string | null {
   return reading(file, (db) => {
     if (!tables(db)) return null;
     const row = db
@@ -119,7 +126,7 @@ export function listDocuments(file: string): DocumentInfo[] {
           'SELECT name, length(CAST(body AS BLOB)) AS bytes, updated_at AS updatedAt FROM documents ORDER BY name'
         )
         .all() as DocumentInfo[];
-      return rows.filter((row) => DOCUMENTS.includes(row.name));
+      return rows.filter((row) => KNOWN.includes(row.name));
     }) ?? []
   );
 }
@@ -138,7 +145,7 @@ export function readHead(file: string): Head | null {
  */
 export function writeDocument(
   file: string,
-  name: DocumentName,
+  name: StoredName,
   body: string
 ): Head {
   if (Buffer.byteLength(body) > MAX_DOCUMENT_BYTES)
