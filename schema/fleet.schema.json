@@ -737,6 +737,22 @@
                     }
                   },
                   "description": "Optional: a short-lived, single-use, tagged Tailscale auth key a new worker joins the tailnet with (fleet-node-seed)."
+                },
+                "tailnet-admin": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["path", "field"],
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9._/-]+$"
+                    },
+                    "field": {
+                      "type": "string",
+                      "pattern": "^[A-Za-z0-9_]+$"
+                    }
+                  },
+                  "description": "Only with tailnet: an API credential of the tailnet's control plane that creates single-use auth keys for new workers. It stays on the manager."
                 }
               },
               "description": "Required for every secret except github-token, which defaults to the field GITHUB_TOKEN beside proxy-client-key."
@@ -855,6 +871,52 @@
           "description": "owner/name of a repository fleet-github-verify branches, pushes to and opens pull requests on, then cleans up."
         }
       }
+    },
+    "tailnet": {
+      "description": "Optional: the tailnet control plane fleet-sync and fleet-node-seed enrol new workers with, without a login on the machine. Its credential is the secret tailnet-admin.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api", "tag"],
+          "properties": {
+            "api": { "const": "tailscale" },
+            "url": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$",
+              "description": "The API origin. Default: https://api.tailscale.com."
+            },
+            "tag": {
+              "type": "string",
+              "pattern": "^tag:[a-z0-9][a-z0-9-]{0,62}$",
+              "description": "The tag every enrolled worker carries, so access rules and key expiry apply to workers as a group."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["api", "url", "tag", "user"],
+          "properties": {
+            "api": { "const": "headscale" },
+            "url": {
+              "type": "string",
+              "pattern": "^https://[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$",
+              "description": "The Headscale server: its API, and the login server workers join."
+            },
+            "tag": {
+              "type": "string",
+              "pattern": "^tag:[a-z0-9][a-z0-9-]{0,62}$",
+              "description": "The tag every enrolled worker carries, so access rules apply to workers as a group."
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[A-Za-z0-9._@-]{1,64}$",
+              "description": "The Headscale user the keys belong to (its ID from Headscale 0.26)."
+            }
+          }
+        }
+      ]
     }
   }
 }

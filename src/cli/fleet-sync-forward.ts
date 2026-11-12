@@ -115,6 +115,8 @@ export function forwardedFlags(
     [options.yes, '--yes'],
     [options.json, '--json'],
     [options.nonInteractive, '--non-interactive'],
+    [options.maintenanceReboot, '--maintenance-reboot'],
+    [options.force, '--force'],
   ];
   for (const [on, flag] of switches) if (on) flags.push(flag);
   return flags;

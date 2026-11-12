@@ -92,6 +92,8 @@ Feature: devfleet fleet-sync refuses before it changes anything
         | fleet-status --require made-up        |
         | fleet-status --tailnet --require none |
         | fleet-discover --local                |
+        | fleet-sync --force                    |
+        | fleet-sync --maintenance-reboot --dry-run |
         | fleet-unknown                         |
         | fleet doctor                          |
         | fleet-sync --restart-busy --only accounts |

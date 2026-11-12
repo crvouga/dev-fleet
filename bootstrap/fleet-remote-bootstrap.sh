@@ -1,8 +1,9 @@
 #!/bin/sh
 # Executed over strict SSH from the selected verified Git revision. stdin is
 # one line holding the base64 fleet configuration (empty when there is none),
-# then the base64 Git bundle (nothing in cached mode). All executable content
-# remains in this tracked source. The Ubuntu releases workers may run are
+# one line holding a single-use tailnet enrolment key (empty when there is
+# none), then the base64 Git bundle (nothing in cached mode). All executable
+# content remains in this tracked source. The Ubuntu releases workers may run are
 # named once, in ansible/ubuntu/policy.json; the manager passes them in.
 set -eu
 umask 077
@@ -27,12 +28,17 @@ bundle=''
 code=0
 apt_log=''
 failure_code=REMOTE_BOOTSTRAP_INCOMPLETE
+# How long a machine's own first boot (cloud-init) may still run, in seconds.
+first_boot_wait=900
 die() { failure_code=$1; exit 1; }
 # One remedy per failure: what the operator does next. Never raw output.
 remedy() {
   case "$1" in
     FLEET_REMOTE_LOCKED) echo 'Another fleet operation holds this machine. Wait for it to finish; rerun fleet-sync afterwards. Never remove the lock while its holder runs.';;
-    ROOT_DEVELOPMENT_USER_REJECTED) echo 'Connect as the non-root developer account the fleet configuration names.';;
+    ROOT_DEVELOPMENT_USER_REJECTED) echo 'Connect as the non-root developer account the fleet configuration names (workers[].network.user). With that account declared, fleet-sync creates it once over the root login (ansible/ubuntu/worker-account.yml) and continues as it.';;
+    FIRST_BOOT_PENDING) echo 'The machine is still finishing its first boot (cloud-init). Nothing was changed; rerun fleet-sync in a few minutes.';;
+    FIRST_BOOT_FAILED) echo 'The first boot of the machine (cloud-init) ended in an error, so it is half-provisioned and was not converged. Read cloud-init status --long on the worker, fix the image or its user data, and recreate the machine.';;
+    TAILNET_KEY_INVALID|TAILNET_KEY_DELIVERY_FAILED) echo 'The single-use tailnet key could not be handed to the worker. Rerun fleet-sync; it mints a new one. The worker needs passwordless sudo to receive it.';;
     UBUNTU_BASELINE_MISMATCH|UBUNTU_ARCHITECTURE_UNSUPPORTED|PLATFORM_UNSUPPORTED) echo 'Workers run an Ubuntu release docs/support-matrix.md lists, on x86_64 or aarch64. Reinstall the machine; fleet-sync never upgrades an operating system.';;
     WORKER_ENVIRONMENT_UNSUPPORTED) echo 'WSL2 is not a worker. Run the worker on a physical or virtual machine of its own (docs/support-matrix.md).';;
     FLEET_STATE_PATH_UNSAFE) echo 'A fleet state directory under ~/.local/share/personal is a symbolic link. Replace it with a real directory.';;
@@ -105,12 +111,32 @@ operation lock
 # runs never write it at once. It holds no secret.
 phase='configuration-install'
 IFS= read -r configuration || configuration=''
+# Held in this shell only (never exported, never an argument) until it is
+# written to a root-only file for the Tailscale play.
+IFS= read -r tailnet_key || tailnet_key=''
 if [ -n "$configuration" ]; then
   config_dir="$HOME/.config/dev-fleet"
   mkdir -p "$config_dir" || die CONFIGURATION_INSTALL_FAILED
   printf '%s' "$configuration" | base64 -d >"$config_dir/fleet.json.new" || die CONFIGURATION_INSTALL_FAILED
   mv "$config_dir/fleet.json.new" "$config_dir/fleet.json" || die CONFIGURATION_INSTALL_FAILED
 fi
+phase=first-boot
+# first-boot: begin
+# A new machine answers SSH before its own first boot has finished: cloud-init
+# may still be growing the disk and installing packages. Wait for it, within a
+# bound, before any package work. A machine without cloud-init has nothing to
+# wait for. Exit 2 is a first boot that finished with recoverable errors.
+if command -v cloud-init >/dev/null 2>&1; then
+  operation first-boot
+  first_boot=0
+  timeout "$first_boot_wait" cloud-init status --wait >/dev/null 2>&1 || first_boot=$?
+  case "$first_boot" in
+    0|2) ;;
+    124) die FIRST_BOOT_PENDING;;
+    *) die FIRST_BOOT_FAILED;;
+  esac
+fi
+# first-boot: end
 phase=resources
 operation resources
 # A bootstrap floor protects source transfer and minimal prerequisites. The
@@ -252,6 +278,15 @@ for old in $(ls -1t "$root/revisions"); do
   [ "$kept" -gt 2 ] || continue
   rm -rf -- "${root:?}/revisions/$old" || true
 done
+phase=tailnet-key
+# The key the manager minted for a worker that is not on the tailnet yet: a
+# root-only file tailscale.yml joins with and deletes. sudo reads it from
+# stdin, so it never appears in a process's arguments.
+if [ -n "$tailnet_key" ]; then
+  case "$tailnet_key" in *[!A-Za-z0-9_-]*) die TAILNET_KEY_INVALID;; esac
+  printf '%s\n' "$tailnet_key" | sudo -n sh -c 'umask 077 && mkdir -p /run/devfleet && cat >/run/devfleet/tailnet-auth-key' || die TAILNET_KEY_DELIVERY_FAILED
+fi
+tailnet_key=''
 phase=configuration
 operation configuration
 trap - EXIT INT TERM

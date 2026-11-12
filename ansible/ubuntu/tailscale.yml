@@ -86,8 +86,47 @@
       failed_when: false
       register: tailscale_status
       no_log: true
+    # A new worker joins with a single-use, pre-authorised, tagged key that
+    # the seed or the bootstrap left in a root-only file. It joins only when
+    # it has never been logged in (NeedsLogin): a node with Tailscale state
+    # keeps its identity, and is never re-joined or reset. The key is read
+    # from the file by tailscale itself, so it is never an argument.
+    - name: Look for a single-use enrolment key
+      ansible.builtin.stat:
+        path: /run/devfleet/tailnet-auth-key
+      register: tailnet_key
+    - name: Join the tailnet as the declared worker, with its tag, when never logged in
+      ansible.builtin.command:
+        argv: >-
+          {{ ['tailscale', 'up', '--auth-key=file:/run/devfleet/tailnet-auth-key',
+              '--hostname=' ~ tailnet_hostname, '--ssh=false', '--timeout=120s']
+             + (['--advertise-tags=' ~ tailnet_tag] if tailnet_tag | default('') else [])
+             + (['--login-server=' ~ tailnet_login_server] if tailnet_login_server | default('') else []) }}
+      when:
+        - tailnet_key.stat.exists
+        - tailnet_hostname | default('') is match('^[a-z0-9][a-z0-9-]{0,62}$')
+        - tailscale_status.rc == 0
+        - (tailscale_status.stdout | from_json).BackendState == 'NeedsLogin'
+      changed_when: true
+      # A used or expired key fails here; the assertion below names it.
+      failed_when: false
+      register: tailnet_join
+      no_log: true
+    - name: Forget the enrolment key once it was offered
+      ansible.builtin.file:
+        path: /run/devfleet/tailnet-auth-key
+        state: absent
+    - name: Inspect native authentication after the join
+      ansible.builtin.command:
+        argv: [tailscale, status, '--json']
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: tailscale_joined
+      no_log: true
+      when: tailnet_join is changed
     - name: Require genuine device authentication before claiming connectivity
       ansible.builtin.assert:
-        that: (tailscale_status.stdout | from_json).BackendState == 'Running'
-        fail_msg: TAILSCALE_LOGIN_REQUIRED; authorize this device through its native login. Existing state is never copied or reset.
+        that: ((tailscale_joined if tailnet_join is changed else tailscale_status).stdout | from_json).BackendState == 'Running'
+        fail_msg: TAILSCALE_LOGIN_REQUIRED; authorize this device through its native login, or declare tailnet in fleet.json so fleet-sync enrols it with a single-use key. Existing state is never copied or reset.
       no_log: true

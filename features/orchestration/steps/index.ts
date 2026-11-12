@@ -3,6 +3,7 @@ import './agent-configuration';
 import './checkout';
 import './cli';
 import './common';
+import './first-boot';
 import './fleet-sync';
 import './repairs';
 import './tailnet-health';

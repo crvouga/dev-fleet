@@ -30,6 +30,7 @@ import {
   attempt,
   configureWorkstation,
 } from './node-converge-shared';
+import { loginServer } from './tailnet-control';
 import type { Check, Runner } from './types';
 
 /** Ubuntu worker convergence: Ansible owns OS policy, services and recovery; the
@@ -60,7 +61,7 @@ export async function convergeLinux(
   const checks: Check[] = [];
   checks.push(
     ...(await attempt('tailscale:configuration', async () => [
-      await applyTailscale(root, run),
+      await applyTailscale(root, node, run),
     ]))
   );
   const { baseline, verified } = await baselineStep(root, run, node);
@@ -218,12 +219,27 @@ async function baselineServicesActive(run: Runner): Promise<boolean> {
   return user.ok;
 }
 
-async function applyTailscale(root: string, run: Runner): Promise<Check> {
+/** A worker that was never logged in joins under its declared ID, with the
+ * fleet's tag, when the seed or the bootstrap left it a single-use key.
+ */
+async function applyTailscale(
+  root: string,
+  node: string,
+  run: Runner
+): Promise<Check> {
   const ubuntu = resolve(root, 'ansible/ubuntu');
   const tailscale = await runAnsibleWithReceipt(
     run,
     'tailscale.yml',
-    { cwd: ubuntu, timeoutMs: 300_000, input: '{}' },
+    {
+      cwd: ubuntu,
+      timeoutMs: 300_000,
+      input: JSON.stringify({
+        tailnet_hostname: node,
+        tailnet_tag: fleet.tailnet?.tag ?? '',
+        tailnet_login_server: loginServer(fleet.tailnet) ?? '',
+      }),
+    },
     {
       name: 'ubuntu-tailscale',
       sources: [ubuntu],

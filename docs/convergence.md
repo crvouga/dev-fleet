@@ -19,6 +19,8 @@ is missing from it.
 | `ansible/ubuntu/t3-policy.yml`            | T3's administrator policy                                                  |
 | `ansible/ubuntu/t3-route.yml`             | T3's private tailnet route                                                 |
 | `ansible/ubuntu/recovery.yml`             | Recovery of a stopped T3 desktop app                                       |
+| `ansible/ubuntu/worker-account.yml`       | The declared account on an image that lets only root in, from the manager  |
+| `ansible/ubuntu/reboot.yml`               | One worker's first-converge or maintenance reboot, from the manager        |
 | `ansible/monitoring/agent.yml`            | The Beszel agent on a worker                                               |
 | `ansible/monitoring/agent-darwin.yml`     | The Beszel agent on the manager                                            |
 | `ansible/monitoring/hub-darwin.yml`       | The Beszel hub and its tunnel on the manager                               |

@@ -74,3 +74,21 @@ export async function runAnsible(
     await rm(directory, { recursive: true, force: true });
   }
 }
+
+/** A playbook of the package, applied from the manager with these variables:
+ * one that addresses a worker over SSH itself (ansible/ubuntu/reboot.yml).
+ * Scenarios answer it in place of Ansible.
+ */
+export type PackagePlaybook = (
+  name: string,
+  variables: object,
+  timeoutMs: number
+) => Promise<CommandResult>;
+
+export function packagePlaybook(run: Runner): PackagePlaybook {
+  return (name, variables, timeoutMs) =>
+    runAnsible(run, join(PACKAGE_ROOT, 'ansible', name), {
+      input: JSON.stringify(variables),
+      timeoutMs,
+    });
+}

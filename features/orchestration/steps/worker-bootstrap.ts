@@ -7,6 +7,7 @@ import {
   rm,
   writeFile,
 } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fleet } from '../../../src/fleet-config';
@@ -95,7 +96,46 @@ function waits(world: OrchestrationWorld): Waiting {
   return found;
 }
 
-When('the worker is bootstrapped', async (world) => {
+/** A single-use key, made per run so no credential-shaped literal is
+ * committed.
+ */
+const tailnetKeys = new WeakMap<OrchestrationWorld, string>();
+
+When(
+  /^the worker is bootstrapped(, with a tailnet key generated for this scenario)?$/,
+  async (world, keyed: string | undefined) => {
+    if (keyed)
+      tailnetKeys.set(world, ['tskey', 'auth', randomUUID()].join('-'));
+    await bootstrap(world, tailnetKeys.get(world));
+  }
+);
+
+Then(
+  'the bootstrap was fed the key on the line after the configuration',
+  (world) => {
+    for (const { options } of bootstraps(world))
+      expect(String(options?.input ?? '').split('\n')[1]).toBe(
+        tailnetKeys.get(world)!
+      );
+  }
+);
+
+Then('no command line holds the key', (world) => {
+  const key = tailnetKeys.get(world)!;
+  for (const call of world.commands.calls)
+    expect(call.command.join(' ')).not.toContain(key);
+});
+
+Then('nothing the bootstrap was fed holds the key', (world) => {
+  const key = tailnetKeys.get(world)!;
+  for (const { options } of bootstraps(world))
+    expect(String(options?.input ?? '')).not.toContain(key);
+});
+
+async function bootstrap(
+  world: OrchestrationWorld,
+  tailnetKey: string | undefined
+): Promise<void> {
   const time = waits(world);
   const report = await bootstrapRemote(
     need(world.nodes[0], 'a worker'),
@@ -111,11 +151,12 @@ When('the worker is bootstrapped', async (world) => {
         now: () => time.at,
       },
       progress: (line) => time.progress.push(line),
+      ...(tailnetKey ? { tailnetKey } : {}),
     }
   );
   world.checks = report.checks;
   world.outcome = report;
-});
+}
 
 // ── A lost session, and an operation that is still running ───────────────
 

@@ -129,6 +129,8 @@ Feature: The fleet configuration
         | another fleet's source is named   | accept  | source  | {"repository":"https://git.example.org/a/b.git"} |
         | secrets come from the environment | accept  | secrets | {"provider":"env"}                               |
         | commits are signed with SSH       | accept  | git     | {"name":"Example User","email":"example-user@users.noreply.github.com","signing":"ssh"} |
+        | the hosted Tailscale enrols       | accept  | tailnet | {"api":"tailscale","tag":"tag:fleet-worker"}     |
+        | a Headscale server enrols         | accept  | tailnet | {"api":"headscale","url":"https://hs.example.org","tag":"tag:w","user":"7"} |
 
       Examples: Refused
         | change                           | verdict | field                       | value                                                          |
@@ -150,6 +152,10 @@ Feature: The fleet configuration
         | there is an unknown block        | refuse  | extra                       | {}                                                             |
         | a canary id is malformed         | refuse  | canary                      | "Not An Id"                                                    |
         | commits are signed with GPG      | refuse  | git                         | {"name":"Example User","email":"example-user@users.noreply.github.com","signing":"gpg"} |
+        | a Headscale server has no user   | refuse  | tailnet                     | {"api":"headscale","url":"https://hs.example.org","tag":"tag:w"} |
+        | the tailnet tag is not a tag     | refuse  | tailnet                     | {"api":"tailscale","tag":"fleet-worker"}                       |
+        | the control plane is plain HTTP  | refuse  | tailnet                     | {"api":"headscale","url":"http://hs.example.org","tag":"tag:w","user":"7"} |
+        | a control plane of another kind  | refuse  | tailnet                     | {"api":"netbird","tag":"tag:w"}                                |
 
     Scenario Outline: Only the parser refuses a definition where <change>
       A rule that relates two fields cannot be written in the schema. These

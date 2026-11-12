@@ -302,6 +302,14 @@ An agent cannot answer those prompts, and `--json`, `--non-interactive` or a
 npx devfleet fleet-sync
 ```
 
+A worker that needs none of those prompts is enrolled without the human: a
+run with `--json` or `--non-interactive` enrolls a declared worker when its
+pinned host key matched, `sudo -n` works on it, and exactly one tailnet device
+matches it (or none, when `fleet.json` declares `tailnet` and its secret
+`tailnet-admin`, so the run joins it with a single-use key). The report lists
+what it enrolled (`enrolled` in the JSON). A machine made with
+`devfleet fleet-node-seed` meets all of these.
+
 It converges the manager first, then the canary worker, then the rest. It
 prints one table and the path of the full JSON report
 (`~/.local/share/personal/fleet/manager/last-sync.json`, readable by the human

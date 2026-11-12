@@ -16,7 +16,13 @@ Initially each worker (an Ubuntu release the [support matrix](support-matrix.md)
 lists) needs a
 designated non-root account, trusted SSH access and administrator authorization. Standard Ubuntu cloud-image users
 already commonly have noninteractive sudo; otherwise establish the repository's
-`authorize-sudo.sh` policy once during administrator enrollment. Routine commands
+`authorize-sudo.sh` policy once during administrator enrollment. An image that
+lets only root in (many rented servers) needs no hands either: when the
+account `workers[].network.user` names cannot log in yet, or the SSH alias
+logs in as root, `fleet-sync` creates that account once over the root login
+(`ansible/ubuntu/worker-account.yml`: the key root was reached with and the
+fleet's sudo rule) and continues as it. The developer toolchain never runs as
+root, and the SSH policy turns root login off afterwards. Routine commands
 never ask for or store an SSH/sudo password. Unknown host keys, a different device
 identity, or missing privilege stop with a named action rather than bypassing trust.
 

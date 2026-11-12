@@ -134,6 +134,26 @@ expiring: tag them, or disable key expiry for each in the Tailscale admin
 console (tagged nodes do not expire). `tailscale:key-expiry` warns two weeks
 ahead and fails three days ahead.
 
+With `tailnet` in `fleet.json` and the secret `tailnet-admin`, nothing needs
+renewing: every worker joins with a key that carries the fleet's tag, and a
+tagged device has key expiry disabled on the hosted Tailscale. For an enrolled
+worker whose key still expires (one that joined before it was tagged),
+`fleet-sync` disables expiry through the control plane
+(`tailscale:key-expiry-policy`); `tailscale:key-expiry` measures the result on
+the next run. Headscale gives a node registered with a pre-authorised key no
+expiry.
+
+### Maintenance reboots
+
+Kernel and library updates apply only after a reboot (`worker:reboot-pending`).
+`devfleet fleet-sync --maintenance-reboot` reboots each worker that has one
+pending: one at a time, the canary first, only while it runs no agent turn
+(`--force` ends them), through `ansible/ubuntu/reboot.yml`. Each worker is
+converged again once it answers; a worker that does not come back ready stops
+the ones after it. A new worker that was never ready is rebooted once after its
+first converge in any `fleet-sync`, so it reaches ready in one run; a worker
+that was ready before is rebooted only by `--maintenance-reboot`.
+
 To re-join a worker whose key expired, a person signs it in again, because
 only a person's identity can authorise a device:
 

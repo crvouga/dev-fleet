@@ -511,6 +511,14 @@
       "meaning": "Tailscale computers could be discovered."
     },
     {
+      "id": "tailscale:enrolment-key",
+      "meaning": "A worker that is not on the tailnet yet was handed a single-use, pre-authorised, tagged key minted by the fleet's control plane."
+    },
+    {
+      "id": "tailscale:key-expiry-policy",
+      "meaning": "The control plane disabled node-key expiry for an enrolled worker whose key had one."
+    },
+    {
       "id": "tailscale:enrolled-identity",
       "meaning": "The Tailscale identity matches the enrollment."
     },
@@ -561,6 +569,14 @@
     {
       "id": "worker:*",
       "meaning": "A worker readiness gate."
+    },
+    {
+      "id": "worker:account",
+      "meaning": "The declared worker account was created over a root login, with the manager's key and the fleet's sudo rule."
+    },
+    {
+      "id": "worker:reboot",
+      "meaning": "The worker was rebooted while it ran no agent turn (after its first converge, or for maintenance), answered again and was converged once more."
     },
     {
       "id": "worker:capacity",

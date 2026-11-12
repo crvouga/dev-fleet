@@ -60,6 +60,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | `notify-webhook-url`           | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_WEBHOOK_URL`           | `~/.config/dev-fleet/secrets/notify-webhook-url`           |
 | `notify-ntfy-url`              | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_NTFY_URL`              | `~/.config/dev-fleet/secrets/notify-ntfy-url`              |
 | `tailnet-auth-key`             | when its feature is declared | `DEVFLEET_SECRET_TAILNET_AUTH_KEY`             | `~/.config/dev-fleet/secrets/tailnet-auth-key`             |
+| `tailnet-admin`                | when its feature is declared | `DEVFLEET_SECRET_TAILNET_ADMIN`                | `~/.config/dev-fleet/secrets/tailnet-admin`                |
 
 <!-- end: secrets -->
 

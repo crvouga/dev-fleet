@@ -58,3 +58,45 @@ Feature: A new worker joins the fleet by itself from a seed
       | tailnet-auth-key | placeholder-that-is-not-an-auth-key |
     When the operator seeds "worker-one"
     Then the seed is refused with "not a Tailscale auth key"
+
+  Scenario: With a tailnet control plane, the seed carries a key minted for this worker alone
+    The stored tailnet-auth-key is not used: each seed gets its own
+    single-use, tagged key that expires within minutes.
+    Given the secrets provider holds a tailnet-admin credential generated for this scenario
+    And the fleet declares the tailnet control plane:
+      """
+      { "api": "tailscale", "tag": "tag:fleet-worker" }
+      """
+    And the control plane answers 200 with a key generated for this scenario
+    When the operator seeds "worker-one"
+    Then the command exits with 0
+    And the control plane was asked "POST" "https://api.tailscale.com/api/v2/tailnet/-/keys"
+    And the seed carries the key the control plane issued, and not the stored one
+    And nothing printed or answered contains the key the control plane issued
+
+  Scenario: A worker seeded for a self-hosted control server joins that server
+    Given the secrets provider holds a tailnet-admin credential generated for this scenario
+    And the fleet declares the tailnet control plane:
+      """
+      { "api": "headscale", "url": "https://headscale.example.org", "tag": "tag:fleet-worker", "user": "7" }
+      """
+    And the control plane answers 200 with:
+      """
+      { "preAuthKey": { "key": "0123456789abcdef0123456789abcdef0123456789abcdef", "expiration": "2026-11-12T10:10:00Z" } }
+      """
+    When the operator seeds "worker-one"
+    Then the command exits with 0
+    And the seed joins with "--login-server=https://headscale.example.org"
+
+  Scenario: A control plane that refuses the credential stops the seed, naming the code
+    Given the secrets provider holds a tailnet-admin credential generated for this scenario
+    And the fleet declares the tailnet control plane:
+      """
+      { "api": "tailscale", "tag": "tag:fleet-worker" }
+      """
+    And the control plane answers 403 with:
+      """
+      {}
+      """
+    When the operator seeds "worker-one"
+    Then the seed is refused with "TAILNET_CONTROL_DENIED"
