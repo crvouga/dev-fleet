@@ -56,6 +56,8 @@ Every failure code is in [the runbooks](runbooks.md).
 | `proxy-tunnel-token`           | yes                          | `DEVFLEET_SECRET_PROXY_TUNNEL_TOKEN`           | `~/.config/dev-fleet/secrets/proxy-tunnel-token`           |
 | `monitoring-backup-access-key` | when its feature is declared | `DEVFLEET_SECRET_MONITORING_BACKUP_ACCESS_KEY` | `~/.config/dev-fleet/secrets/monitoring-backup-access-key` |
 | `monitoring-backup-secret-key` | when its feature is declared | `DEVFLEET_SECRET_MONITORING_BACKUP_SECRET_KEY` | `~/.config/dev-fleet/secrets/monitoring-backup-secret-key` |
+| `notify-webhook-url`           | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_WEBHOOK_URL`           | `~/.config/dev-fleet/secrets/notify-webhook-url`           |
+| `notify-ntfy-url`              | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_NTFY_URL`              | `~/.config/dev-fleet/secrets/notify-ntfy-url`              |
 
 <!-- end: secrets -->
 

@@ -241,10 +241,19 @@ export function parseDefinition(value: unknown): FleetDefinition {
     workers,
     services: services(value['services']),
     ubuntu: baseline(value['ubuntu']),
+    ...optionalSections(value),
+  };
+}
+/** The sections a fleet may leave out, kept only when named: an earlier
+ * revision must still read the copy.
+ */
+function optionalSections(
+  value: Record<string, unknown>
+): Pick<FleetDefinition, 'worker' | 'ides' | 't3' | 'git' | 'notify'> {
+  return {
     ...(value['worker'] === undefined
       ? {}
       : { worker: parseWorkerPolicy(value['worker']) }),
-    // Kept only when named: an earlier revision must still read the copy.
     ...(value['ides'] === undefined ? {} : { ides: parseIdes(value['ides']) }),
     ...(value['t3'] === undefined ? {} : { t3: parseT3(value['t3']) }),
     ...(value['git'] === undefined ? {} : { git: gitIdentity(value['git']) }),

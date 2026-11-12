@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 234 codes; 31 need a person.
+There are 241 codes; 31 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -161,6 +161,7 @@ There are 234 codes; 31 need a person.
 - `TAILSCALE_ENROLLMENT_REQUIRED`: tailscale enrollment required. **Needs a person.**
 - `TAILSCALE_IDENTITY_CONFLICT`: tailscale identity conflict. **Needs a person.**
 - `TAILSCALE_INTERACTIVE_AUTHORIZATION_REQUIRED`: tailscale interactive authorization required. **Needs a person.**
+- `TAILSCALE_KEY_EXPIRY_UNOBSERVED`: tailscale key expiry unobserved.
 - `TAILSCALE_LOGIN_REQUIRED`: tailscale login required. **Needs a person.**
 - `TAILSCALE_NODE_MISSING`: tailscale node missing.
 - `TAILSCALE_NODE_OFFLINE`: tailscale node offline.
@@ -343,6 +344,7 @@ There are 234 codes; 31 need a person.
 - **Escalate:** FLEET_STATE_DIVERGED needs a person to choose which copy of the state to keep (docs/state.md).
 
 - `ANSIBLE_VARIABLE_LIMIT`: ansible variable limit.
+- `CONTAINER_WATCHDOG_UNOBSERVED`: container watchdog unobserved.
 - `FLEET_CONNECTION_REQUIRED`: fleet connection required.
 - `FLEET_MANAGER_ENROLLMENT_REQUIRED`: fleet manager enrollment required. **Needs a person.**
 - `FLEET_MANAGER_LOCKED`: fleet manager locked.
@@ -358,8 +360,21 @@ There are 234 codes; 31 need a person.
 - `FLEET_STATE_DIVERGED`: fleet state diverged. **Needs a person.**
 - `FLEET_VERIFICATION_MISSING`: fleet verification missing.
 - `MANAGER_AGENT_PROFILES_FAILED`: manager agent profiles failed.
+- `MANAGER_DISK_UNOBSERVED`: manager disk unobserved.
 - `MANAGER_DOCKER_DESKTOP_DRIFT`: manager docker desktop drift.
 - `MANAGER_DOCKER_DESKTOP_UNOBSERVED`: manager docker desktop unobserved.
+- `MANAGER_RELEASE_UNOBSERVED`: manager release unobserved.
 - `MANAGER_SLEEPS_ON_POWER`: manager sleeps on power.
+- `MANAGER_UPDATES_UNOBSERVED`: manager updates unobserved.
 - `REMOTE_CONFIGURATION_INCOMPLETE`: remote configuration incomplete.
 - `REMOTE_PHASE_FAILED`: remote phase failed.
+
+## Notifications (fleet-watch)
+
+- **Meaning:** fleet-watch could not reach a notification target `notify` in `fleet.json` names, or its address is not stored as a secret.
+- **Confirm:** Run `devfleet fleet-watch --test` and read the `notify:*` checks.
+- **Fix:** Store the target's address as the secret the remedy names, or fix the endpoint, then run `devfleet fleet-watch --test` again.
+- **Escalate:** A target that keeps refusing needs whoever runs that endpoint.
+
+- `NOTIFY_DELIVERY_FAILED`: notify delivery failed.
+- `NOTIFY_TARGET_UNAVAILABLE`: notify target unavailable.
