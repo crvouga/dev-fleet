@@ -24,13 +24,13 @@ Nothing else is needed. You never clone dev-fleet, copy its files or write a
 wrapper script around a checkout of it: the npm package is the tool, and the
 version in `package.json` is the commit every machine runs.
 
-| Concept     | Meaning                                                                                                |
-| ----------- | ------------------------------------------------------------------------------------------------------ |
-| manager     | The one macOS machine you run `devfleet fleet-sync` on. Hosts the CLI proxy and the monitoring hub.    |
-| worker      | An Ubuntu 26.04 machine the manager converges over SSH. Stateless: rebuilt from Git and your secrets.  |
-| fleet state | One SQLite database (roster, approved revision, configuration last applied) replicated to your bucket. |
-| bucket      | Any S3-compatible bucket you own, or a directory. The source of truth for the fleet state.             |
-| revision    | The dev-fleet commit the installed package was published from (`npx devfleet --version`).              |
+| Concept     | Meaning                                                                                                        |
+| ----------- | -------------------------------------------------------------------------------------------------------------- |
+| manager     | The one macOS machine you run `devfleet fleet-sync` on. Hosts the CLI proxy and the monitoring hub.            |
+| worker      | An Ubuntu 26.04 or 24.04 machine the manager converges over SSH. Stateless: rebuilt from Git and your secrets. |
+| fleet state | One SQLite database (roster, approved revision, configuration last applied) replicated to your bucket.         |
+| bucket      | Any S3-compatible bucket you own, or a directory. The source of truth for the fleet state.                     |
+| revision    | The dev-fleet commit the installed package was published from (`npx devfleet --version`).                      |
 
 ## Rules for agents
 
@@ -77,11 +77,11 @@ On the manager (the Mac this project is checked out on):
 
 On every worker:
 
-| Requirement                          | Verify, from the manager                                           |
-| ------------------------------------ | ------------------------------------------------------------------ |
-| Ubuntu 26.04, amd64 or arm64         | `ssh WORKER_ALIAS '. /etc/os-release; echo $VERSION_ID; uname -m'` |
-| A non-root account that can use sudo | `ssh WORKER_ALIAS 'id -u; sudo -n true && echo sudo-ok'`           |
-| Joined to the same tailnet           | the worker appears in `tailscale status` on the manager            |
+| Requirement                           | Verify, from the manager                                           |
+| ------------------------------------- | ------------------------------------------------------------------ |
+| Ubuntu 26.04 or 24.04, amd64 or arm64 | `ssh WORKER_ALIAS '. /etc/os-release; echo $VERSION_ID; uname -m'` |
+| A non-root account that can use sudo  | `ssh WORKER_ALIAS 'id -u; sudo -n true && echo sudo-ok'`           |
+| Joined to the same tailnet            | the worker appears in `tailscale status` on the manager            |
 
 A worker needs nothing else beforehand: no Git, curl, Python, Node, Bun or
 mise. `fleet-sync` installs them. If `sudo -n true` fails, that is fine for

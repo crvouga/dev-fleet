@@ -31,7 +31,7 @@
       "versions": "any",
       "architectures": "any",
       "status": "refused",
-      "note": "UBUNTU_BASELINE_MISMATCH"
+      "note": "UBUNTU_BASELINE_MISMATCH; not yet supported (see below)."
     },
     {
       "role": "worker",
@@ -39,7 +39,7 @@
       "versions": "any",
       "architectures": "any",
       "status": "refused",
-      "note": "The fleet configuration accepts only Linux workers."
+      "note": "The fleet configuration accepts only Linux workers; not yet supported (see below)."
     },
     {
       "role": "worker",

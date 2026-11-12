@@ -9,6 +9,11 @@ export interface UbuntuRelease {
   architectures: string[];
   /** Pins of this release that differ from the policy's `packages`. */
   packages?: Record<string, string>;
+  /** Pins of this release that differ from the policy's `browser.packages`. */
+  browserPackages?: Record<string, string>;
+  /** The digest of the key Tailscale signs this release's suite with, when
+   * it is not the policy's `tailscale.keySha256`. */
+  tailscaleKeySha256?: string;
 }
 
 export const UBUNTU_RELEASES: readonly UbuntuRelease[] = policy.releases;
@@ -19,6 +24,25 @@ export function packagePins(
   release: UbuntuRelease | undefined
 ): Record<string, string> {
   return { ...policy.packages, ...release?.packages };
+}
+
+/** The browser library pins of one release, combined the same way. */
+export function browserPackagePins(
+  release: UbuntuRelease | undefined
+): Record<string, string> {
+  return { ...policy.browser.packages, ...release?.browserPackages };
+}
+
+/** The Tailscale version and the digest of the key that signs one release's
+ * suite (as tasks/release.yml selects it for Ansible). */
+export function tailscalePins(release: UbuntuRelease | undefined): {
+  version: string;
+  keySha256: string;
+} {
+  return {
+    version: policy.tailscale.version,
+    keySha256: release?.tailscaleKeySha256 ?? policy.tailscale.keySha256,
+  };
 }
 
 /** `uname -m` for each Debian architecture name. */

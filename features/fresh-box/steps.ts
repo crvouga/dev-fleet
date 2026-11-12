@@ -1,12 +1,12 @@
 import { expect } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import ubuntu from '../../ansible/ubuntu/policy.json';
-import { ubuntuRelease } from '../../src/platform/ubuntu-release';
+import { packagePins, ubuntuRelease } from '../../src/platform/ubuntu-release';
 import { sshArgs } from '../../src/ssh';
 import { World, steps, type DataTable } from '../support/gherkin';
 import {
   BEFOREHAND,
+  RELEASE_UNDER_TEST,
   bootstrap,
   box,
   firstBootstrap,
@@ -46,14 +46,14 @@ export const freshBox = steps<FreshBoxWorld>();
 const { Given, When, Then } = freshBox;
 
 Given(
-  'a fresh Ubuntu {float} machine with an SSH server and an account that can use sudo',
-  async (world, release: number) => {
-    expect(ubuntuRelease(release.toFixed(2))).toBeDefined();
+  'a fresh machine of the Ubuntu release under test, with an SSH server and an account that can use sudo',
+  async (world) => {
+    expect(ubuntuRelease(RELEASE_UNDER_TEST)).toBeDefined();
     world.machine = await box(FRESH_BOX);
     world.revision = (await sshClient()).revision;
     expect(
       (await world.remote('. /etc/os-release && echo "$VERSION_ID"')).stdout
-    ).toBe(release.toFixed(2));
+    ).toBe(RELEASE_UNDER_TEST);
     expect((await world.remote('id -u')).stdout).not.toBe('0');
     expect((await world.remote('sudo -n true')).ok).toBe(true);
   }
@@ -164,9 +164,9 @@ Then(
 );
 
 Then(
-  'these packages are installed at the exact version the Ubuntu policy pins:',
+  'these packages are installed at the exact version the Ubuntu policy pins for the release:',
   async (world, table: DataTable) => {
-    const packages: Record<string, string> = ubuntu.packages;
+    const packages = packagePins(ubuntuRelease(RELEASE_UNDER_TEST));
     for (const name of table.list()) {
       const installed = await world.remote(
         `dpkg-query -W -f='\${Version}' ${name}`

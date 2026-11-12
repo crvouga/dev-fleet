@@ -12,8 +12,12 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
   That makes every run here a partial verification: it must say so, and must
   not record the revision as applied.
 
+  The machines run the Ubuntu release under test, as in the single-machine
+  feature: DEVFLEET_TEST_FRESH_BOX_RELEASE, or else the newest release the
+  Ubuntu policy accepts.
+
   Background:
-    Given these fresh Ubuntu 26.04 machines, each with only an SSH server and an account that can use sudo:
+    Given these fresh machines of the Ubuntu release under test, each with only an SSH server and an account that can use sudo:
       | fleet-a |
       | fleet-b |
     And the tailnet shows each of them online under its own name
@@ -145,7 +149,7 @@ Feature: One fleet-sync over several fresh machines, and the faults it meets
     And the fleet configuration on "fleet-b" was not written again
 
   Scenario: A machine with too little disk is refused before anything is installed
-    Given a fresh Ubuntu 26.04 machine "fleet-small" whose home has 64 MB free
+    Given a fresh machine "fleet-small" of the Ubuntu release under test whose home has 64 MB free
     When the manager bootstraps "fleet-small"
     Then the bootstrap reports "BOOTSTRAP_DISK_CAPACITY_REQUIRED" with a remedy
     And "fleet-small" still has none of these commands:

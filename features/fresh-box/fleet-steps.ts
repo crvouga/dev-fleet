@@ -2,8 +2,7 @@ import { expect } from 'bun:test';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import example from '../../examples/fleet.json';
-import ubuntu from '../../ansible/ubuntu/policy.json';
-import { ubuntuRelease } from '../../src/platform/ubuntu-release';
+import { packagePins, ubuntuRelease } from '../../src/platform/ubuntu-release';
 import { parseDefinition } from '../../src/definition';
 import { synchronizeManager, type ManagerReport } from '../../src/manager-sync';
 import { PLATFORM_PROBE } from '../../src/machine/platform';
@@ -12,6 +11,7 @@ import type { DataTable } from '../support/gherkin';
 import { freshBox, type FreshBoxWorld } from './steps';
 import {
   FLEET_ROOT,
+  RELEASE_UNDER_TEST,
   asRoot,
   bootstrap,
   box,
@@ -59,9 +59,9 @@ const revisionDir = async (): Promise<string> =>
   `${FLEET_ROOT}/revisions/${(await sshClient()).revision}`;
 
 Given(
-  'these fresh Ubuntu {float} machines, each with only an SSH server and an account that can use sudo:',
-  async (world, release: number, table: DataTable) => {
-    expect(ubuntuRelease(release.toFixed(2))).toBeDefined();
+  'these fresh machines of the Ubuntu release under test, each with only an SSH server and an account that can use sudo:',
+  async (world, table: DataTable) => {
+    expect(ubuntuRelease(RELEASE_UNDER_TEST)).toBeDefined();
     fleet(world).machines = await Promise.all(
       table.list().map((name) => box(name))
     );
@@ -69,9 +69,9 @@ Given(
 );
 
 Given(
-  'a fresh Ubuntu {float} machine {string} whose home has {int} MB free',
-  async (world, release: number, name: string, megabytes: number) => {
-    expect(ubuntuRelease(release.toFixed(2))).toBeDefined();
+  'a fresh machine {string} of the Ubuntu release under test whose home has {int} MB free',
+  async (world, name: string, megabytes: number) => {
+    expect(ubuntuRelease(RELEASE_UNDER_TEST)).toBeDefined();
     expect(megabytes).toBe(64);
     const machine = await box(name, { smallHome: true });
     fleet(world).machines.push(machine);
@@ -712,7 +712,7 @@ Given(
   'an update outside fleet-sync moved the pinned package {string} on {string} past its pin',
   async (world, pkg: string, name: string) => {
     const machine = named(world, name);
-    const pinned = (ubuntu.packages as Record<string, string>)[pkg]!;
+    const pinned = packagePins(ubuntuRelease(RELEASE_UNDER_TEST))[pkg]!;
     world.defer(async () => {
       await asRoot(
         machine,

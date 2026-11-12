@@ -39,3 +39,19 @@ Feature: A worker's manifest proves it can be rebuilt
   Scenario: Measuring changes nothing on the worker
     When the operator runs fleet-manifest for "worker-one"
     Then the worker was asked only to list, with dpkg-query, mise ls and systemctl is-enabled and is-active
+
+  Scenario: A worker of another accepted release is measured against that release's own pins
+    The worker reports its release with the manifest; the pins of that
+    release replace the common ones, so a 24.04 worker at its pins passes,
+    and one holding the 26.04 curl differs from them.
+    Given the worker runs Ubuntu "24.04", with every package at the pin of that release
+    And someone upgraded the package "curl" to "8.18.0-1ubuntu2.8" on the worker
+    When the operator runs fleet-manifest for "worker-one"
+    Then the command exits with 1
+    And the check "worker:manifest" fails, naming "packages:curl 8.5.0-2ubuntu10.16 -> 8.18.0-1ubuntu2.8"
+
+  Scenario: A worker of another accepted release at that release's pins passes
+    Given the worker runs Ubuntu "24.04", with every package at the pin of that release
+    When the operator runs fleet-manifest for "worker-one"
+    Then the command exits with 0
+    And the reported check "worker:manifest" passes

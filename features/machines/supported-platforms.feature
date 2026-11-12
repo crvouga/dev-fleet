@@ -9,14 +9,17 @@ Feature: Which machines the manager converges
     Then the "ubuntu:release" check says the worker is <verdict>
     And the baseline is summarised as "<summary>"
 
-    Examples: Ubuntu 26.04 on a supported CPU is the accepted worker baseline
+    Examples: Ubuntu 26.04 and 24.04 on a supported CPU are the accepted worker baselines
       | family | release | cpu     | verdict       | summary                                               |
       | ubuntu | 26.04   | x86_64  | supported     | Ubuntu 26.04 and supported CPU architecture observed. |
       | ubuntu | 26.04   | aarch64 | supported     | Ubuntu 26.04 and supported CPU architecture observed. |
+      | ubuntu | 24.04   | x86_64  | supported     | Ubuntu 24.04 and supported CPU architecture observed. |
+      | ubuntu | 24.04   | aarch64 | supported     | Ubuntu 24.04 and supported CPU architecture observed. |
 
     Examples: Anything else is refused: another release, another CPU, another family
       | family | release | cpu     | verdict       | summary                  |
-      | ubuntu | 24.04   | x86_64  | not supported | UBUNTU_BASELINE_MISMATCH |
+      | ubuntu | 22.04   | x86_64  | not supported | UBUNTU_BASELINE_MISMATCH |
+      | ubuntu | 24.04   | riscv64 | not supported | UBUNTU_BASELINE_MISMATCH |
       | ubuntu | 26.04   | riscv64 | not supported | UBUNTU_BASELINE_MISMATCH |
       | debian | 13      | x86_64  | not supported | UBUNTU_BASELINE_MISMATCH |
       | Darwin |         | arm64   | not supported | UBUNTU_BASELINE_MISMATCH |
@@ -56,3 +59,14 @@ Feature: Which machines the manager converges
     refuses a worker that names either, so no code converges them.
     Then the fleet configuration refuses a worker declared as "macOS"
     And the fleet configuration refuses a worker declared as "windows"
+
+  Scenario: A worker platform names what differs from one platform to another
+    Ubuntu is the one worker platform. Another would name its own policy,
+    packages, service manager and session model, and its own host checks.
+    Then the worker platforms are:
+      | family | label  | policy                     | packageManager | serviceManager | sessionModel        |
+      | ubuntu | Ubuntu | ansible/ubuntu/policy.json | apt            | systemd        | systemd-user-linger |
+    And the worker platform "ubuntu" accepts the releases:
+      | release | codename | architectures |
+      | 26.04   | resolute | amd64, arm64  |
+      | 24.04   | noble    | amd64, arm64  |

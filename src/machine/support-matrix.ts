@@ -1,6 +1,6 @@
 import macos from '../../ansible/macos/policy.json';
 import platforms from '../../ansible/platforms.json';
-import { UBUNTU_RELEASES } from '../platform/ubuntu-release';
+import { WORKER_PLATFORMS } from '../platform/ubuntu-worker';
 
 export type SupportStatus = 'supported' | 'best effort' | 'refused';
 export interface SupportRow {
@@ -25,14 +25,16 @@ export function supportMatrix(): SupportRow[] {
       status: 'supported',
       note: 'ansible/macos/policy.json',
     },
-    ...UBUNTU_RELEASES.map((entry): SupportRow => ({
-      role: 'worker',
-      platform: 'Ubuntu',
-      versions: `${entry.release} (${entry.codename})`,
-      architectures: entry.architectures.join(', '),
-      status: 'supported',
-      note: 'ansible/ubuntu/policy.json; a machine of its own, physical or virtual',
-    })),
+    ...WORKER_PLATFORMS.flatMap((platform) =>
+      platform.releases.map((entry): SupportRow => ({
+        role: 'worker',
+        platform: platform.label,
+        versions: `${entry.release} (${entry.codename})`,
+        architectures: entry.architectures.join(', '),
+        status: 'supported',
+        note: `${platform.policy}; a machine of its own, physical or virtual`,
+      }))
+    ),
     ...platforms.rows.map((row): SupportRow => ({
       role: row.role,
       platform: row.platform,

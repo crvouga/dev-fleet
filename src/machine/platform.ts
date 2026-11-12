@@ -1,5 +1,5 @@
 import platforms from '../../ansible/platforms.json';
-import { kernelArchitectures, ubuntuRelease } from '../platform/ubuntu-release';
+import { UBUNTU_WORKER, workerPlatform } from '../platform/ubuntu-worker';
 
 /** One POSIX probe for every worker, four lines: family, release, CPU and
  * the environment it runs in (`wsl`, `container` or `machine`, a physical
@@ -23,18 +23,23 @@ export interface PlatformBaseline {
   summary: string;
 }
 
-/** A worker is an accepted Ubuntu release on one of that release's CPUs. */
+/** A worker is an accepted release of a worker platform on one of that
+ * release's CPUs. The check keeps its ID and its refusal: Ubuntu is the only
+ * worker platform, and anything else is refused as not that baseline. */
 export function evaluatePlatform(probe: string): PlatformBaseline {
   const [family, version, cpu] = probe.split('\n').map((line) => line.trim());
-  const release = family === 'ubuntu' ? ubuntuRelease(version) : undefined;
+  const platform = workerPlatform(family);
+  const release = platform?.release(version);
   const supported =
-    release !== undefined && kernelArchitectures(release).includes(cpu ?? '');
+    platform !== undefined &&
+    release !== undefined &&
+    platform.kernelArchitectures(release).includes(cpu ?? '');
   return {
     id: 'ubuntu:release',
     supported,
     summary: supported
-      ? `Ubuntu ${release.release} and supported CPU architecture observed.`
-      : 'UBUNTU_BASELINE_MISMATCH',
+      ? `${platform.label} ${release.release} and supported CPU architecture observed.`
+      : (platform ?? UBUNTU_WORKER).mismatch,
   };
 }
 

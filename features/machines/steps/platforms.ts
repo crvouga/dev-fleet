@@ -15,6 +15,10 @@ import {
   getPlatform,
   type PlatformName,
 } from '../../../src/platform';
+import {
+  WORKER_PLATFORMS,
+  workerPlatform,
+} from '../../../src/platform/ubuntu-worker';
 import { machines, temporary } from './world';
 
 const { Given, When, Then } = machines;
@@ -144,5 +148,31 @@ Then(
         workers: [{ id: 'worker-a', ssh: 'worker-a', os }],
       })
     ).toThrow('Invalid fleet definition');
+  }
+);
+
+Then('the worker platforms are:', (_world, table: DataTable) => {
+  expect(
+    WORKER_PLATFORMS.map((platform) => ({
+      family: platform.family,
+      label: platform.label,
+      policy: platform.policy,
+      packageManager: platform.packageManager,
+      serviceManager: platform.serviceManager,
+      sessionModel: platform.sessionModel,
+    }))
+  ).toEqual(table.hashes() as never);
+});
+
+Then(
+  'the worker platform {string} accepts the releases:',
+  (_world, family: string, table: DataTable) => {
+    expect(
+      workerPlatform(family)?.releases.map((entry) => ({
+        release: entry.release,
+        codename: entry.codename,
+        architectures: entry.architectures.join(', '),
+      }))
+    ).toEqual(table.hashes() as never);
   }
 );

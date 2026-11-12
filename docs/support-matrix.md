@@ -13,11 +13,12 @@ rest. The default is one macOS manager and Ubuntu workers treated as cattle.
 | -------------- | --------- | ------------------- | --------------- | ----------- | ----------------------------------------------------------------------------------------- |
 | manager        | macOS     | 14 or newer         | arm64, x86_64   | supported   | ansible/macos/policy.json                                                                 |
 | worker         | Ubuntu    | 26.04 (resolute)    | amd64, arm64    | supported   | ansible/ubuntu/policy.json; a machine of its own, physical or virtual                     |
+| worker         | Ubuntu    | 24.04 (noble)       | amd64, arm64    | supported   | ansible/ubuntu/policy.json; a machine of its own, physical or virtual                     |
 | manager        | any other | any                 | any             | refused     | The fleet configuration accepts only a macOS manager.                                     |
 | worker         | Ubuntu    | any other release   | any             | refused     | UBUNTU_BASELINE_MISMATCH                                                                  |
 | worker         | Ubuntu    | an accepted release | any other       | refused     | UBUNTU_BASELINE_MISMATCH                                                                  |
-| worker         | Debian    | any                 | any             | refused     | UBUNTU_BASELINE_MISMATCH                                                                  |
-| worker         | macOS     | any                 | any             | refused     | The fleet configuration accepts only Linux workers.                                       |
+| worker         | Debian    | any                 | any             | refused     | UBUNTU_BASELINE_MISMATCH; not yet supported (see below).                                  |
+| worker         | macOS     | any                 | any             | refused     | The fleet configuration accepts only Linux workers; not yet supported (see below).        |
 | worker         | Windows   | any                 | any             | refused     | The fleet configuration accepts only Linux workers.                                       |
 | worker         | WSL2      | any                 | any             | refused     | WORKER_ENVIRONMENT_UNSUPPORTED                                                            |
 | worker         | container | any                 | any             | refused     | WORKER_ENVIRONMENT_UNSUPPORTED                                                            |
@@ -32,5 +33,40 @@ refuses a worker that is not Linux, the platform probe refuses another
 release, CPU or environment (`ubuntu:release`, `platform:environment`), and
 the bootstrap and the Ubuntu baseline refuse them again on the machine.
 
-Supporting another platform means adding it to the policy that names it, with
-its package pins, a fresh-box job and its row here.
+## Adding a platform or a release
+
+What differs from one worker platform to another is named by the
+`WorkerPlatform` interface (`src/platform/worker-platform.ts`): its policy and
+playbooks, its package manager and pins, its Tailscale key, its service
+manager, its session model and its host checks. Ubuntu is the one
+implementation (`src/platform/ubuntu-worker.ts`).
+
+Another Ubuntu release is one entry in `releases` of
+`ansible/ubuntu/policy.json`: its version, codename and architectures, its
+package and browser library pins read from the snapshot's Packages indexes
+for that release (`packages`, `browserPackages`), and `tailscaleKeySha256`
+only when Tailscale signs its suite with another key than the common one.
+`ansible/ubuntu/tasks/release.yml` selects the entry from the facts, so the
+playbooks need no change of their own. The release is supported once the
+fresh-box features pass on it: CI runs them for every accepted release
+(`DEVFLEET_TEST_FRESH_BOX_RELEASE`), with its image pinned in
+`features/fresh-box/Dockerfile`.
+
+## Not yet supported
+
+These are refused today. What each would need, beyond a row here:
+
+- **Debian workers.** A `WorkerPlatform` of its own with a Debian policy:
+  pins read from snapshot.debian.org for each release, Tailscale's key digest
+  for the Debian suite, the platform probe accepting `ID=debian`, and the
+  bootstrap and `tasks/release.yml` accepting it in place of
+  `UBUNTU_BASELINE_MISMATCH`. The playbooks assume Ubuntu's archive keyring,
+  snapshot service and unattended-upgrades origins, and the GNOME desktop
+  T3 runs in; each needs a Debian equivalent. Then a fresh-box image and job.
+- **macOS workers.** Everything a worker platform names differs: launchd in
+  place of systemd as the service manager, a logged-in user session in place
+  of a lingering systemd user manager, Homebrew or pinned downloads in place
+  of APT, power and sleep policy through `pmset`, and host checks of their
+  own. The fleet configuration would accept `macOS` for a worker, and the
+  convergence would run playbooks under `ansible/macos` for it. No container
+  can stand in for a fresh macOS machine, so the test would be a macOS runner.

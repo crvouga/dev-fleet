@@ -2,17 +2,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import type { FleetDefinition } from '../definition';
-import { ubuntuRelease } from '../platform/ubuntu-release';
+import { tailscalePins, ubuntuRelease } from '../platform/ubuntu-release';
 import { FleetUsageError } from '../errors';
 import { fleet, secret } from '../fleet-config';
 import type { SecretsProvider } from '../secrets';
 import type { Check } from '../types';
-import {
-  generateHostKey,
-  renderSeed,
-  seedUserData,
-  tailscalePins,
-} from '../worker-seed';
+import { generateHostKey, renderSeed, seedUserData } from '../worker-seed';
 import type { CommandOutcome } from './contracts';
 import {
   keyName,
@@ -92,7 +87,7 @@ export async function fleetNodeSeed(
       managerKey,
       authKey,
       hostKey,
-      tailscale: await tailscalePins(),
+      tailscale: tailscalePins(release),
       codename: release.codename,
     }),
     Boolean(options.autoinstall)

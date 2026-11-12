@@ -55,6 +55,8 @@ export class MachinesWorld extends CommandWorld {
   probeRoot: string | undefined;
   probeOutput: string | undefined;
   pins: Record<string, string> | undefined;
+  browserPins: Record<string, string> | undefined;
+  tailscale: { version: string; keySha256: string } | undefined;
 
   // The manager: its earlier enrollment, its lock and a local checkout.
   enrollment: Enrollment | null | undefined;

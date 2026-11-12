@@ -102,16 +102,6 @@ export function renderSeed(
   return `#cloud-config\n${stringify(document, { lineWidth: 0 })}`;
 }
 
-/** The version and key digest the worker baseline pins for Tailscale. */
-export async function tailscalePins(
-  root = PACKAGE_ROOT
-): Promise<SeedInput['tailscale']> {
-  const policy = JSON.parse(
-    await readFile(join(root, 'ansible/ubuntu/policy.json'), 'utf8')
-  ) as { tailscale: SeedInput['tailscale'] };
-  return policy.tailscale;
-}
-
 /** A new ed25519 host key, generated in a private directory that is removed
  * afterwards.
  */

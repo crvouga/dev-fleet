@@ -22,7 +22,7 @@ Use `devfleet fleet-sync` to reconcile all declared workers and
 `devfleet fleet-status --workers` to inspect remaining gaps. See
 [worker-contract.md](worker-contract.md) for bootstrap, ownership and the exact
 scope of readiness. `fleet-status` without flags diagnoses the local roster.
-Workers are Ubuntu 26.04; the manager is macOS and never sleeps on AC power
+Workers are Ubuntu 26.04 or 24.04; the manager is macOS and never sleeps on AC power
 (`ansible/macos/manager.yml`). Machine policy (never sleep, no automatic
 logout, always-on Tailscale/SSH/Docker/Beszel, memory and disk safety, per-node
 credential renewal) is

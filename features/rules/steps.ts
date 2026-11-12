@@ -493,6 +493,31 @@ Then(/^it names (one|none)$/, (world, verdict: string) => {
   expect(world.found.length).toBe(verdict === 'one' ? 1 : 0);
 });
 
+When('the release entries of the Ubuntu policy are read', (world) => {
+  world.searched = ubuntu.releases.length;
+});
+
+const releaseEntries = (): {
+  packages?: Record<string, string>;
+  browserPackages?: Record<string, string>;
+}[] => ubuntu.releases;
+
+Then('each pins only packages the policy\'s "packages" pins', (world) => {
+  expect(world.searched).toBeGreaterThan(0);
+  for (const entry of releaseEntries())
+    for (const name of Object.keys(entry.packages ?? {}))
+      expect(Object.keys(ubuntu.packages)).toContain(name);
+});
+
+Then(
+  'each pins only browser libraries the policy\'s "browser.packages" pins',
+  () => {
+    for (const entry of releaseEntries())
+      for (const name of Object.keys(entry.browserPackages ?? {}))
+        expect(Object.keys(ubuntu.browser.packages)).toContain(name);
+  }
+);
+
 When(
   'every key of the macOS and Ubuntu policies is looked up in the playbooks, the sources and these features',
   async (world) => {
@@ -989,6 +1014,18 @@ Then(
         [key!]: String(value),
       }));
     expect(rows).toEqual(table.hashes());
+  }
+);
+
+Then(
+  'its {string} job runs every release the Ubuntu policy accepts',
+  (world, name: string) => {
+    const rows = (job(world, name).strategy?.matrix?.include ?? []) as {
+      release?: unknown;
+    }[];
+    expect([...new Set(rows.map((row) => String(row.release)))].sort()).toEqual(
+      ubuntu.releases.map((entry) => entry.release).sort()
+    );
   }
 );
 
