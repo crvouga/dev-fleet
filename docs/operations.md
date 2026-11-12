@@ -233,9 +233,35 @@ not a way to certify the whole fleet from one shell. Usage errors use
 exception strings. Fleet never prompts; --non-interactive is accepted.
 
 No telemetry or report file is written automatically. Reports still contain
-aliases/hashes: review before sharing publicly. For monitoring, schedule read-only
-`devfleet fleet-status --json` in your existing task runner and alert on exit 1/2;
-do not schedule automatic sync/repairs. `bun run health` remains the separate
+aliases/hashes: review before sharing publicly. Do not schedule automatic
+sync/repairs.
+
+## Notifications and the heartbeat
+
+`devfleet fleet-watch` runs `fleet-status --workers`, compares the result with
+the previous run and notifies only when a worker changes between ready and
+degraded, and again every `repeatHours` (default 24) while it stays degraded.
+Name the targets in `fleet.json`; the address of each is a secret, read through
+the secret provider like any other:
+
+```json
+"notify": { "targets": ["webhook", "ntfy"], "repeatHours": 24 }
+```
+
+| Target    | Secret               | What is sent                                                         |
+| --------- | -------------------- | -------------------------------------------------------------------- |
+| `webhook` | `notify-webhook-url` | A JSON POST: `source`, `event`, `node`, `checks` (check IDs), `text` |
+| `ntfy`    | `notify-ntfy-url`    | A text POST to the topic URL                                         |
+
+A notification carries node and check IDs only. `devfleet fleet-watch --test`
+sends one test notification to every target.
+
+Every run stores what it saw, and when, as `watch.json` beside the fleet state
+in the bucket. That time is the manager's heartbeat. A watcher on the manager
+notices nothing when the manager itself is off, so call the reusable
+`fleet-heartbeat.yml` workflow from the repository that holds your
+`fleet.json` (its header shows the one `uses:` line): it fails, and GitHub
+notifies you, when the heartbeat is older than `max-age-minutes`. `bun run health` remains the separate
 single read-only **cloud platform** report.
 
 ## Development

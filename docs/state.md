@@ -11,7 +11,11 @@ cannot rebuild from Git is the **fleet state**:
 | `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json`  |
 | `history`    | The last 90 days of `fleet-sync` runs (at most 500), and the schedule |
 
-They live in one SQLite database, and [Litestream](https://litestream.io)
+`devfleet fleet-watch` also keeps `watch.json` in the bucket, beside the
+database: the health of each worker when it last looked, and when that was
+(the manager's heartbeat). Losing it costs at most one repeated notification.
+
+The three documents live in one SQLite database, and [Litestream](https://litestream.io)
 replicates that database to a storage bucket you own. The bucket is the source
 of truth. The copy on the manager is disposable: delete it, or replace the
 whole machine, and the next command brings the fleet back.

@@ -51,6 +51,13 @@ export const COMMANDS: CommandSpec[] = [
       ['workers', 'readiness', 'health', 'canonical'],
     ],
     [
+      'fleet-watch',
+      'Notify when a worker becomes unhealthy or recovers',
+      'Runs fleet-status --workers, compares it with the previous run kept in the bucket and notifies the targets fleet.json names under "notify" on a change only. Stores a heartbeat for an off-machine check. --test sends one test notification.',
+      ['notify', 'alert', 'webhook', 'ntfy', 'heartbeat', 'watch', 'monitor'],
+      true,
+    ],
+    [
       'fleet-discover',
       'Discover Tailscale computers',
       'List all computers visible to this Tailscale account, including offline devices. Excludes iOS, Android and tvOS; never writes a roster.',

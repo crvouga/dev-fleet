@@ -1,0 +1,93 @@
+name: Fleet heartbeat
+# A check that runs off the manager. Every `devfleet fleet-watch` on the
+# manager stores the time it ran, and the health of each worker, as
+# <prefix>/watch.json in the fleet's bucket. This workflow fails, and GitHub
+# notifies whoever watches the repository, when that heartbeat is older than
+# the threshold: the manager is off, asleep, offline or no longer watching.
+#
+# Call it from the repository that holds your fleet.json, on a schedule:
+#
+#   on:
+#     schedule: [{ cron: '*/30 * * * *' }]
+#   jobs:
+#     heartbeat:
+#       uses: crvouga/dev-fleet/.github/workflows/fleet-heartbeat.yml@<release tag>
+#       with: { bucket: my-fleet-state, endpoint: https://s3.example.com }
+#       secrets: inherit
+#
+# with DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY as
+# repository secrets: a key that can read the bucket is enough.
+on:
+  workflow_call:
+    inputs:
+      bucket:
+        description: The bucket fleet.json names under "state".
+        type: string
+        required: true
+      endpoint:
+        description: The https origin of the S3 service; empty for AWS S3.
+        type: string
+        default: ''
+      region:
+        description: The region of the bucket.
+        type: string
+        default: auto
+      prefix:
+        description: The key prefix fleet.json names under "state".
+        type: string
+        default: dev-fleet
+      max-age-minutes:
+        description: How old the heartbeat may be before the check fails.
+        type: number
+        default: 60
+    secrets:
+      DEVFLEET_BUCKET_ACCESS_KEY_ID:
+        required: true
+      DEVFLEET_BUCKET_SECRET_ACCESS_KEY:
+        required: true
+permissions:
+  contents: read
+jobs:
+  heartbeat:
+    name: Manager heartbeat
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail when the manager's heartbeat is older than the threshold
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.DEVFLEET_BUCKET_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.DEVFLEET_BUCKET_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ inputs.region }}
+          BUCKET: ${{ inputs.bucket }}
+          ENDPOINT: ${{ inputs.endpoint }}
+          PREFIX: ${{ inputs.prefix }}
+          MAX_AGE_MINUTES: ${{ inputs.max-age-minutes }}
+        run: |
+          set -eu
+          endpoint=()
+          if [ -n "$ENDPOINT" ]; then endpoint=(--endpoint-url "$ENDPOINT"); fi
+          if ! aws s3 cp "s3://$BUCKET/$PREFIX/watch.json" watch.json --only-show-errors ${endpoint[@]+"${endpoint[@]}"} >/dev/null 2>&1; then
+            echo "::error::FLEET_HEARTBEAT_MISSING: the bucket holds no heartbeat. Run devfleet fleet-watch on the manager."
+            exit 1
+          fi
+          python3 -I - "$MAX_AGE_MINUTES" watch.json <<'PY'
+          import datetime, json, re, sys
+          limit, path = float(sys.argv[1]), sys.argv[2]
+          try:
+              memory = json.load(open(path))
+              beat = datetime.datetime.fromisoformat(memory['heartbeatAt'].replace('Z', '+00:00'))
+          except Exception:
+              print('::error::FLEET_HEARTBEAT_UNREADABLE: the heartbeat is not one fleet-watch wrote.')
+              sys.exit(1)
+          age = (datetime.datetime.now(datetime.timezone.utc) - beat).total_seconds() / 60
+          nodes = memory.get('nodes') if isinstance(memory.get('nodes'), dict) else {}
+          degraded = sorted(n for n, v in nodes.items()
+                            if isinstance(v, dict) and v.get('state') == 'degraded'
+                            and re.fullmatch(r'[A-Za-z0-9._-]{1,64}', n))
+          if degraded:
+              print('Degraded when the manager last looked: ' + ', '.join(degraded))
+          if age > limit:
+              print(f'::error::FLEET_HEARTBEAT_STALE: the manager last watched the fleet {age:.0f} minutes ago (limit {limit:.0f}).')
+              sys.exit(1)
+          print(f'The manager watched the fleet {age:.0f} minutes ago.')
+          PY
