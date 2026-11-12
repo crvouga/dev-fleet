@@ -1,0 +1,24 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+{% if agent_profile == 'proxy' %}
+  "model": {{ ('personal_proxy/' ~ agent_model) | to_json }},
+  "provider": {
+    "personal_proxy": {
+      "npm": "@ai-sdk/openai",
+      "options": {
+        "baseURL": {{ (agent_proxy_endpoint ~ '/v1') | to_json }},
+        "apiKey": "{env:CLIPROXY_API_KEY}"
+      },
+      "models": {
+{% for id in (agent_proxy_models + [agent_model]) | unique %}
+        {{ id | to_json }}: {
+          "name": {{ id | to_json }}
+        }{{ '' if loop.last else ',' }}
+{% endfor %}
+      }
+    }
+  }
+{% else %}
+  "model": {{ agent_model | to_json }}
+{% endif %}
+}

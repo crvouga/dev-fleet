@@ -75,8 +75,9 @@ Then('the report lists these checks:', (world, table: DataTable) => { … });
   contacts a machine, a bucket or an account. The exceptions say so in a tag
   and are skipped unless asked for: `@fresh-box` (a disposable container),
   `@agent-box` and `@tailnet-box` (disposable systemd machines, the second
-  on a private tailnet with a self-hosted control plane), and the Litestream
-  scenarios in `state/`.
+  on a private tailnet with a self-hosted control plane), the Litestream
+  scenarios in `state/`, and the `@ansible` scenarios in `agents/`, which run
+  the agents play against a directory of their own.
 - Keep a step short and reusable. When two steps differ by a value, capture
   the value.
 
@@ -94,6 +95,7 @@ skipped where it cannot.
 | `@litestream`  | Where the pinned Litestream is installed; required in CI                                 |
 | `@s3`          | Where `DEVFLEET_TEST_S3` names a throwaway S3 service                                    |
 | `@vault`       | Where `vault` is on PATH, or `DEVFLEET_TEST_VAULT=required`; a dev server                |
+| `@ansible`     | Where `uv` is on PATH, or `DEVFLEET_TEST_ANSIBLE=required`; the locked Ansible project   |
 | `@required`    | Only where `DEVFLEET_TEST_LITESTREAM=required`, to prove nothing was skipped             |
 | `@macos`       | On macOS only; the manager job of CI runs them                                           |
 | `@posix`       | Not on Windows                                                                           |

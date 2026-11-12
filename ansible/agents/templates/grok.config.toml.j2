@@ -1,0 +1,19 @@
+[cli]
+auto_update = false
+
+[marketplace]
+default_skills_installs_purged = true
+
+[models]
+{% if agent_profile == 'proxy' %}
+default = "personal-proxy"
+
+[model.personal-proxy]
+model = {{ agent_model | to_json }}
+name = {{ (agent_model ~ ' (Personal CLI Proxy)') | to_json }}
+base_url = {{ (agent_proxy_endpoint ~ '/v1') | to_json }}
+env_key = "CLIPROXY_API_KEY"
+api_backend = "chat_completions"
+{% else %}
+default = {{ agent_model | to_json }}
+{% endif %}

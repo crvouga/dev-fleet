@@ -113,6 +113,12 @@ Feature: Native agents are verified on every machine
         | codex  | codex    | codex-proxy.ts    |
         | muse   | opencode | opencode-proxy.ts |
 
+    Scenario: The proxy account roster changed, so every session is launched again
+      Given the proxy account roster now has the version "roster-2"
+      When the agents of the machine "node-a" are verified
+      Then every launcher was run again
+      And every check passes
+
   Rule: On a worker, a session runs in the environment T3 starts it in
 
     The sync runs over SSH with the pinned tools on its PATH; T3 runs as a

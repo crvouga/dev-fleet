@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 299 codes; 46 need a person.
+There are 301 codes; 46 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -351,10 +351,12 @@ There are 299 codes; 46 need a person.
 - **Meaning:** An agent CLI, its profile or a provider behind the CLI proxy did not answer as expected.
 - **Confirm:** The `agent:*` and `provider:*` checks of `devfleet fleet-status`, and `devfleet cliproxy` on the manager.
 - **Fix:** Run `devfleet fleet-sync`; a rate limit or upstream outage clears on its own.
-- **Escalate:** PROVIDER_AUTH_REJECTED needs a person to sign the account in again on the proxy.
+- **Escalate:** PROVIDER_AUTH_REJECTED needs a person to sign the account in again on the proxy. AGENT_PROFILE_RENDER_MISMATCH is a defect of the release (a template of `ansible/agents/agents.yml` no longer renders what `src/agents/render.ts` specifies): report it to dev-fleet. No receipt vouches for what that play wrote, so later applies refuse the file until a person reviews it.
 
 - `AGENT_MEMORY_LIMIT_MISSING`: agent memory limit missing.
 - `AGENT_MODEL_UNSERVED`: agent model unserved.
+- `AGENT_PROFILE_RENDER_MISMATCH`: agent profile render mismatch.
+- `AGENT_PROFILE_REQUEST_INVALID`: agent profile request invalid.
 - `AGENT_PROFILE_STALE`: agent profile stale.
 - `AGENT_SERVICE_ENVIRONMENT_INCOMPLETE`: agent service environment incomplete.
 - `AGENT_SERVICE_ENVIRONMENT_UNVERIFIED`: agent service environment unverified.

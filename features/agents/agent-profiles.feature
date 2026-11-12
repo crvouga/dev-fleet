@@ -76,6 +76,11 @@ Feature: Agent profiles
 
   Rule: A preview is read-only; applying is repeatable and detects modifications
 
+    The agents play (ansible/agents/agents.yml) writes a profile. dev-fleet
+    decides beforehand: it refuses a file someone edited unless the person
+    adopts it, says what is backed up, and runs no play when nothing would
+    change.
+
     Background:
       Given the "proxy" profile of "codex" for the machine "canary" at the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", in an empty agent directory
 
@@ -84,25 +89,32 @@ Feature: Agent profiles
       Then the preview reports "config.toml" as "create"
       And the agent directory is still empty
 
+    @ansible @slow
     Scenario: Applying a profile again changes nothing
       Given the profile has been applied
       When the profile is applied again
       Then its receipt is as the first apply wrote it
+      And the agents play was not run
       And a preview reports "config.toml" as "unchanged"
       And its receipt records the SHA-256 digest of "config.toml" as rendered
 
+    @ansible @slow
     Scenario: A managed file someone edited is refused, and what it holds is not reported
       Given the profile has been applied
       And "config.toml" has since been overwritten with "PRIVATE_SENTINEL"
       When the profile is applied again
       Then it is refused with "Unmanaged"
+      And the agents play was not run
       And the public plan does not contain "PRIVATE_SENTINEL"
 
-    Scenario: Adopting a profile replaces the file someone edited
+    @ansible @slow
+    Scenario: Adopting a profile replaces the file someone edited, and keeps what it held
       Given the profile has been applied
       And "config.toml" has since been overwritten with "PRIVATE_SENTINEL"
       When the profile is applied again, adopting what is there
       Then a preview reports "config.toml" as "unchanged"
+      And the agents play was run 1 time
+      And the only backup in the agent directory holds "PRIVATE_SENTINEL"
 
     Scenario: Two applies never run at once
       Given another apply holds ".apply-lock" in the agent directory
