@@ -50,6 +50,11 @@ Feature: Every pull request is checked the way machines run
     And its "agent-box" job runs "bun test features/monitoring"
     And its "agent-box" job sets "DEVFLEET_TEST_AGENT_BOX" to "required"
 
+  Scenario: The agents play renders every CLI's configuration on every pull request and cannot skip
+    Then the "CI" workflow runs on "pull_request"
+    And its "check" job has no condition
+    And its "check" job sets "DEVFLEET_TEST_ANSIBLE" to "required"
+
   Scenario: Every playbook is linted in the production profile and syntax-checked
     Then the "CI" workflow runs on "pull_request"
     And its "ansible" job has no condition

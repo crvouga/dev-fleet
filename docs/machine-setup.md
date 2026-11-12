@@ -394,8 +394,10 @@ unit and keeps `~/.t3`; GDM auto-login, if the machine had it, is left as it
 was. A headless worker installs none of the desktop-only packages
 (`features.desktop` in `ansible/ubuntu/policy.json`) and reports their checks
 as not applicable. The server prints a one-time pairing token to its own
-journal at start, as `t3 serve` does anywhere; pairing is still done from the
-manager.
+journal at start, as `t3 serve` does anywhere; dev-fleet never reads it.
+Pairing is done from the manager: by a person the first time, and by
+`fleet-node-replace` or the next `fleet-sync` for a machine that replaces a
+worker.
 
 The disposable Ubuntu VM test (`ansible/ubuntu/tests/vm.py`) converges each
 session type, reboots with nobody logged in and kills the T3 process to

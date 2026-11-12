@@ -4,13 +4,13 @@ A fleet is described in two places you own. Your project in Git holds
 `fleet.json` and pins the dev-fleet version. Everything else the manager
 cannot rebuild from Git is the **fleet state**:
 
-| Document     | What it is                                                                                                         |
-| ------------ | ------------------------------------------------------------------------------------------------------------------ |
-| `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device)                                               |
-| `enrollment` | The revision `fleet-sync` approved and the one it last applied                                                     |
-| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json`                                               |
-| `history`    | The last 90 days of `fleet-sync` runs (at most 500), and the schedule                                              |
-| `workers`    | Per worker: its pinned SSH host key, whether it is parked and since when, and whether it came from a worker record |
+| Document     | What it is                                                                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device)                                                                                                          |
+| `enrollment` | The revision `fleet-sync` approved and the one it last applied                                                                                                                |
+| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json`                                                                                                          |
+| `history`    | The last 90 days of `fleet-sync` runs (at most 500), and the schedule                                                                                                         |
+| `workers`    | Per worker: its pinned SSH host key, whether it is parked and since when, whether it came from a worker record, and whether the manager is to pair its T3 after a replacement |
 
 `devfleet fleet-watch` also keeps `watch.json` in the bucket, beside the
 database: the health of each worker when it last looked, and when that was

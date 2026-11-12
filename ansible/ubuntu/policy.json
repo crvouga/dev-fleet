@@ -98,6 +98,11 @@
       "diskMiB": 20480,
       "cpus": 2
     },
+    "footprintMiB": {
+      "baseTools": 5120,
+      "checkouts": 1024,
+      "profiles": { "web": 256, "go": 1024, "rust": 2048, "jvm": 640 }
+    },
     "agentSessionMiB": 1024,
     "t3ReservedMiB": 1536,
     "thresholds": {

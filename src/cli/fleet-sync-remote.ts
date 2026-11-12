@@ -2,7 +2,8 @@ import { createHash } from 'node:crypto';
 import { IDES } from '../ide';
 import { enabled, workerChecks } from '../ide/orchestrate';
 import { idesOf } from '../ide/definition';
-import { rememberEnvironment } from '../t3/pairing';
+import { pairIfRequested, rememberEnvironment } from '../t3/pairing';
+import { managerT3 } from '../t3/peer-link';
 import { authorizePrivilege } from './fleet-sync-privilege';
 import { authorizeVault } from './fleet-sync-vault';
 import { managerFailure } from '../manager-failure';
@@ -358,6 +359,12 @@ function convergeWorker(
         remember: async (id, identity) => {
           await rememberEnvironment(ui.roster, id, identity);
         },
+        pair: (target) =>
+          pairIfRequested(target, {
+            roster: ui.roster,
+            run,
+            manager: managerT3(run),
+          }),
       }))
     );
     if (

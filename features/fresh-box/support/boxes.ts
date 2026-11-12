@@ -257,6 +257,8 @@ export async function bootstrap(
   run: Runner = transport
 ): Promise<Bootstrap> {
   const prepared = await bootstrapPayload();
+  // The Ansible task log covers this bootstrap only.
+  await asRoot(machine, 'rm -f /tmp/fleet-ansible.log');
   let transferred = false;
   const observing: Runner = (command, options) => {
     if (command.at(-1)?.includes("'fleet-bootstrap'"))
@@ -268,7 +270,14 @@ export async function bootstrap(
   const seconds = Math.round((Date.now() - started) / 1000);
   console.log(`\nBootstrap of ${machine.name} (${seconds}s)`);
   for (const check of report.checks)
-    console.log(`  ${check.status.padEnd(4)} ${check.id}  ${check.summary}`);
+    console.log(
+      `  ${check.status.padEnd(4)} ${check.id}  ${check.summary}${
+        // How long its phase took, so a slow run shows where the time went.
+        (check.phaseDurationMs ?? 0) >= 1000
+          ? `  [${Math.round(check.phaseDurationMs! / 1000)}s]`
+          : ''
+      }`
+    );
   return { checks: report.checks, seconds, transferred };
 }
 

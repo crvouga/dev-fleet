@@ -95,8 +95,12 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
 - **Replace or retire a worker:** `fleet-node-replace` and `fleet-node-retire`
   take everything of the old machine with it: its pinned host key, its
   monitoring system (pointed at the new machine, or deleted), the manager's
-  T3 link to its environment (the new one is paired in the manager's T3), its
-  Vault token and its tailnet device. The device is deleted through the
+  T3 link to its environment, its Vault token and its tailnet device. The
+  manager's T3 pairs with the replacement's environment by itself
+  (`t3:link`): at once when its T3 runs, otherwise in the next `fleet-sync`
+  once it does, and the roster records the new environment. The pairing code
+  is minted on the worker over SSH and handed to the manager's own T3 server
+  in a request body, never on a command line, in a report or in a log. The device is deleted through the
   control plane fleet.json declares under `tailnet`, asked with the secret
   `tailnet-admin` (workers are not registered as ephemeral devices); without
   either, `tailscale:device` is skipped and names the device to remove in the

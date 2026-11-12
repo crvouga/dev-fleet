@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "revision": {{ agent_revision | to_json }},
+  "fingerprint": {{ agent_fingerprint | to_json }},
+  "files": {
+{% for name, sha256 in agent_files.items() %}
+    {{ name | to_json }}: {{ sha256 | to_json }}{{ '' if loop.last else ',' }}
+{% endfor %}
+  }
+}

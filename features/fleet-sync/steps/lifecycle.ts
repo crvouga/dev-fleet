@@ -17,11 +17,18 @@ import { definition, fleetSync, type FleetSyncWorld } from '../support/world';
 import { fleet } from '../../../src/fleet-config';
 import type { HubRequest } from '../../../src/monitoring/enroll';
 import { reconcileRecords } from '../../../src/cli/fleet-sync-records';
-import { changeWorkers, readWorkerStates } from '../../../src/state/workers';
-import { knownHostsPath } from '../../../src/ssh-connection';
+import {
+  changeWorkers,
+  readPins,
+  readWorkerStates,
+} from '../../../src/state/workers';
+import { knownHostsPath, readPinsWith } from '../../../src/ssh-connection';
 import { declareFleet, workersOf } from '../../support/fleet';
 import { tailnetCleanup } from '../../../src/tailnet-cleanup';
 import { controlPlane, http } from './tailnet';
+import { managerT3, type T3Transport } from '../../../src/t3/peer-link';
+import { pairIfRequested } from '../../../src/t3/pairing';
+import type { FleetNode } from '../../../src/types';
 
 /** fleet-node-replace and fleet-node-retire, against a Vault, a tailnet and
  * Ansible that answer from memory.
@@ -40,11 +47,34 @@ interface Lifecycle {
   clock: number;
   /** The systems the monitoring hub watches. */
   systems: { id: string; name: string; host: string }[];
+  /** The manager's T3 server: where it says it runs, how it answers a link
+   * and every request it was sent. */
+  t3: ManagerT3Server;
+  /** What the commands under test printed. */
+  printed: string;
+}
+
+interface ManagerT3Server {
+  origin: string;
+  /** `link`: links the environment it is handed a code for; otherwise the
+   * reason it refuses with. */
+  answer: 'link' | string;
+  posts: { url: string; bearer: string }[];
+  calls: { url: string; message: Record<string, unknown> }[];
 }
 const lifecycles = new WeakMap<FleetSyncWorld, Lifecycle>();
 
 /** Made per run, so no credential-shaped literal is committed. */
 const NEW_TOKEN = `placeholder-token-${randomUUID()}`;
+/** The pairing code the worker mints, the session the manager's T3 issues
+ * for the link and the WebSocket ticket it hands out: made per run too. */
+const PAIRING_CODE = randomUUID()
+  .replaceAll('-', '')
+  .slice(0, 12)
+  .toUpperCase();
+const SESSION_TOKEN = `placeholder-session-${randomUUID()}`;
+const SESSION_ID = randomUUID();
+const TICKET = `placeholder-ticket-${randomUUID()}`;
 
 function lifecycle(world: FleetSyncWorld): Lifecycle {
   let found = lifecycles.get(world);
@@ -52,7 +82,11 @@ function lifecycle(world: FleetSyncWorld): Lifecycle {
   const directory = mkdtempSync(join(tmpdir(), 'devfleet-lifecycle-'));
   const earlier = process.env['DEVFLEET_STATE'];
   process.env['DEVFLEET_STATE'] = join(directory, 'state');
+  // As the devfleet CLI does at start: every SSH session renders the
+  // fleet-owned known_hosts from the keys the fleet state pins.
+  readPinsWith(() => readPins());
   world.defer(() => {
+    readPinsWith(null);
     process.env['DEVFLEET_STATE'] = earlier;
     rmSync(directory, { recursive: true, force: true });
   });
@@ -66,6 +100,8 @@ function lifecycle(world: FleetSyncWorld): Lifecycle {
     computers: [],
     clock: Date.parse('2026-11-01T00:00:00Z'),
     systems: [],
+    t3: { origin: '', answer: 'link', posts: [], calls: [] },
+    printed: '',
   };
   lifecycles.set(world, found);
   vault(world, found);
@@ -166,6 +202,83 @@ function hub(state: Lifecycle): HubRequest {
   };
 }
 
+/** The two requests to the manager's T3 server: a WebSocket ticket for the
+ * session, then the link call, answered as the scenario says. */
+function t3Transport(server: ManagerT3Server): T3Transport {
+  return {
+    async post(url, bearer) {
+      server.posts.push({ url, bearer });
+      return { ticket: TICKET, expiresAt: '2026-11-01T00:05:00.000Z' };
+    },
+    async call(url, message, id) {
+      server.calls.push({ url, message: message as Record<string, unknown> });
+      const payload = (message as { payload: Record<string, string> }).payload;
+      return server.answer === 'link'
+        ? {
+            _tag: 'Exit',
+            requestId: id,
+            exit: {
+              _tag: 'Success',
+              value: {
+                environmentId: payload['expectedEnvironmentId'],
+                label: 'worker-one',
+                urls: [payload['url']],
+                access: payload['access'],
+              },
+            },
+          }
+        : {
+            _tag: 'Exit',
+            requestId: id,
+            exit: {
+              _tag: 'Failure',
+              cause: [
+                {
+                  _tag: 'Fail',
+                  error: {
+                    _tag: 'PeerLinkError',
+                    reason: server.answer,
+                    message: 'refused',
+                  },
+                },
+              ],
+            },
+          };
+    },
+  };
+}
+
+/** Runs a command under test and keeps what it printed. */
+async function printing<T>(
+  world: FleetSyncWorld,
+  action: () => Promise<T>
+): Promise<T> {
+  const state = lifecycle(world);
+  const methods = ['log', 'info', 'warn', 'error', 'debug'] as const;
+  const saved = methods.map((name) => console[name]);
+  const write = process.stdout.write.bind(process.stdout);
+  const writeError = process.stderr.write.bind(process.stderr);
+  const keep = (...parts: unknown[]) => {
+    state.printed += `${parts.map(String).join(' ')}\n`;
+  };
+  for (const name of methods) console[name] = keep;
+  process.stdout.write = ((chunk: unknown) => {
+    state.printed += String(chunk);
+    return true;
+  }) as typeof process.stdout.write;
+  process.stderr.write = ((chunk: unknown) => {
+    state.printed += String(chunk);
+    return true;
+  }) as typeof process.stderr.write;
+  try {
+    return await action();
+  } finally {
+    methods.forEach((name, index) => (console[name] = saved[index]!));
+    process.stdout.write = write;
+    process.stderr.write = writeError;
+  }
+}
+
 export function services(world: FleetSyncWorld): NodeLifecycleServices {
   const state = lifecycle(world);
   return {
@@ -184,6 +297,20 @@ export function services(world: FleetSyncWorld): NodeLifecycleServices {
           ),
         }
       : {}),
+    // The real link, against a manager's T3 server that answers from memory.
+    t3: () =>
+      managerT3(world.commands.run, {
+        home: '/manager/.t3',
+        read: async (path) => {
+          if (
+            !state.t3.origin ||
+            path !== '/manager/.t3/userdata/server-runtime.json'
+          )
+            throw new Error('no T3 server');
+          return JSON.stringify({ version: 1, origin: state.t3.origin });
+        },
+        transport: t3Transport(state.t3),
+      }),
     vault: () => true,
     knownHosts: join(state.directory, 'known_hosts'),
     state: () => stateContext(world.commands.run),
@@ -298,7 +425,9 @@ When(
 When(
   /^the operator runs fleet-node-replace for "([^"]+)"(?: with the host key "([^"]+)" and| with) --apply --yes$/,
   async (world, id: string, hostKey: string | undefined) => {
-    world.outcome = await replace(world, id, hostKey);
+    world.outcome = await printing(world, () => replace(world, id, hostKey));
+    // What the command prints is its report's text.
+    lifecycle(world).printed += world.outcome.text ?? '';
   }
 );
 
@@ -449,9 +578,14 @@ Then(
 );
 
 Then(
-  /^the report has the check "([^"]+)" (passed|skipped|warning), saying "([^"]+)"$/,
+  /^the report has the check "([^"]+)" (passed|skipped|warning|failed), saying "([^"]+)"$/,
   (world, id: string, status: string, text: string) => {
-    const wanted = { passed: 'pass', skipped: 'skip', warning: 'warn' }[status];
+    const wanted = {
+      passed: 'pass',
+      skipped: 'skip',
+      warning: 'warn',
+      failed: 'fail',
+    }[status];
     const found = checks(world).filter(
       (check) => check.id === id && check.status === wanted
     ) as unknown as { summary: string }[];
@@ -587,3 +721,195 @@ Then('the roster holds {string}', (world, id: string) => {
 Then('the roster does not hold {string}', (world, id: string) => {
   expect(roster(world).nodes.map((entry) => entry.id)).not.toContain(id);
 });
+
+// ── Pairing the manager's T3 with a replaced worker ──────────────────────
+
+const mints = (id: string) => (command: string[]) =>
+  command[0] === 'ssh' &&
+  command.at(-2) === id &&
+  command.at(-1)!.includes('auth pairing create');
+
+const sessions = (world: FleetSyncWorld) =>
+  world.commands.ran((command) =>
+    command.join(' ').startsWith('t3 auth session')
+  );
+
+Given("the manager's T3 server runs at {string}", (world, origin: string) => {
+  lifecycle(world).t3.origin = origin;
+  world.commands.answer(
+    (command) => command.join(' ').startsWith('t3 auth session issue'),
+    succeeded(
+      JSON.stringify({
+        sessionId: SESSION_ID,
+        token: SESSION_TOKEN,
+        method: 'bearer-access-token',
+        scopes: ['access:write'],
+      })
+    )
+  );
+  world.commands.answer(
+    (command) => command.join(' ').startsWith('t3 auth session revoke'),
+    succeeded()
+  );
+});
+
+Given(
+  'the T3 of {string} runs the environment {string}',
+  (world, id: string, environmentId: string) => {
+    lifecycle(world);
+    world.commands.answer(
+      (command) =>
+        command[0] === 'ssh' &&
+        command.at(-2) === id &&
+        command.at(-1)!.includes('.well-known/t3/environment'),
+      succeeded(JSON.stringify({ environmentId }))
+    );
+    world.commands.answer(
+      mints(id),
+      succeeded(
+        JSON.stringify({
+          id: randomUUID(),
+          credential: PAIRING_CODE,
+          label: 'dev-fleet manager',
+        })
+      )
+    );
+  }
+);
+
+Given(
+  "the manager's T3 links the environment it is handed a code for",
+  (world) => {
+    lifecycle(world).t3.answer = 'link';
+  }
+);
+
+Given(
+  "the manager's T3 refuses the link because {string}",
+  (world, reason: string) => {
+    lifecycle(world).t3.answer = reason;
+  }
+);
+
+Given(
+  'the operator has replaced {string} before its T3 ran',
+  async (world, id: string) => {
+    const outcome = await replace(world, id);
+    expect(outcome.exitCode).toBe(0);
+    lifecycle(world).printed += outcome.text ?? '';
+  }
+);
+
+When(
+  'fleet-sync pairs the T3 of {string} if it was asked to',
+  async (world, id: string) => {
+    const state = lifecycle(world);
+    const node = roster(world).nodes.find((entry) => entry.id === id)!;
+    const paired = await printing(world, () =>
+      pairIfRequested(node as FleetNode, {
+        roster: state.roster,
+        run: world.commands.run,
+        manager: services(world).t3(),
+      })
+    );
+    world.checks = paired ? [paired] : [];
+  }
+);
+
+Then(
+  "the manager's T3 was asked to link {string} as {string} with the code minted on {string}",
+  (world, url: string, environmentId: string, id: string) => {
+    expect(world.commands.ran(mints(id))).toHaveLength(1);
+    expect(
+      lifecycle(world).t3.calls.map((call) => call.message['payload'])
+    ).toEqual([
+      {
+        url,
+        pairingCode: PAIRING_CODE,
+        access: 'approval-required',
+        expectedEnvironmentId: environmentId,
+      },
+    ]);
+  }
+);
+
+Then(
+  'the pairing code was sent only to {string}, in the body of the link request',
+  (world, origin: string) => {
+    const { posts, calls } = lifecycle(world).t3;
+    expect(posts).toEqual([
+      { url: `${origin}/api/auth/websocket-ticket/rpc`, bearer: SESSION_TOKEN },
+    ]);
+    expect(calls).toHaveLength(1);
+    const socket = new URL(calls[0]!.url);
+    expect(socket.origin).toBe(origin.replace(/^http/, 'ws'));
+    expect(socket.pathname).toBe('/ws');
+    expect(calls[0]!.url).not.toContain(PAIRING_CODE);
+    expect(calls[0]!.message['tag']).toBe('peerLinks.link');
+  }
+);
+
+Then('the session issued for the link was revoked', (world) => {
+  expect(sessions(world)).toEqual([
+    [
+      't3',
+      'auth',
+      'session',
+      'issue',
+      '--json',
+      '--ttl',
+      '2m',
+      '--scope',
+      'access:write',
+      '--label',
+      'dev-fleet pairing',
+    ],
+    ['t3', 'auth', 'session', 'revoke', SESSION_ID],
+  ]);
+});
+
+Then('no session was issued for a link', (world) => {
+  expect(sessions(world)).toEqual([]);
+});
+
+Then("the manager's T3 was sent nothing", (world) => {
+  expect(lifecycle(world).t3.posts).toEqual([]);
+  expect(lifecycle(world).t3.calls).toEqual([]);
+});
+
+Then('no pairing code was minted on {string}', (world, id: string) => {
+  expect(world.commands.ran(mints(id))).toEqual([]);
+});
+
+Then(
+  'the pairing code appears in no command line, report, printed output or fleet state',
+  async (world) => {
+    const state = lifecycle(world);
+    for (const call of world.commands.calls) {
+      expect(call.command.join(' ')).not.toContain(PAIRING_CODE);
+      expect(JSON.stringify(call.options?.env ?? {})).not.toContain(
+        PAIRING_CODE
+      );
+      expect(String(call.options?.input ?? '')).not.toContain(PAIRING_CODE);
+    }
+    expect(JSON.stringify(world.outcome?.data ?? null)).not.toContain(
+      PAIRING_CODE
+    );
+    expect(JSON.stringify(world.checks)).not.toContain(PAIRING_CODE);
+    expect(state.printed).not.toContain(PAIRING_CODE);
+    expect(readFileSync(state.roster, 'utf8')).not.toContain(PAIRING_CODE);
+    expect(JSON.stringify(readWorkerStates())).not.toContain(PAIRING_CODE);
+    expect(JSON.stringify(await loadEnrollment(null))).not.toContain(
+      PAIRING_CODE
+    );
+  }
+);
+
+Then(
+  /^the fleet state asks for (a|no) T3 pairing of "([^"]+)"$/,
+  (_world, asks: string, id: string) => {
+    const requested = readWorkerStates().workers[id]?.t3PairingRequestedAt;
+    if (asks === 'a') expect(requested).toBeString();
+    else expect(requested).toBeUndefined();
+  }
+);

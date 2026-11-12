@@ -75,3 +75,25 @@ Feature: A fresh Ubuntu machine becomes a worker over SSH
     Then the bootstrap reaches node convergence
     And the commit was not sent again
     And it took less than 120 seconds
+
+  Rule: What dev-fleet installs takes no more disk than the Ubuntu policy budgets
+    The minimum worker size rests on these budgets (sizing.footprintMiB in
+    ansible/ubuntu/policy.json), so they are measured on a converged machine,
+    not estimated. Each measurement is printed for the worker contract.
+
+    Scenario: The base tools and the fleet's checkouts fit their budgets
+      Given the manager has bootstrapped the machine
+      When the disk dev-fleet uses on the machine is measured
+      Then the base tools and the "go" profile take at most the budget of "baseTools" plus the "go" profile
+      And the fleet's checkouts take at most the budget of "checkouts"
+
+    Scenario Outline: The "<profile>" tool profile fits its budget
+      Given the manager has bootstrapped the machine
+      When the tools of the "<profile>" profile are installed on the machine
+      Then they take at most the budget of the "<profile>" profile
+
+      Examples:
+        | profile |
+        | web     |
+        | rust    |
+        | jvm     |

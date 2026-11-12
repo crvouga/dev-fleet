@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 298 codes; 46 need a person.
+There are 301 codes; 46 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -239,7 +239,7 @@ There are 298 codes; 46 need a person.
 - **Meaning:** The native T3 server or desktop app, its policy, its private route or its providers did not converge or verify.
 - **Confirm:** `devfleet t3-status` and the `t3:*` checks of `devfleet fleet-status`.
 - **Fix:** Run `devfleet fleet-sync`, then `devfleet t3-apply` for providers. A MIGRATION or MAINTENANCE code names a one-time step in its remedy.
-- **Escalate:** Pairing and relinking a peer needs a person in T3 Settings.
+- **Escalate:** A worker's first pairing, and relinking a peer that was not replaced, need a person in T3 Settings (Connections). A replaced worker is paired by `devfleet fleet-node-replace` or the next `devfleet fleet-sync` (`t3:link`).
 
 - `MANAGER_T3_LINK_UNVERIFIED`: manager t3 link unverified.
 - `T3_BASELINE_PREREQUISITES_REQUIRED`: t3 baseline prerequisites required.
@@ -351,10 +351,12 @@ There are 298 codes; 46 need a person.
 - **Meaning:** An agent CLI, its profile or a provider behind the CLI proxy did not answer as expected.
 - **Confirm:** The `agent:*` and `provider:*` checks of `devfleet fleet-status`, and `devfleet cliproxy` on the manager.
 - **Fix:** Run `devfleet fleet-sync`; a rate limit or upstream outage clears on its own.
-- **Escalate:** PROVIDER_AUTH_REJECTED needs a person to sign the account in again on the proxy.
+- **Escalate:** PROVIDER_AUTH_REJECTED needs a person to sign the account in again on the proxy. AGENT_PROFILE_RENDER_MISMATCH is a defect of the release (a template of `ansible/agents/agents.yml` no longer renders what `src/agents/render.ts` specifies): report it to dev-fleet. No receipt vouches for what that play wrote, so later applies refuse the file until a person reviews it.
 
 - `AGENT_MEMORY_LIMIT_MISSING`: agent memory limit missing.
 - `AGENT_MODEL_UNSERVED`: agent model unserved.
+- `AGENT_PROFILE_RENDER_MISMATCH`: agent profile render mismatch.
+- `AGENT_PROFILE_REQUEST_INVALID`: agent profile request invalid.
 - `AGENT_PROFILE_STALE`: agent profile stale.
 - `AGENT_SERVICE_ENVIRONMENT_INCOMPLETE`: agent service environment incomplete.
 - `AGENT_SERVICE_ENVIRONMENT_UNVERIFIED`: agent service environment unverified.
@@ -421,11 +423,12 @@ There are 298 codes; 46 need a person.
 
 ## Parked, idle, replaced and retired workers
 
-- **Meaning:** a worker could not be parked or resumed (agent turns under way, a declared `parking.stop` or `parking.start` command failed, the sync after a resume did not end ready), a worker whose record disappeared could not be retired, or the manager's T3 link to a replaced or retired worker could not be removed.
+- **Meaning:** a worker could not be parked or resumed (agent turns under way, a declared `parking.stop` or `parking.start` command failed, the sync after a resume did not end ready), a worker whose record disappeared could not be retired, or the manager's T3 link to a replaced or retired worker could not be removed, or the manager's T3 could not pair with a replaced worker's new environment.
 - **Confirm:** `devfleet fleet-status --workers` lists each worker as active or parked, with its uptime, agent turns and last agent activity; the report of `devfleet fleet-node-park`, `devfleet fleet-node-resume` or `devfleet fleet-sync` names the step that failed.
-- **Fix:** For WORKER_BUSY wait for the turns to end, or repeat `devfleet fleet-node-park` with `--force`. For a failed hook, run the command `fleet.json` names under `parking` by hand with the worker ID, then repeat. For WORKER_RESUME_FAILED follow the sync report and run `devfleet fleet-sync --node ID`. For T3_LINK_UNLINK_FAILED remove the link in the manager's T3 (Settings, Connections).
+- **Fix:** For WORKER_BUSY wait for the turns to end, or repeat `devfleet fleet-node-park` with `--force`. For a failed hook, run the command `fleet.json` names under `parking` by hand with the worker ID, then repeat. For WORKER_RESUME_FAILED follow the sync report and run `devfleet fleet-sync --node ID`. For T3_LINK_UNLINK_FAILED remove the link in the manager's T3 (Settings, Connections). For T3_LINK_PAIRING_FAILED follow the remedy, which names why the link was refused (Linked environments off in the T3 policy, the manager's T3 not running, a worker T3 that did not mint a code), then run `devfleet fleet-sync --node ID`: it pairs a replaced worker until it is paired.
 - **Escalate:** A record retirement that keeps failing at the same step: follow that step's own runbook.
 
+- `T3_LINK_PAIRING_FAILED`: t3 link pairing failed: the manager's T3 could not pair with a replaced worker's new T3 environment. The pairing code never appears in a report.
 - `T3_LINK_UNLINK_FAILED`: t3 link unlink failed.
 - `WORKER_ACTIVITY_UNREADABLE`: worker activity unreadable. **Needs a person.**
 - `WORKER_AUTO_PARK_REFUSED`: worker auto park refused.

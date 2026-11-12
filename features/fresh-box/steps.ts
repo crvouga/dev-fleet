@@ -1,6 +1,7 @@
 import { expect } from 'bun:test';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import policy from '../../ansible/ubuntu/policy.json';
 import { packagePins, ubuntuRelease } from '../../src/platform/ubuntu-release';
 import { sshArgs } from '../../src/ssh';
 import { World, steps, type DataTable } from '../support/gherkin';
@@ -26,6 +27,8 @@ export class FreshBoxWorld extends World {
   revision = '';
   bootstrap!: Bootstrap;
   worktree = '';
+  /** MiB measured on the machine, by what was measured. */
+  measured: Record<string, number> = {};
 
   /** A command on the machine, over the same SSH transport fleet-sync uses. */
   remote(command: string): Promise<{ ok: boolean; stdout: string }> {
@@ -212,6 +215,96 @@ Then('the commit was not sent again', (world) => {
   expect(world.bootstrap.transferred).toBe(false);
 });
 
-Then('it took less than {int} seconds', (world, seconds: number) => {
+Then('it took less than {int} seconds', async (world, seconds: number) => {
+  if (world.bootstrap.seconds >= seconds) {
+    // Every Ansible task on the machine is logged with its time (the
+    // Dockerfile sets ANSIBLE_LOG_PATH for SSH sessions): name the slowest.
+    const slowest = await world.remote(
+      `awk -F' [|] ' '/TASK \\[|PLAY \\[/ { split($1, t, /[ ,]/); split(t[2], h, ":"); now = h[1] * 3600 + h[2] * 60 + h[3]; if (task) print now - start, at, task; task = $NF; start = now; at = t[2] }' /tmp/fleet-ansible.log | sort -rn | head -10`
+    );
+    console.log(`\nSlowest Ansible tasks (seconds):\n${slowest.stdout}`);
+  }
   expect(world.bootstrap.seconds).toBeLessThan(seconds);
 });
+
+// ── Disk footprint ───────────────────────────────────────────────────────
+
+const MISE = '$HOME/.local/share/mise';
+// Rust's toolchains live with rustup, outside mise's own directory.
+const HOME = '$HOME';
+const FLEET = '$HOME/.local/share/personal/fleet';
+type Budget = keyof typeof policy.sizing.footprintMiB.profiles;
+
+/** MiB a path takes on the machine (hard links counted once). */
+async function mebibytes(world: FreshBoxWorld, path: string): Promise<number> {
+  const result = await world.remote(`du -smx ${path} | cut -f1`);
+  expect(result.ok).toBe(true);
+  return Number(result.stdout);
+}
+
+function report(world: FreshBoxWorld, what: string, mib: number): void {
+  world.measured[what] = mib;
+  // For the worker contract: the measured footprint of each part.
+  console.log(
+    `footprint ${RELEASE_UNDER_TEST} ${process.arch} ${what}: ${mib} MiB`
+  );
+}
+
+When('the disk dev-fleet uses on the machine is measured', async (world) => {
+  report(world, 'tools', await mebibytes(world, MISE));
+  report(world, 'checkouts', await mebibytes(world, `${FLEET}/revisions`));
+});
+
+Then(
+  'the base tools and the {string} profile take at most the budget of {string} plus the {string} profile',
+  (world, _profile: string, budget: string, profile: string) => {
+    const budgets = policy.sizing.footprintMiB;
+    expect(world.measured['tools']!).toBeLessThanOrEqual(
+      (budgets[budget as 'baseTools'] as number) +
+        budgets.profiles[profile as Budget]
+    );
+  }
+);
+
+Then(
+  "the fleet's checkouts take at most the budget of {string}",
+  (world, budget: string) => {
+    expect(world.measured['checkouts']!).toBeLessThanOrEqual(
+      policy.sizing.footprintMiB[budget as 'checkouts'] as number
+    );
+  }
+);
+
+When(
+  'the tools of the {string} profile are installed on the machine',
+  async (world, profile: string) => {
+    const tools = (
+      await world.remote(
+        `cd "${FLEET}/revisions/${world.revision}" && sed -n 's/^worker_profile_${profile} = "\\(.*\\)"$/\\1/p' mise.toml`
+      )
+    ).stdout
+      .split('\n')
+      .pop()!;
+    expect(tools).not.toBe('');
+    const installed = await world.remote(
+      `cd "${FLEET}/revisions/${world.revision}" && "$HOME/.local/bin/mise" install --locked ${tools.split(',').join(' ')} >/dev/null 2>&1`
+    );
+    expect(installed.ok).toBe(true);
+    // What its tools occupy, wherever an earlier step installed them: each
+    // tool's install directory, and for Rust the toolchain rustup keeps.
+    const sized = await world.remote(
+      `cd "${FLEET}/revisions/${world.revision}" && du -smxc $(for tool in ${tools.split(',').join(' ')}; do "$HOME/.local/bin/mise" where "$tool"; done) ${profile === 'rust' ? `$(ls -d ${HOME}/.rustup/toolchains/* 2>/dev/null)` : ''} | tail -1 | cut -f1`
+    );
+    expect(sized.ok).toBe(true);
+    report(world, profile, Number(sized.stdout));
+  }
+);
+
+Then(
+  'they take at most the budget of the {string} profile',
+  (world, profile: string) => {
+    expect(world.measured[profile]!).toBeLessThanOrEqual(
+      policy.sizing.footprintMiB.profiles[profile as Budget]
+    );
+  }
+);
