@@ -117,6 +117,18 @@ export const CHECK_OWNERS: CheckOwner[] = [
     manual:
       'fleet-sync writes the Git identity and credential helper with ansible/github/git.yml; run it from the manager.',
   },
+  {
+    pattern: 'github:*',
+    manual:
+      'fleet-sync signs every node in to GitHub from the stored github-token (a worker retries every ten minutes); a token that is missing, expired or short of a scope or organisation needs a person to issue a new one.',
+  },
+  {
+    pattern: 'github:git-credential',
+    manual:
+      'fleet-sync writes the GitHub credential helper with ansible/github/git.yml when the git block is declared; run it from the manager.',
+  },
+  { pattern: 'github:rate-limit', manual: EVIDENCE },
+  { pattern: 'github:workflow', manual: EVIDENCE },
   { pattern: 'fleet:*', manual: DECLARATION },
   { pattern: 'enrollment:*', manual: DECLARATION },
   { pattern: 'notify:*', manual: DECLARATION },
