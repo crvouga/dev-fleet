@@ -1,28 +1,78 @@
 name: Auto-merge
 # Every pull request from a branch of this repository is squash-merged as
 # soon as the required checks pass; the branch is deleted by the repository
-# setting. A merge made with the workflow's own token would not start CI on
-# main, and so no release: the AUTO_MERGE_TOKEN secret is a token of a
-# maintainer that may merge, and without it nothing is enabled.
+# setting. Pull requests from forks and drafts are left to a person.
+#
+# Auto-merge is enabled with AUTO_MERGE_TOKEN (a maintainer's token) when it
+# is set, and with the workflow's own token otherwise. A merge made with the
+# workflow's own token starts no workflow, so after one this workflow starts
+# CI on main itself, and the release follows CI as after any merge.
+# The hourly sweep enables auto-merge on any open pull request that missed
+# its event (one opened while this workflow was failing, for example).
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize, closed]
+  schedule:
+    - cron: '23 * * * *'
+  workflow_dispatch: {}
 permissions:
-  contents: read
+  contents: write
+  pull-requests: write
+  actions: write
+concurrency:
+  group: auto-merge-${{ github.event.pull_request.number || 'sweep' }}
+  cancel-in-progress: false
 jobs:
   enable:
     name: Enable auto-merge
-    if: github.event.pull_request.head.repo.full_name == github.repository && !github.event.pull_request.draft
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft &&
+      github.event.pull_request.auto_merge == null
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Enable squash auto-merge
         env:
-          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN }}
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || github.token }}
           PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr merge --auto --squash "$PR_URL"
+
+  sweep:
+    name: Enable auto-merge on every open pull request
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Enable squash auto-merge where it is off
+        env:
+          GH_TOKEN: ${{ secrets.AUTO_MERGE_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
         run: |
-          if [ -z "$GH_TOKEN" ]; then
-            echo "::warning::AUTO_MERGE_TOKEN is not set; auto-merge was not enabled."
-            exit 0
-          fi
-          gh pr merge --auto --squash "$PR_URL"
+          gh pr list --repo "$REPO" --state open --limit 200 \
+            --json number,isDraft,isCrossRepository,autoMergeRequest \
+            --jq '.[] | select(.isDraft | not) | select(.isCrossRepository | not) | select(.autoMergeRequest == null) | .number' |
+          while read -r number; do
+            # One pull request that cannot be merged never stops the others.
+            gh pr merge --repo "$REPO" --auto --squash "$number" ||
+              echo "::warning::Auto-merge could not be enabled on #$number."
+          done
+
+  ci-after-merge:
+    name: Start CI on main after a merge by this workflow
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'closed' &&
+      github.event.pull_request.merged &&
+      github.event.pull_request.base.ref == 'main' &&
+      github.event.pull_request.merged_by.login == 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Dispatch CI on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh workflow run ci.yml --repo "$REPO" --ref main
