@@ -154,8 +154,10 @@ On a fleet machine the global mise configuration (`~/.config/mise/config.toml`
 and its `mise.lock`) belongs to dev-fleet: `fleet-sync` publishes it with the
 fleet's pinned tools and the agent worktree roots mise must trust. A project
 pins its own tools in its own `mise.toml` and installs them with
-`mise install --locked` in its checkout. It never publishes a global
-configuration. If anything replaces dev-fleet's, `fleet-status` fails the check
+`mise install --locked` in its checkout. On a fleet machine mise installs a
+project's tools only from the project's `mise.lock` (run `mise lock` after
+changing a pin); a tool the lock does not name is refused. A project never
+publishes a global configuration. If anything replaces dev-fleet's, `fleet-status` fails the check
 `tool:global-mise-config` until the next `fleet-sync`.
 
 ## Using it from code

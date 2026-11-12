@@ -65,18 +65,29 @@ Then(
   }
 );
 
+function pinnedAndLocked(tools: string[]): void {
+  for (const tool of tools) {
+    expect(Object.hasOwn(mise.tools, tool)).toBe(true);
+    expect(lock).toContain(
+      /^[a-z0-9-]+$/.test(tool) ? `[[tools.${tool}]]` : `[[tools."${tool}"]]`
+    );
+  }
+}
+
 Then(
   'every tool of the profile {string} is pinned in mise.toml and locked in mise.lock',
   (_world, profile: string) => {
-    const tools = String(mise.vars[`worker_profile_${profile}`]).split(',');
-    for (const tool of tools) {
-      expect(Object.hasOwn(mise.tools, tool)).toBe(true);
-      expect(lock).toContain(
-        /^[a-z0-9-]+$/.test(tool) ? `[[tools.${tool}]]` : `[[tools."${tool}"]]`
-      );
-    }
+    pinnedAndLocked(String(mise.vars[`worker_profile_${profile}`]).split(','));
   }
 );
+
+Then('the base tools include {string}', (_world, tool: string) => {
+  expect(base).toContain(tool);
+});
+
+Then('every base tool is pinned in mise.toml and locked in mise.lock', () => {
+  pinnedAndLocked(base);
+});
 
 function toolsOf(world: CoreWorld, id: string): string[] {
   const definition = need(world, world.definition, 'a fleet configuration');

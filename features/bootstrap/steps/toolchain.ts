@@ -162,6 +162,13 @@ Then('the published setting {string} is true', (world, name: string) => {
   expect(settings(world)[name]).toBe(true);
 });
 
+Then(
+  'the published setting {string} holds exactly {}',
+  (world, name: string, value: string) => {
+    expect(settings(world)[name]).toEqual(JSON.parse(value));
+  }
+);
+
 Given('a project configuration that reads:', (world, text: string) => {
   published(world).project = lines(text);
 });
