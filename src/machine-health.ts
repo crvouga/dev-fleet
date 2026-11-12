@@ -62,6 +62,8 @@ const LABELS = {
   disk: 'Disk space',
   inodes: 'Free inodes',
 };
+/** The capacity checks of a machine, each reported as `worker:capacity:<id>`. */
+export const HEALTH_CHECK_IDS = Object.keys(LABELS);
 
 function check(
   id: keyof typeof LABELS,

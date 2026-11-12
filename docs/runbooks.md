@@ -34,7 +34,7 @@ There are 296 codes; 46 need a person.
 - **Meaning:** A package transaction could not run or the package database is inconsistent.
 - **Confirm:** `ssh WORKER sudo dpkg --audit` and `sudo apt-get -o Debug::NoLocking=1 check`.
 - **Fix:** Let any running package process finish (it is never killed), free disk under `/var`, then run `devfleet fleet-sync`.
-- **Escalate:** APT_STATE_BROKEN and DPKG_INTERRUPTED need `sudo dpkg --configure -a` by a person once no package process runs.
+- **Escalate:** An interrupted package run is finished by the next `devfleet fleet-sync`: the bootstrap and the baseline each run `dpkg --configure -a` once, bounded. APT_STATE_BROKEN and DPKG_INTERRUPTED mean that repair did not clear `dpkg --audit`: a person repairs the packages it names.
 
 - `APT_DISK_FULL`: apt disk full.
 - `APT_DNS_UNAVAILABLE`: apt dns unavailable.

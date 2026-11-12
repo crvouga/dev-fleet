@@ -5,7 +5,7 @@ Feature: Every check is repaired by a recipe, or says why only a person can
   sign-in, a choice in fleet.json, the hardware.
 
   Scenario: Every check ID the sources report has an owner
-    When the check IDs the TypeScript sources report are listed
+    When the check IDs the sources report are listed
     Then more than 100 check IDs were found
     And every check ID found maps to a repair recipe or to a documented manual reason
 

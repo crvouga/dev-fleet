@@ -1,5 +1,5 @@
 import { checkOwner } from './check-owners';
-import { AUTOMATED_REPAIRS, recipe } from './repair-catalog';
+import { AUTOMATED_REPAIRS, REPAIR_RECIPES, recipe } from './repair-catalog';
 import type { RepairRecipe } from './repair-catalog';
 import type { Check, FleetNode, NodeReport, Fingerprint } from './types';
 
@@ -18,22 +18,33 @@ export interface RepairStep extends RepairRecipe {
   manual?: { check: string; reason: string }[];
 }
 
+const UNOWNED =
+  'No repair recipe is registered for this check: follow its remedy.';
+
+/** What repairs a check: the recipe its owner names, or why only a person
+ * can. An `auth:` check is repaired by the login recipe of its name; one
+ * with no such recipe is a person's, for the reason `login:*` gives. */
+export function checkRepair(
+  id: string
+): { recipe: string } | { manual: string } {
+  const owner = checkOwner(id);
+  if (!owner?.repair) return { manual: owner?.manual ?? UNOWNED };
+  if (owner.repair !== 'login:*') return { recipe: owner.repair };
+  const login = `login:${id.slice('auth:'.length)}`;
+  return REPAIR_RECIPES.some((entry) => entry.id === login)
+    ? { recipe: login }
+    : { manual: checkOwner(login)?.manual ?? UNOWNED };
+}
+
 export function repairId(check: Check): string {
-  const owner = checkOwner(check.id);
-  if (!owner?.repair) return 'operator';
-  return owner.repair === 'login:*'
-    ? `login:${check.id.slice('auth:'.length)}`
-    : owner.repair;
+  const repair = checkRepair(check.id);
+  return 'recipe' in repair ? repair.recipe : 'operator';
 }
 
 /** Why a check is left to a person, or null when a recipe repairs it. */
 export function manualReason(check: Check): string | null {
-  const owner = checkOwner(check.id);
-  if (owner?.repair) return null;
-  return (
-    owner?.manual ??
-    'No repair recipe is registered for this check: follow its remedy.'
-  );
+  const repair = checkRepair(check.id);
+  return 'manual' in repair ? repair.manual : null;
 }
 
 /** Every nonpassing check is accounted for; unknown checks remain operator work. */

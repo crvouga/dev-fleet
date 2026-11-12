@@ -152,7 +152,11 @@ one:
 A package run cut off by a power loss is finished by the next sync: the
 baseline waits for the APT lock, runs `dpkg --configure -a` once (bounded to
 ten minutes) and audits again; only a database still inconsistent stops with
-`APT_STATE_BROKEN`.
+`APT_STATE_BROKEN`. When the cut-off run left one of the bootstrap's own
+packages unconfigured (an upgrade of `python3` or `git`, say), the bootstrap
+makes the same repair before it installs what it lacks, whoever started the
+run, waiting up to two minutes for a package process that holds the lock;
+only a database still inconsistent stops it with `DPKG_INTERRUPTED`.
 
 Health does not mutate configuration, renew tokens, log in, install software, or
 make billable inference requests. It audits the immutable desired worker deployment,

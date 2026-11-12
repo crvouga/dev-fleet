@@ -16,7 +16,13 @@ import {
 } from '../../src/machine/support-matrix';
 import { checkOwner } from '../../src/check-owners';
 import { REPAIR_RECIPES } from '../../src/repair-catalog';
-import { manualReason, repairId, repairPlan } from '../../src/repair-plan';
+import { reportedCheckIds } from '../../src/check-registry';
+import {
+  checkRepair,
+  manualReason,
+  repairId,
+  repairPlan,
+} from '../../src/repair-plan';
 import { World, scenariosOf, steps, type DataTable } from '../support/gherkin';
 
 const root = resolve(import.meta.dir, '../..');
@@ -446,7 +452,7 @@ Then(
 );
 
 When('the packages {string} installs are read', (world, path: string) => {
-  world.found = (/^for package in (.+); do$/m.exec(read(path))?.[1] ?? '')
+  world.found = (/^\s*for package in (.+); do$/m.exec(read(path))?.[1] ?? '')
     .split(' ')
     .filter(Boolean);
 });
@@ -1324,7 +1330,8 @@ const GENERATED: Record<string, () => Promise<string>> = {
     const found = new Map<string, Set<string>>();
     // The owners of the checks name them; they measure nothing.
     for (const path of (await files('src/**/*.ts')).filter(
-      (path) => path !== 'src/check-owners.ts'
+      (path) =>
+        path !== 'src/check-owners.ts' && path !== 'src/check-registry.ts'
     ))
       for (const match of read(path).matchAll(
         /['`]((?:auth|worker):[a-z0-9-]*(?:auth|github|vault|git-|credential)[a-z0-9-]*)['`]/g
@@ -1463,23 +1470,9 @@ Then(
 
 // ── Who repairs a check ──────────────────────────────────────────────────
 
-const CHECK_ID =
-  /\bid: (?:'([a-z0-9-]+(?::[a-z0-9.-]+)+|dependencies)'|`([a-z0-9-]+:[^`]+)`)/g;
-
-When(
-  'the check IDs the TypeScript sources report are listed',
-  async (world) => {
-    const ids = new Set<string>();
-    for (const path of await files('src/**/*.ts')) {
-      // The recipes and the owners themselves are not checks.
-      if (['src/repair-catalog.ts', 'src/check-owners.ts'].includes(path))
-        continue;
-      for (const match of read(path).matchAll(CHECK_ID))
-        ids.add((match[1] ?? match[2]!).replace(/\$\{[^}]+\}/g, 'x'));
-    }
-    world.found = [...ids].sort();
-  }
-);
+When('the check IDs the sources report are listed', (world) => {
+  world.found = reportedCheckIds().map((entry) => entry.id);
+});
 Then('more than {int} check IDs were found', (world, count: number) => {
   expect(world.found.length).toBeGreaterThan(count);
 });
@@ -1487,12 +1480,11 @@ Then(
   'every check ID found maps to a repair recipe or to a documented manual reason',
   (world) => {
     const unowned = world.found.filter((id) => {
-      const owner = checkOwner(id);
-      if (!owner) return true;
-      if (owner.repair === 'login:*') return false;
-      if (owner.repair)
-        return !REPAIR_RECIPES.some((entry) => entry.id === owner.repair);
-      return !owner.manual || owner.manual.length < 20;
+      if (!checkOwner(id)) return true;
+      const repair = checkRepair(id);
+      return 'recipe' in repair
+        ? !REPAIR_RECIPES.some((entry) => entry.id === repair.recipe)
+        : repair.manual.length < 20;
     });
     expect(unowned).toEqual([]);
   }

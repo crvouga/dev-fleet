@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "check-ids.schema.json",
+  "title": "The check-ID registry, version 1",
+  "description": "schema/check-ids.json: every check ID dev-fleet reports, generated from the code.",
+  "type": "object",
+  "required": ["version", "checks"],
+  "properties": {
+    "version": { "const": 1 },
+    "checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "meaning", "severity", "repair"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9-]+(:[A-Za-z0-9:.*_-]+)?$"
+          },
+          "meaning": { "type": "string" },
+          "severity": { "enum": ["required", "advisory"] },
+          "requirement": { "const": true },
+          "repair": {
+            "type": "object",
+            "properties": {
+              "recipe": { "type": "string" },
+              "manual": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
