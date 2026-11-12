@@ -1337,3 +1337,61 @@ When(
 Then('only these documents contain it:', (world, table: DataTable) => {
   expect(world.found.sort()).toEqual(table.list().sort());
 });
+// ── What a person does on the manager ────────────────────────────────────
+
+When('the human steps of docs\\/manager-setup.md are read', (world) => {
+  const text = read('docs/manager-setup.md');
+  const table = text
+    .split('<!-- human-steps -->')[1]!
+    .split('<!-- /human-steps -->')[0]!;
+  world.found = table
+    .split('\n')
+    .filter((line) => line.startsWith('|'))
+    .slice(2)
+    .map(
+      (line) => /`([a-z0-9-]+:[a-z0-9:-]+)`\s*\|\s*$/.exec(line)?.[1] ?? line
+    );
+});
+
+Then(
+  'they are verified by these checks, in order:',
+  (world, table: DataTable) => {
+    expect(world.found).toEqual(table.list());
+  }
+);
+
+Then(
+  'every check that verifies one is a check fleet-sync reports',
+  async (world) => {
+    const sources = (await files('src/**/*.ts')).map(read).join('\n');
+    for (const id of world.found) expect(sources).toContain(`'${id}'`);
+  }
+);
+
+When('the playbook {string} is read', (world, path: string) => {
+  world.script = read(path);
+});
+
+Then('it does not become another user', (world) => {
+  const [play] = parse(world.script) as Record<string, unknown>[];
+  expect(play!['become']).toBeUndefined();
+});
+
+Then(
+  'it changes the power settings only through {string}',
+  (world, prefix: string) => {
+    const [play] = parse(world.script) as { tasks: Task[] }[];
+    const changes = play!.tasks
+      .map(
+        (task) =>
+          (task['ansible.builtin.command'] as { argv?: string[] } | undefined)
+            ?.argv
+      )
+      .filter((argv): argv is string[] => Boolean(argv?.includes('-c')));
+    expect(changes.length).toBeGreaterThan(0);
+    for (const argv of changes)
+      expect(argv.slice(0, 2).join(' ')).toBe(
+        prefix.replace('sudo', '/usr/bin/sudo')
+      );
+  }
+);

@@ -26,6 +26,9 @@ export const OPTIONAL_SECRET_NAMES = [
   // Where fleet-watch notifies (notify.targets).
   'notify-webhook-url',
   'notify-ntfy-url',
+  // A short-lived, single-use, tagged Tailscale auth key a new worker joins
+  // the tailnet with (fleet-node-seed).
+  'tailnet-auth-key',
 ] as const;
 export type SecretName =
   (typeof SECRET_NAMES)[number] | (typeof OPTIONAL_SECRET_NAMES)[number];

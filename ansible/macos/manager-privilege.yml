@@ -1,0 +1,37 @@
+---
+# The one privilege grant a manager needs, given once by its administrator:
+#   ansible-playbook -K manager-privilege.yml -e user=$(id -un)
+# It lets that user run exactly `pmset -c` (the AC power settings
+# manager.yml declares) without a password, so every fleet-sync holds the
+# manager's power policy with no prompt. Run again with -e grant=absent to
+# remove it; nothing else on the manager needs root.
+- name: Grant the fleet manager its power settings without a prompt
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  vars:
+    grant: present
+  tasks:
+    - name: Check the request
+      ansible.builtin.assert:
+        that:
+          - "user is match('^[a-z_][a-z0-9_.-]{0,31}$')"
+          - "user != 'root'"
+          - "grant in ['present', 'absent']"
+    - name: Allow exactly the AC power settings
+      ansible.builtin.copy:
+        dest: '/etc/sudoers.d/dev-fleet-manager-{{ user }}'
+        content: |
+          # Managed by dev-fleet: manager power policy
+          {{ user }} ALL=(root) NOPASSWD: /usr/bin/pmset -c *
+        owner: root
+        group: wheel
+        mode: '0440'
+        validate: /usr/sbin/visudo -cf %s
+      when: grant == 'present'
+    - name: Remove the grant
+      ansible.builtin.file:
+        path: '/etc/sudoers.d/dev-fleet-manager-{{ user }}'
+        state: absent
+      when: grant == 'absent'

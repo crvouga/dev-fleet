@@ -20,6 +20,12 @@ export interface Enrollment {
   approvedRevision: string;
   appliedRevision?: string;
   previousRevision?: string;
+  /** The revision each worker last converged to, by fleet id. A worker
+   * keeps its progress when the fleet as a whole is not ready.
+   */
+  workers?: Record<string, string>;
+  /** Tombstones: when each retired worker left the fleet, by fleet id. */
+  retired?: Record<string, string>;
 }
 
 export const isRevision = (value: unknown): value is string =>
@@ -156,6 +162,30 @@ export async function ensurePrivateRoot(root: string): Promise<void> {
   }
 }
 
+function validWorkers(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (record(value) &&
+      Object.entries(value).every(
+        ([id, revision]) =>
+          /^[a-z][a-z0-9-]{0,62}$/.test(id) && isRevision(revision)
+      ))
+  );
+}
+
+function validRetired(value: unknown): boolean {
+  return (
+    value === undefined ||
+    (record(value) &&
+      Object.entries(value).every(
+        ([id, at]) =>
+          /^[a-z][a-z0-9-]{0,62}$/.test(id) &&
+          typeof at === 'string' &&
+          !Number.isNaN(Date.parse(at))
+      ))
+  );
+}
+
 /** A valid enrollment record, or null. */
 export function parseEnrollment(data: unknown): Enrollment | null {
   if (!record(data) || data['version'] !== 1) return null;
@@ -167,7 +197,9 @@ export function parseEnrollment(data: unknown): Enrollment | null {
   return isRevision(data['approvedRevision']) &&
     ['appliedRevision', 'previousRevision'].every(
       (key) => data[key] === undefined || isRevision(data[key])
-    )
+    ) &&
+    validWorkers(data['workers']) &&
+    validRetired(data['retired'])
     ? (data as unknown as Enrollment)
     : null;
 }

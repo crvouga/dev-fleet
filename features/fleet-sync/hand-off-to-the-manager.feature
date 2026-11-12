@@ -80,4 +80,5 @@ Feature: fleet-sync started on a worker is handed to the manager
       When fleet-sync is started with "--revision aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa --json"
       Then the command exits with 1
       And the report mentions "FLEET_NOT_MANAGER"
+      And the report mentions "always a macOS machine"
       And nothing but "scutil" was run

@@ -41,6 +41,21 @@ Feature: A fleet-sync run records its approval and its result in the fleet state
       }
       """
 
+  Scenario: Workers that converged keep their progress when the fleet is not ready
+    One offline worker must not throw away what the others applied.
+    Given a fleet-sync run for revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is approved
+    When the run ends without converging, with these workers converged:
+      | worker-two | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa |
+    Then the enrollment of the manager is exactly:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workers": { "worker-two": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }
+      }
+      """
+
   Rule: What a run could not upload, the next run uploads
 
     Background:

@@ -13,7 +13,7 @@ import { IDES } from '../ide';
 import { enabled, managerChecks } from '../ide/orchestrate';
 import { idesOf } from '../ide/definition';
 import { convergeGitIdentity, gitChecks } from '../git-identity';
-import { ansibleCommand } from '../platform/ansible';
+import { ansibleCommand, runAnsible } from '../platform/ansible';
 import { convergeGithub } from '../github/converge';
 import { PACKAGE_ROOT } from '../package-info';
 import { managerHealth } from '../manager-health';
@@ -47,7 +47,11 @@ export async function convergeManager(
   if (identity.status === 'pass') {
     // Launchers and scheduled jobs on the manager read the installed copy.
     if (input.apply) installConfig();
-    checks.push(await managerPower(run, input.workspace, host));
+    checks.push(
+      input.apply
+        ? await holdManagerPower(run, input.workspace, host)
+        : await managerPower(run, input.workspace, host)
+    );
     checks.push(await managerBootRecovery(run, input.workspace, host));
     checks.push(await managerDocker(run));
     // Each enabled IDE: its settings, pinned version and policy.
@@ -202,7 +206,8 @@ export async function managerAgentProfiles(
 export async function managerIdentity(
   id: string,
   run: Runner,
-  host: ManagerHost = MACOS_MANAGER
+  host: ManagerHost = MACOS_MANAGER,
+  platform: NodeJS.Platform = process.platform
 ): Promise<Check> {
   const local = (await host.localHostName(run)) ?? '';
   return local === id
@@ -216,7 +221,10 @@ export async function managerIdentity(
         status: 'fail',
         summary: 'FLEET_NOT_MANAGER',
         remedy: {
-          action: `Run fleet-sync on the manager (${id}). Workers are never controlled from another worker; change the manager only by editing manager in fleet.json and moving its singleton services.`,
+          action:
+            platform === 'darwin'
+              ? `Run fleet-sync on the manager (${id}). Workers are never controlled from another worker; change the manager only by editing manager in fleet.json and moving its singleton services.`
+              : `This machine runs ${platform}, and the manager is always a macOS machine. Run fleet-sync on the manager (${id}), or from a worker that can SSH to it.`,
         },
       };
 }
@@ -244,7 +252,7 @@ export async function managerPower(
           ? 'MANAGER_SLEEPS_ON_POWER'
           : `MANAGER_POWER_POLICY_DRIFT ${drifted.join(' ')}`,
         remedy: {
-          action: `Workers lose the CLI proxy and Beszel hub while the manager sleeps. Apply the manager power policy once, as an administrator: cd ${workspace} && ${ansibleCommand().join(' ')} -K ansible/macos/manager.yml`,
+          action: `Workers lose the CLI proxy and Beszel hub while the manager sleeps. Grant the manager its power settings once, as an administrator; every fleet-sync then applies the policy with no prompt: cd ${workspace} && ${ansibleCommand().join(' ')} -e user=$(id -un) -K ansible/macos/manager-privilege.yml`,
         },
       };
 }
@@ -281,6 +289,43 @@ export async function managerBootRecovery(
       ].join(' '),
     },
   };
+}
+
+/** Whether the one grant manager-privilege.yml installs is in place: this
+ * user may run `pmset -c` without a password. Lists, never runs.
+ */
+async function powerGranted(run: Runner): Promise<boolean> {
+  return (
+    await run(['sudo', '-n', '-l', '/usr/bin/pmset', '-c', 'sleep', '0'], {
+      timeoutMs: 10_000,
+    })
+  ).ok;
+}
+
+/** On every applying sync: a drifted power policy is applied with
+ * manager.yml when the grant is in place, then measured again. Without the
+ * grant the check says how to give it, once.
+ */
+export async function holdManagerPower(
+  run: Runner,
+  workspace = '.',
+  host: ManagerHost = MACOS_MANAGER,
+  { root = PACKAGE_ROOT, scratch }: { root?: string; scratch?: string } = {}
+): Promise<Check> {
+  const before = await managerPower(run, workspace, host);
+  if (
+    before.status === 'pass' ||
+    host.platform !== 'macOS' ||
+    !(await powerGranted(run))
+  )
+    return before;
+  await runAnsible(
+    run,
+    join(root, 'ansible/macos/manager.yml'),
+    { input: '{}', timeoutMs: 120_000 },
+    scratch
+  );
+  return managerPower(run, workspace, host);
 }
 
 /** The Docker Desktop release `mise.toml` pins, as the engine names itself. */

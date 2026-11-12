@@ -9,6 +9,7 @@ import './steps/node-sync';
 import './steps/repair';
 import './steps/menu';
 import './steps/watch';
+import './steps/validate';
 
 runFeatures({
   directory: import.meta.dir,

@@ -103,16 +103,26 @@ export async function selected(
   return outcome(report, planFingerprint, started);
 }
 
-/** A revision new to the fleet is proven on the first declared worker before
- * the rest; repeating one that already converged everywhere needs no canary,
- * so every worker converges at once.
+/** A revision new to the fleet is proven on one worker before the rest: the
+ * one `--canary` or fleet.json names, else the first declared worker, and
+ * the next reachable one when that cannot be reached. Repeating a revision
+ * that already converged everywhere needs no canary, so every worker
+ * converges at once.
  */
 function canary(
   canonical: FleetDefinition,
   options: FleetSyncOptions
 ): { canary?: string } {
-  const first = canonical.workers[0];
-  return first && !options.rolledOut ? { canary: first.id } : {};
+  if (
+    options.canary &&
+    !canonical.workers.some((worker) => worker.id === options.canary)
+  )
+    throw new FleetUsageError(
+      '--canary names a worker fleet.json does not declare.'
+    );
+  const preferred =
+    options.canary ?? canonical.canary ?? canonical.workers[0]?.id;
+  return preferred && !options.rolledOut ? { canary: preferred } : {};
 }
 
 /** Saves the full JSON report, then renders the short human summary. */
@@ -165,6 +175,7 @@ function deployWithMonitoring(
     /** The manager's checkout, and the roster an identity is recorded in. */
     workspace: string;
     roster: string;
+    passwordLogin: boolean;
   }
 ): DeployNode {
   return async (node, revision) => {
@@ -189,7 +200,10 @@ function deployWithMonitoring(
       const checks = await authorizePrivilege(node, payload.authorizeSudo, run);
       if (checks.length) return { node: node.id, checks };
     }
-    const vault = { interactive: ui.interactiveAuthorization };
+    const vault = {
+      interactive: ui.interactiveAuthorization,
+      passwordLogin: ui.passwordLogin,
+    };
     if (ui.interactiveAuthorization) ui.progress.stop();
     const before = await authorizeVault(node, vault, run);
     ui.progress.step(node.id, 'Converging (remote lock, install, verify)');
@@ -242,6 +256,7 @@ function scopeDefinition(canonical: FleetDefinition, ids?: string[]) {
 function interfaceOptions(options: FleetSyncOptions) {
   return {
     progress: syncProgress(!options.json),
+    passwordLogin: Boolean(options.vaultPasswordLogin),
     interactiveAuthorization: Boolean(
       options.interactiveAuthorization &&
       !options.json &&

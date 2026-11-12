@@ -6,9 +6,9 @@ import {
   authorizeManager,
   authorizeVault,
   remote,
-  workerTokenField,
   type TerminalRunner,
 } from '../../../src/cli/fleet-sync-vault';
+import { workerTokenLocation } from '../../../src/worker-credentials';
 import type { CommandResult } from '../../../src/types';
 import { failed, succeeded } from '../../support/commands';
 import type { DataTable } from '../../support/gherkin';
@@ -82,6 +82,10 @@ Given(
   }
 );
 
+Given("the worker's own document holds no token", (world) => {
+  world.commands.answer(/'?fleet\/workers\//, failed());
+});
+
 Given('that machine accepts a login with a token', (world) => {
   world.commands.answer(/vault' 'login/, inTurn([succeeded()]));
 });
@@ -100,11 +104,11 @@ Given('the operator completes every prompt on the terminal', (world) => {
 const interactive = (mode: string): boolean => mode.includes('an interactive');
 
 When(
-  /^the Vault session of that machine is authorized in (an interactive|a noninteractive) sync$/,
-  async (world, mode: string) => {
+  /^the Vault session of that machine is authorized in (an interactive|a noninteractive) sync( with the password login)?$/,
+  async (world, mode: string, password: string | undefined) => {
     world.checks = await authorizeVault(
       world.node!,
-      { interactive: interactive(mode) },
+      { interactive: interactive(mode), passwordLogin: Boolean(password) },
       world.commands.run,
       attach(world)
     );
@@ -130,19 +134,19 @@ When(
 );
 
 Then(
-  'the issued token of {string} is kept in the Vault field {string}',
-  (_world, node: string, field: string) => {
-    expect(workerTokenField(node)).toBe(field);
+  'the issued token of {string} is kept in {string}, field {string}',
+  (_world, node: string, path: string, field: string) => {
+    expect(workerTokenLocation(node)).toMatchObject({ path, field });
   }
 );
 
 Then(
   'the token was read from Vault with {string}',
   (world, argument: string) => {
-    const read = world.commands.calls.find((call) =>
-      /kv get/.test(call.command.join(' '))
-    );
-    expect(read?.command.join(' ')).toContain(argument);
+    const reads = world.commands.calls
+      .map((call) => call.command.join(' '))
+      .filter((line) => /kv get/.test(line));
+    expect(reads.some((line) => line.includes(argument))).toBe(true);
   }
 );
 

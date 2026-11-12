@@ -89,6 +89,7 @@ skipped where it cannot.
 | `@agent-box`  | When `DEVFLEET_TEST_AGENT_BOX` is set; needs Docker that can run systemd     |
 | `@litestream` | Where the pinned Litestream is installed; required in CI                     |
 | `@s3`         | Where `DEVFLEET_TEST_S3` names a throwaway S3 service                        |
+| `@vault`      | Where `vault` is on PATH, or `DEVFLEET_TEST_VAULT=required`; a dev server    |
 | `@required`   | Only where `DEVFLEET_TEST_LITESTREAM=required`, to prove nothing was skipped |
 | `@posix`      | Not on Windows                                                               |
 | `@linux`      | On Linux only                                                                |

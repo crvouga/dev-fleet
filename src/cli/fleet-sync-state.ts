@@ -21,8 +21,11 @@ import type { Check } from '../types';
 export interface RunRecord {
   /** Before any machine changes: this revision is the approved one. */
   approve(): void;
-  /** Once the result is known. The check says whether the bucket holds it. */
-  settle(converged: boolean): Promise<Check>;
+  /** Once the result is known. The check says whether the bucket holds it.
+   * `applied` is the revision each worker that converged now holds: it is
+   * kept even when the fleet as a whole is not ready.
+   */
+  settle(converged: boolean, applied?: Record<string, string>): Promise<Check>;
   /** For a run that stopped before its result: its approval is still uploaded. */
   abandon(): Promise<void>;
 }
@@ -70,12 +73,18 @@ export function runRecord(
       }
       claimLease(state.context);
     },
-    async settle(converged) {
+    async settle(converged, applied = {}) {
       settled = true;
+      const workers = Object.keys(applied).length
+        ? { workers: { ...previous?.workers, ...applied } }
+        : {};
+      if (!converged && workers.workers)
+        storeEnrollment({ ...approval, ...workers }, env);
       if (converged)
         storeEnrollment(
           {
             ...approval,
+            ...workers,
             appliedRevision: revision,
             ...(previous?.appliedRevision &&
             previous.appliedRevision !== revision

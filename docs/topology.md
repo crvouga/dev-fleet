@@ -35,9 +35,12 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
   A new singleton service is declared under `services` and placed on the
   manager; it never names a host.
 - Workers depend on it, so it never sleeps on AC power
-  (`pmset` in `ansible/macos/policy.json`, checked as `manager:power`, applied
-  once by an administrator with `ansible/macos/manager.yml`; the failed check
-  prints the command). While the
+  (`pmset` in `ansible/macos/policy.json`, checked as `manager:power` and
+  applied by `ansible/macos/manager.yml` on every `fleet-sync` once an
+  administrator has given the one grant `ansible/macos/manager-privilege.yml`;
+  the failed check prints the command, and
+  [docs/manager-setup.md](manager-setup.md) lists every step only a person
+  takes). While the
   manager is asleep, closed or offline, workers have no CLI proxy and no
   dashboard; nothing fails over, because a singleton never runs twice.
 - Its state (proxy OAuth/runtime state, the hub database) is backed up off the
@@ -56,9 +59,15 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
   checkouts. Durable work lives in Git remotes; credentials come from Vault.
   Work in progress in agent worktrees is pushed to a recovery ref every 15
   minutes; [durability](durability.md) says what a lost machine takes with it.
-- The first declared worker is the rollout canary for a revision new to the
-  fleet: a failed canary stops promotion to the other workers. Repeating a
-  revision that already converged everywhere runs all workers at once.
+- One worker is the rollout canary for a revision new to the fleet: the one
+  `fleet-sync --canary` or `canary` in `fleet.json` names, else the first
+  declared worker. When it cannot be reached (powered off, being rebuilt),
+  the next reachable worker in declared order proves the revision instead and
+  the unreachable one is reported as offline, never as a blocked rollout. A
+  canary that was deployed and failed stops promotion to the other workers.
+  Each worker's applied revision is kept in the fleet state, so one that
+  converged keeps its progress when another did not. Repeating a revision
+  that already converged everywhere runs all workers at once.
 
 ## Changing the topology
 

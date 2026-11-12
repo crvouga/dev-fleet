@@ -181,6 +181,23 @@ Then(
   }
 );
 
+Then('the report names {string} as the canary', (world, id: string) => {
+  expect(report(world).canary).toBe(id);
+});
+
+Then(
+  'no check of {string} says {string}',
+  (world, id: string, summary: string) => {
+    expect(
+      worker(world, id).checks.map((check) => check.summary)
+    ).not.toContain(summary);
+  }
+);
+
+Then('{string} holds the approved revision', (world, id: string) => {
+  expect(worker(world, id).appliedRevision).toBe(world.sync.revision!);
+});
+
 Then(/^the fleet is (ready|not ready)$/, (world, readiness: string) => {
   expect(report(world).ok).toBe(readiness === 'ready');
 });

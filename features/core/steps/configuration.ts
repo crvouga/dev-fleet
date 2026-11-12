@@ -4,7 +4,13 @@ import { resolve } from 'node:path';
 import example from '../../../examples/fleet.json';
 import type { DataTable } from '../../support/gherkin';
 import { parseConfig, selectNodes } from '../../../src/config';
-import { enrolledRoster, parseDefinition } from '../../../src/definition';
+import {
+  DefinitionError,
+  enrolledRoster,
+  parseDefinition,
+} from '../../../src/definition';
+import schema from '../../../schema/fleet.schema.json';
+import { conforms } from '../support/json-schema';
 import { hostId, hubUrl, roleOf, type Role } from '../../../src/topology';
 import { parseWorkerPolicy } from '../../../src/worker-policy';
 import type { FleetNode } from '../../../src/types';
@@ -101,6 +107,50 @@ When('the fleet configuration is read', async (world) => {
 
 const definition = (world: CoreWorld) =>
   need(world, world.definition, 'a fleet configuration that was read');
+
+Then(
+  'it is refused with {string} at {string}',
+  (world, code: string, path: string) => {
+    expect(world.failure).toBeInstanceOf(DefinitionError);
+    const { problem } = world.failure as DefinitionError;
+    expect(problem.code).toBe(code);
+    expect(problem.path).toBe(path);
+    expect(world.failure!.message).toContain(path);
+  }
+);
+
+/** What the schema and the parser said of the same definition. */
+const verdicts = new WeakMap<CoreWorld, { schema: boolean; parser: boolean }>();
+
+When(
+  'the fleet configuration is judged by the schema and by the parser',
+  (world) => {
+    const value = written(world);
+    let parser = true;
+    try {
+      parseDefinition(value);
+    } catch (error) {
+      if (!(error instanceof DefinitionError)) throw error;
+      parser = false;
+    }
+    verdicts.set(world, {
+      schema: conforms(schema as Record<string, unknown>, value),
+      parser,
+    });
+  }
+);
+
+const verdict = (world: CoreWorld) =>
+  need(world, verdicts.get(world), 'a definition judged by both');
+
+Then(/^both (accept|refuse) it$/, (world, wanted: string) => {
+  const accepted = wanted === 'accept';
+  expect(verdict(world)).toEqual({ schema: accepted, parser: accepted });
+});
+
+Then('the schema accepts it and the parser refuses it', (world) => {
+  expect(verdict(world)).toEqual({ schema: true, parser: false });
+});
 
 Then(
   'the manager is {string}, runs {string} and never sleeps on power',

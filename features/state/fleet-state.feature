@@ -191,7 +191,7 @@ Feature: fleet-state shows the fleet state and connects it to a bucket
 
       Examples:
         | command                                                       | message                      |
-        | fleet-state --import ~/broken.json                            | Invalid Fleet definition     |
+        | fleet-state --import ~/broken.json                            | Invalid fleet definition at  |
         | fleet-state --import ~/missing.json                           | readable JSON file           |
         | fleet-state --export                                          | holds no fleet configuration |
         | fleet-state --restore                                         | No bucket is configured      |

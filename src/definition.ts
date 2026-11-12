@@ -1,5 +1,6 @@
 import {
   parseWorkerPolicy,
+  policyFault,
   toolProfiles,
   type WorkerPolicy,
 } from './worker-policy';
@@ -17,7 +18,7 @@ import {
   type T3Definition,
 } from './ide/definition';
 import { parseNotify, type NotifyConfig } from './notify';
-import { ubuntuRelease } from './platform/ubuntu-release';
+import { UBUNTU_RELEASES, ubuntuRelease } from './platform/ubuntu-release';
 import { parseGithubPolicy, type GithubPolicy } from './github/policy';
 
 export interface MachineDefinition {
@@ -54,6 +55,11 @@ export interface FleetDefinition {
   manager: ManagerDefinition;
   /** Stateless, replaceable Linux boxes; clients of the manager's services. */
   workers: MachineDefinition[];
+  /** The worker that proves a revision new to the fleet before the others
+   * receive it, when it is reachable. Without one, the first reachable
+   * worker in the order above.
+   */
+  canary?: string;
   services: {
     /** Public HTTPS origin of the CLI proxy every node uses. */
     proxy: { endpoint: string; accounts?: AccountPolicy };
@@ -127,94 +133,170 @@ export interface GitIdentity {
 }
 const ID = /^[a-z][a-z0-9-]{0,62}$/;
 const HOST = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$/;
-function fail(): never {
-  throw new FleetUsageError(
-    'Invalid Fleet definition. Check version 3, one macOS manager, unique Linux worker IDs, singleton services and network metadata in fleet.json.'
-  );
+const USER = /^[a-z_][a-z0-9_-]{0,31}$/;
+const MANAGER_USER = /^[a-z_][a-z0-9_.-]{0,31}$/;
+
+/** What is wrong with a fleet definition: the first rule it breaks, where. */
+export interface DefinitionProblem {
+  /** Stable: DEFINITION_INVALID, DEFINITION_MISSING, DEFINITION_UNKNOWN,
+   * DEFINITION_DUPLICATE or DEFINITION_UNREADABLE. */
+  code: string;
+  /** A JSONPath into fleet.json, such as `$.workers[1].network.sshPort`. */
+  path: string;
+  expected: string;
+  /** The kind of value found, never more than a short excerpt of it. */
+  actual: string;
 }
-function keys(value: Record<string, unknown>, allowed: string[]): boolean {
-  return Object.keys(value).every((key) => allowed.includes(key));
+
+export class DefinitionError extends FleetUsageError {
+  constructor(readonly problem: DefinitionProblem) {
+    super(
+      `Invalid fleet definition at ${problem.path}: expected ${problem.expected}, found ${problem.actual}.`
+    );
+  }
 }
-function network(value: unknown): NonNullable<MachineDefinition['network']> {
-  if (
-    !record(value) ||
-    !keys(value, ['tailscaleName', 'user', 'sshPort', 't3Port'])
-  )
-    return fail();
-  if (
-    typeof value['tailscaleName'] !== 'string' ||
-    !HOST.test(value['tailscaleName'])
-  )
-    return fail();
-  if (
-    typeof value['user'] !== 'string' ||
-    !/^[a-z_][a-z0-9_-]{0,31}$/.test(value['user'])
-  )
-    return fail();
-  for (const port of ['sshPort', 't3Port'])
-    if (!validPort(value[port])) return fail();
-  return value as NonNullable<MachineDefinition['network']>;
+
+/** A short description of a value, for a person to recognise it. */
+function describe(value: unknown): string {
+  if (value === undefined) return 'nothing';
+  if (value === null) return 'null';
+  if (Array.isArray(value)) return `an array of ${value.length}`;
+  if (typeof value === 'object') return 'an object';
+  const text = JSON.stringify(value);
+  return text.length > 64 ? `${text.slice(0, 61)}...` : text;
 }
-function validPort(value: unknown): boolean {
-  return (
-    Number.isInteger(value) && Number(value) >= 1 && Number(value) <= 65535
-  );
+
+function fail(
+  path: string,
+  expected: string,
+  actual: unknown,
+  code = actual === undefined ? 'DEFINITION_MISSING' : 'DEFINITION_INVALID'
+): never {
+  throw new DefinitionError({
+    code,
+    path,
+    expected,
+    actual: describe(actual),
+  });
 }
-function worker(value: unknown): MachineDefinition {
-  if (
-    !record(value) ||
-    !keys(value, ['id', 'ssh', 'os', 'network', 'toolProfiles'])
-  )
-    return fail();
-  if (typeof value['id'] !== 'string' || !ID.test(value['id'])) return fail();
-  if (typeof value['ssh'] !== 'string' || !HOST.test(value['ssh']))
-    return fail();
-  // Workers are the Linux boxes; any other platform is not a worker.
-  if (value['os'] !== 'linux') return fail();
+
+function object(value: unknown, path: string): Record<string, unknown> {
+  if (!record(value)) return fail(path, 'an object', value);
+  return value;
+}
+
+function keys(value: Record<string, unknown>, allowed: string[], path: string) {
+  const unknown = Object.keys(value).find((key) => !allowed.includes(key));
+  if (unknown !== undefined)
+    fail(
+      `${path}.${unknown}`,
+      `one of ${allowed.filter((key) => key !== '$schema').join(', ')}`,
+      value[unknown],
+      'DEFINITION_UNKNOWN'
+    );
+}
+
+function text(
+  value: unknown,
+  pattern: RegExp,
+  path: string,
+  expected: string
+): string {
+  if (typeof value !== 'string' || !pattern.test(value))
+    return fail(path, expected, value);
+  return value;
+}
+
+function constant<T>(value: unknown, wanted: T, path: string): T {
+  if (JSON.stringify(value) !== JSON.stringify(wanted))
+    return fail(path, JSON.stringify(wanted), value);
+  return wanted;
+}
+
+function network(
+  value: unknown,
+  path: string
+): NonNullable<MachineDefinition['network']> {
+  const fields = object(value, path);
+  keys(fields, ['tailscaleName', 'user', 'sshPort', 't3Port'], path);
   return {
-    id: value['id'],
-    ssh: value['ssh'],
+    tailscaleName: text(
+      fields['tailscaleName'],
+      HOST,
+      `${path}.tailscaleName`,
+      'a host name'
+    ),
+    user: text(fields['user'], USER, `${path}.user`, 'a login name'),
+    sshPort: port(fields['sshPort'], `${path}.sshPort`),
+    t3Port: port(fields['t3Port'], `${path}.t3Port`),
+  };
+}
+function port(value: unknown, path: string): number {
+  if (!Number.isInteger(value) || Number(value) < 1 || Number(value) > 65535)
+    return fail(path, 'a port from 1 to 65535', value);
+  return value as number;
+}
+function worker(value: unknown, path: string): MachineDefinition {
+  const fields = object(value, path);
+  keys(fields, ['id', 'ssh', 'os', 'network', 'toolProfiles'], path);
+  const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
+  const ssh = text(fields['ssh'], HOST, `${path}.ssh`, 'an SSH host alias');
+  // Workers are the Linux boxes; any other platform is not a worker.
+  constant(fields['os'], 'linux', `${path}.os`);
+  return {
+    id,
+    ssh,
     os: 'linux',
-    ...(value['network'] ? { network: network(value['network']) } : {}),
-    ...(value['toolProfiles'] === undefined
+    ...(fields['network']
+      ? { network: network(fields['network'], `${path}.network`) }
+      : {}),
+    ...(fields['toolProfiles'] === undefined
       ? {}
-      : { toolProfiles: toolProfiles(value['toolProfiles']) ?? fail() }),
+      : {
+          toolProfiles:
+            toolProfiles(fields['toolProfiles']) ??
+            fail(
+              `${path}.toolProfiles`,
+              'a list of known tool profiles, each once',
+              fields['toolProfiles']
+            ),
+        }),
   };
 }
 function manager(value: unknown): ManagerDefinition {
-  if (
-    !record(value) ||
-    !keys(value, ['id', 'os', 'network', 'neverSleepOnPower']) ||
-    typeof value['id'] !== 'string' ||
-    !ID.test(value['id']) ||
-    value['os'] !== 'macOS' ||
-    value['neverSleepOnPower'] !== true
-  )
-    return fail();
+  const path = '$.manager';
+  const fields = object(value, path);
+  keys(fields, ['id', 'os', 'network', 'neverSleepOnPower'], path);
+  const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
+  // The manager must be the Mac: a Linux machine is a worker.
+  constant(fields['os'], 'macOS', `${path}.os`);
+  const net = object(fields['network'], `${path}.network`);
+  keys(net, ['tailscaleName', 'user'], `${path}.network`);
+  const tailscaleName = text(
+    net['tailscaleName'],
+    HOST,
+    `${path}.network.tailscaleName`,
+    'a host name'
+  );
+  const user = text(
+    net['user'],
+    MANAGER_USER,
+    `${path}.network.user`,
+    'a login name'
+  );
+  constant(fields['neverSleepOnPower'], true, `${path}.neverSleepOnPower`);
   return {
-    id: value['id'],
+    id,
     os: 'macOS',
-    network: managerNetwork(value['network']),
+    network: { tailscaleName, user },
     neverSleepOnPower: true,
   };
 }
-function managerNetwork(value: unknown): ManagerDefinition['network'] {
-  if (
-    !record(value) ||
-    !keys(value, ['tailscaleName', 'user']) ||
-    typeof value['tailscaleName'] !== 'string' ||
-    !HOST.test(value['tailscaleName']) ||
-    typeof value['user'] !== 'string' ||
-    !/^[a-z_][a-z0-9_.-]{0,31}$/.test(value['user'])
-  )
-    return fail();
-  return { tailscaleName: value['tailscaleName'], user: value['user'] };
-}
 export function parseDefinition(value: unknown): FleetDefinition {
-  if (
-    !record(value) ||
-    value['version'] !== 3 ||
-    !keys(value, [
+  const fields = object(value, '$');
+  keys(
+    fields,
+    [
       '$schema',
       'version',
       'source',
@@ -222,6 +304,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'state',
       'manager',
       'workers',
+      'canary',
       'services',
       'ubuntu',
       'worker',
@@ -230,216 +313,317 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'git',
       'notify',
       'github',
-    ])
-  )
-    return fail();
-  if (!Array.isArray(value['workers']) || value['workers'].length > 64)
-    return fail();
-  const lead = manager(value['manager']);
-  const workers = value['workers'].map(worker);
-  const ids = [lead.id, ...workers.map((entry) => entry.id)];
-  if (new Set(ids).size !== ids.length) return fail();
+    ],
+    '$'
+  );
+  constant(fields['version'], 3, '$.version');
+  const list = fields['workers'];
+  if (!Array.isArray(list) || list.length > 64)
+    return fail('$.workers', 'an array of at most 64 workers', list);
+  const lead = manager(fields['manager']);
+  const workers = list.map((entry, index) =>
+    worker(entry, `$.workers[${index}]`)
+  );
+  const seen = new Set([lead.id]);
+  workers.forEach((entry, index) => {
+    if (seen.has(entry.id))
+      fail(
+        `$.workers[${index}].id`,
+        'an id no other machine has',
+        entry.id,
+        'DEFINITION_DUPLICATE'
+      );
+    seen.add(entry.id);
+  });
   return {
     version: 3,
-    source: source(value['source']),
-    secrets: secrets(value['secrets']),
-    ...(value['state'] === undefined ? {} : { state: state(value['state']) }),
+    source: source(fields['source']),
+    secrets: secrets(fields['secrets']),
+    ...(fields['state'] === undefined ? {} : { state: state(fields['state']) }),
     manager: lead,
     workers,
-    services: services(value['services']),
-    ubuntu: baseline(value['ubuntu']),
-    ...optionalSections(value),
+    ...(fields['canary'] === undefined
+      ? {}
+      : { canary: canary(fields['canary'], workers) }),
+    services: services(fields['services']),
+    ubuntu: baseline(fields['ubuntu']),
+    ...(fields['worker'] === undefined
+      ? {}
+      : { worker: policy(fields['worker']) }),
+    // Kept only when named: an earlier revision must still read the copy.
+    ...(fields['ides'] === undefined
+      ? {}
+      : { ides: block('$.ides', () => parseIdes(fields['ides'])) }),
+    ...(fields['t3'] === undefined
+      ? {}
+      : { t3: block('$.t3', () => parseT3(fields['t3'])) }),
+    ...(fields['git'] === undefined ? {} : { git: gitIdentity(fields['git']) }),
+    ...(fields['notify'] === undefined
+      ? {}
+      : {
+          notify:
+            parseNotify(fields['notify']) ??
+            fail(
+              '$.notify',
+              'targets (webhook, ntfy) and repeatHours from 0 to 720',
+              fields['notify']
+            ),
+        }),
+    ...(fields['github'] === undefined
+      ? {}
+      : {
+          github: block('$.github', () => parseGithubPolicy(fields['github'])),
+        }),
   };
 }
-/** The sections a fleet may leave out, kept only when named: an earlier
- * revision must still read the copy.
- */
-function optionalSections(
-  value: Record<string, unknown>
-): Pick<
-  FleetDefinition,
-  'worker' | 'ides' | 't3' | 'git' | 'notify' | 'github'
-> {
-  return {
-    ...(value['worker'] === undefined
-      ? {}
-      : { worker: parseWorkerPolicy(value['worker']) }),
-    ...(value['ides'] === undefined ? {} : { ides: parseIdes(value['ides']) }),
-    ...(value['t3'] === undefined ? {} : { t3: parseT3(value['t3']) }),
-    ...(value['git'] === undefined ? {} : { git: gitIdentity(value['git']) }),
-    ...(value['notify'] === undefined
-      ? {}
-      : { notify: parseNotify(value['notify']) ?? fail() }),
-    ...(value['github'] === undefined
-      ? {}
-      : { github: parseGithubPolicy(value['github']) }),
-  };
+/** The canary is one of the declared workers. */
+function canary(value: unknown, workers: MachineDefinition[]): string {
+  if (typeof value !== 'string' || !workers.some((entry) => entry.id === value))
+    return fail('$.canary', 'the id of a declared worker', value);
+  return value;
 }
 /** Singleton services name no host: they always run on the manager. */
 function services(value: unknown): FleetDefinition['services'] {
-  if (!record(value) || !keys(value, ['proxy', 'monitoring'])) return fail();
-  const { proxy, monitoring } = value;
-  if (
-    !record(proxy) ||
-    !keys(proxy, ['endpoint', 'accounts']) ||
-    !origin(proxy['endpoint'])
-  )
-    return fail();
+  const fields = object(value, '$.services');
+  keys(fields, ['proxy', 'monitoring'], '$.services');
+  const proxy = object(fields['proxy'], '$.services.proxy');
+  keys(proxy, ['endpoint', 'accounts'], '$.services.proxy');
   return {
     proxy: {
-      endpoint: proxy['endpoint'],
+      endpoint: text(
+        proxy['endpoint'],
+        ORIGIN,
+        '$.services.proxy.endpoint',
+        'an https origin without a path'
+      ),
       ...(proxy['accounts'] === undefined
         ? {}
         : { accounts: accountPolicy(proxy['accounts']) }),
     },
-    monitoring: monitoringService(monitoring),
+    monitoring: monitoringService(fields['monitoring']),
   };
+}
+/** A block parsed elsewhere: its own message says what it expects. */
+function block<T>(path: string, parse: () => T): T {
+  try {
+    return parse();
+  } catch (error) {
+    if (error instanceof DefinitionError || !(error instanceof Error))
+      throw error;
+    return fail(path, error.message, 'something else');
+  }
 }
 const STRATEGIES = ['fill-first', 'round-robin', 'least-recently-limited'];
 function accountPolicy(value: unknown): AccountPolicy {
-  if (!record(value) || !keys(value, ['minimumUsable', 'selection']))
-    return fail();
-  const { minimumUsable, selection } = value;
+  const path = '$.services.proxy.accounts';
+  const fields = object(value, path);
+  keys(fields, ['minimumUsable', 'selection'], path);
+  const { minimumUsable, selection } = fields;
   if (
     minimumUsable !== undefined &&
     !(Number.isInteger(minimumUsable) && Number(minimumUsable) >= 1)
   )
-    return fail();
+    fail(`${path}.minimumUsable`, 'an integer of at least 1', minimumUsable);
   return {
     ...(minimumUsable === undefined
       ? {}
       : { minimumUsable: minimumUsable as number }),
     ...(selection === undefined
       ? {}
-      : { selection: selectionPolicies(selection) }),
+      : { selection: selectionPolicies(selection, `${path}.selection`) }),
   };
 }
-function selectionPolicies(value: unknown): Record<string, AccountSelection> {
-  if (!record(value)) return fail();
+function selectionPolicies(
+  value: unknown,
+  path: string
+): Record<string, AccountSelection> {
+  const fields = object(value, path);
   const providers: Record<string, AccountSelection> = {};
-  for (const [provider, entry] of Object.entries(value)) {
-    if (!/^[a-z][a-z0-9-]{0,31}$/.test(provider)) return fail();
-    providers[provider] = accountSelection(entry);
+  for (const [provider, entry] of Object.entries(fields)) {
+    if (!/^[a-z][a-z0-9-]{0,31}$/.test(provider))
+      fail(`${path}.${provider}`, 'a provider name', provider);
+    providers[provider] = accountSelection(entry, `${path}.${provider}`);
   }
   return providers;
 }
-function accountSelection(entry: unknown): AccountSelection {
-  if (
-    !record(entry) ||
-    !keys(entry, ['strategy', 'order']) ||
-    !STRATEGIES.includes(String(entry['strategy']))
-  )
-    return fail();
-  const { order } = entry;
+function accountSelection(entry: unknown, path: string): AccountSelection {
+  const fields = object(entry, path);
+  keys(fields, ['strategy', 'order'], path);
+  if (!STRATEGIES.includes(String(fields['strategy'])))
+    fail(
+      `${path}.strategy`,
+      `one of ${STRATEGIES.join(', ')}`,
+      fields['strategy']
+    );
+  const { order } = fields;
   if (
     order !== undefined &&
-    !(Array.isArray(order) && order.every((label) => account(label)))
+    !(
+      Array.isArray(order) &&
+      order.every((label) => typeof label === 'string' && ACCOUNT.test(label))
+    )
   )
-    return fail();
+    fail(`${path}.order`, 'a list of account email addresses', order);
   return {
-    strategy: entry['strategy'] as AccountSelection['strategy'],
+    strategy: fields['strategy'] as AccountSelection['strategy'],
     ...(order ? { order: order as string[] } : {}),
   };
 }
 function monitoringService(
   value: unknown
 ): FleetDefinition['services']['monitoring'] {
-  const fields = [
-    'hubPort',
-    'publicUrl',
-    'managerAccount',
-    'viewerAccount',
-    'backups',
-  ];
-  if (!record(value) || !keys(value, fields) || value['hubPort'] !== 8443)
-    return fail();
-  const { publicUrl, managerAccount, viewerAccount } = value;
-  if (!origin(publicUrl) || !account(managerAccount) || !account(viewerAccount))
-    return fail();
+  const path = '$.services.monitoring';
+  const fields = object(value, path);
+  keys(
+    fields,
+    ['hubPort', 'publicUrl', 'managerAccount', 'viewerAccount', 'backups'],
+    path
+  );
+  constant(fields['hubPort'], 8443, `${path}.hubPort`);
   return {
     hubPort: 8443,
-    publicUrl,
-    managerAccount,
-    viewerAccount,
-    ...(value['backups'] === undefined
+    publicUrl: text(
+      fields['publicUrl'],
+      ORIGIN,
+      `${path}.publicUrl`,
+      'an https origin without a path'
+    ),
+    managerAccount: text(
+      fields['managerAccount'],
+      ACCOUNT,
+      `${path}.managerAccount`,
+      'an email address'
+    ),
+    viewerAccount: text(
+      fields['viewerAccount'],
+      ACCOUNT,
+      `${path}.viewerAccount`,
+      'an email address'
+    ),
+    ...(fields['backups'] === undefined
       ? {}
-      : { backups: hubBackups(value['backups']) }),
+      : { backups: hubBackups(fields['backups'], `${path}.backups`) }),
   };
 }
-const text = (value: unknown, pattern: RegExp): value is string =>
-  typeof value === 'string' && pattern.test(value);
-function hubBackups(value: unknown): HubBackups {
-  if (!record(value) || !keys(value, ['schedule', 'keep', 'storage']))
-    return fail();
-  const { schedule, keep } = value;
-  if (
-    !text(schedule, /^[0-9*/,-]+( [0-9*/,-]+){4}$/) ||
-    !Number.isInteger(keep) ||
-    Number(keep) < 1 ||
-    Number(keep) > 365
-  )
-    return fail();
+const ORIGIN = /^https:\/\/[A-Za-z0-9.-]{1,253}$/;
+const ACCOUNT = /^[^\s@]{1,64}@[A-Za-z0-9.-]{1,253}$/;
+function hubBackups(value: unknown, path: string): HubBackups {
+  const fields = object(value, path);
+  keys(fields, ['schedule', 'keep', 'storage'], path);
+  const { keep } = fields;
+  if (!Number.isInteger(keep) || Number(keep) < 1 || Number(keep) > 365)
+    fail(`${path}.keep`, 'an integer from 1 to 365', keep);
   return {
-    schedule,
+    schedule: text(
+      fields['schedule'],
+      /^[0-9*/,-]+( [0-9*/,-]+){4}$/,
+      `${path}.schedule`,
+      'a cron expression of five fields'
+    ),
     keep: Number(keep),
-    storage: backupStorage(value['storage']),
+    storage: backupStorage(fields['storage'], `${path}.storage`),
   };
 }
-function backupStorage(value: unknown): HubBackups['storage'] {
-  if (
-    !record(value) ||
-    !keys(value, ['bucket', 'endpoint', 'region', 'forcePathStyle'])
-  )
-    return fail();
-  const { bucket, endpoint, region, forcePathStyle } = value;
-  if (
-    !text(bucket, /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/) ||
-    !text(endpoint, /^https:\/\/[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/) ||
-    !text(region, /^[a-z0-9-]{1,32}$/) ||
-    (forcePathStyle !== undefined && typeof forcePathStyle !== 'boolean')
-  )
-    return fail();
+function backupStorage(value: unknown, path: string): HubBackups['storage'] {
+  const fields = object(value, path);
+  keys(fields, ['bucket', 'endpoint', 'region', 'forcePathStyle'], path);
+  const { forcePathStyle } = fields;
+  if (forcePathStyle !== undefined && typeof forcePathStyle !== 'boolean')
+    fail(`${path}.forcePathStyle`, 'true or false', forcePathStyle);
   return {
-    bucket,
-    endpoint,
-    region,
-    ...(forcePathStyle === undefined ? {} : { forcePathStyle }),
+    bucket: text(
+      fields['bucket'],
+      /^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$/,
+      `${path}.bucket`,
+      'an S3 bucket name'
+    ),
+    endpoint: text(
+      fields['endpoint'],
+      /^https:\/\/[A-Za-z0-9.-]{1,253}(:[0-9]{1,5})?$/,
+      `${path}.endpoint`,
+      'an https origin, with a port if needed'
+    ),
+    region: text(
+      fields['region'],
+      /^[a-z0-9-]{1,32}$/,
+      `${path}.region`,
+      'a region name'
+    ),
+    ...(forcePathStyle === undefined
+      ? {}
+      : { forcePathStyle: forcePathStyle as boolean }),
   };
 }
-const origin = (value: unknown): value is string =>
-  typeof value === 'string' && /^https:\/\/[A-Za-z0-9.-]{1,253}$/.test(value);
-const account = (value: unknown): value is string =>
-  typeof value === 'string' &&
-  /^[^\s@]{1,64}@[A-Za-z0-9.-]{1,253}$/.test(value);
 function gitIdentity(value: unknown): GitIdentity {
-  if (!record(value) || !keys(value, ['name', 'email', 'verifyRepository']))
-    return fail();
-  const { name, email, verifyRepository } = value;
-  // Written into a quoted Git configuration value: no quote, backslash or
-  // line break.
-  if (typeof name !== 'string' || !/^[^"\\\n\r]{1,100}$/.test(name))
-    return fail();
-  if (!account(email)) return fail();
-  if (
-    verifyRepository !== undefined &&
-    (typeof verifyRepository !== 'string' ||
-      !/^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/.test(
-        verifyRepository
-      ))
-  )
-    return fail();
+  const path = '$.git';
+  const fields = object(value, path);
+  keys(fields, ['name', 'email', 'verifyRepository'], path);
+  const { verifyRepository } = fields;
   return {
-    name,
-    email,
-    ...(verifyRepository === undefined ? {} : { verifyRepository }),
+    // Written into a quoted Git configuration value: no quote, backslash or
+    // line break.
+    name: text(
+      fields['name'],
+      /^[^"\\\n\r]{1,100}$/,
+      `${path}.name`,
+      'a name without quotes, backslashes or line breaks'
+    ),
+    email: text(fields['email'], ACCOUNT, `${path}.email`, 'an email address'),
+    ...(verifyRepository === undefined
+      ? {}
+      : {
+          verifyRepository: text(
+            verifyRepository,
+            /^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}$/,
+            `${path}.verifyRepository`,
+            'an https URL of a GitHub repository'
+          ),
+        }),
   };
 }
 function secrets(value: unknown): SecretsConfig {
-  return parseSecretsConfig(value) ?? fail();
+  return (
+    parseSecretsConfig(value) ??
+    fail(
+      '$.secrets',
+      'a provider block: env, file, sops or vault with its settings',
+      value
+    )
+  );
+}
+const POLICY: Record<string, string> = {
+  requiredCapabilities:
+    'every capability: github, vault, t3, toolchain, workstation, worker',
+  githubLogin: 'a GitHub login',
+  vaultUser: 'a Vault user name',
+  toolchain: '"mise.lock"',
+  agentProfile: '"proxy"',
+  unattendedSudo: 'true',
+  persistentT3: 'true',
+  neverSleep: 'true',
+  toolProfiles: 'a list of known tool profiles, each once',
+  tools: 'a list of tool names from dev-fleet’s mise.toml, each once',
+};
+function policy(value: unknown): WorkerPolicy {
+  const fields = object(value, '$.worker');
+  keys(fields, Object.keys(POLICY), '$.worker');
+  const field = policyFault(fields);
+  if (field !== null)
+    fail(`$.worker.${field}`, POLICY[field] ?? 'a valid value', fields[field]);
+  return parseWorkerPolicy(fields);
 }
 /** Says what is wrong with the block itself: a bucket has several settings. */
 function state(value: unknown): BucketLocation {
-  const bucket = parseLocation(value);
+  let bucket;
+  try {
+    bucket = parseLocation(value);
+  } catch (error) {
+    return fail(
+      '$.state',
+      error instanceof Error ? error.message : 'a bucket or a directory',
+      value
+    );
+  }
   if (bucket.kind === 'directory') return { directory: bucket.path };
   const { bucket: name, endpoint, region } = bucket;
   return {
@@ -450,34 +634,50 @@ function state(value: unknown): BucketLocation {
   };
 }
 function source(value: unknown): FleetDefinition['source'] {
-  if (
-    !record(value) ||
-    !keys(value, ['repository']) ||
-    typeof value['repository'] !== 'string' ||
-    !/^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+\.git$/.test(
-      value['repository']
-    )
-  )
-    return fail();
-  return { repository: value['repository'] };
+  const fields = object(value, '$.source');
+  keys(fields, ['repository'], '$.source');
+  return {
+    repository: text(
+      fields['repository'],
+      /^https:\/\/[A-Za-z0-9.-]+\/[A-Za-z0-9._/-]+\.git$/,
+      '$.source.repository',
+      'an https URL of a Git repository ending in .git'
+    ),
+  };
 }
 function baseline(ubuntu: unknown): FleetDefinition['ubuntu'] {
-  if (!record(ubuntu) || !keys(ubuntu, ['release', 'architectures']))
-    return fail();
+  const fields = object(ubuntu, '$.ubuntu');
+  keys(fields, ['release', 'architectures'], '$.ubuntu');
   const accepted =
-    typeof ubuntu['release'] === 'string'
-      ? ubuntuRelease(ubuntu['release'])
+    typeof fields['release'] === 'string'
+      ? ubuntuRelease(fields['release'])
       : undefined;
-  if (
-    !accepted ||
-    JSON.stringify(ubuntu['architectures']) !==
-      JSON.stringify(accepted.architectures)
-  )
-    return fail();
+  if (!accepted)
+    return fail(
+      '$.ubuntu.release',
+      `one of ${UBUNTU_RELEASES.map((entry) => entry.release).join(', ')}`,
+      fields['release']
+    );
+  constant(
+    fields['architectures'],
+    accepted.architectures,
+    '$.ubuntu.architectures'
+  );
   return {
     release: accepted.release,
     architectures: [...accepted.architectures],
   };
+}
+
+/** The first rule a fleet.json breaks, or null when it is valid. */
+export function definitionProblem(value: unknown): DefinitionProblem | null {
+  try {
+    parseDefinition(value);
+    return null;
+  } catch (error) {
+    if (error instanceof DefinitionError) return error.problem;
+    throw error;
+  }
 }
 
 /** The configuration as every machine keeps it at
@@ -492,11 +692,18 @@ export function installedDefinition(definition: FleetDefinition): string {
 }
 
 export function loadDefinition(path: string): FleetDefinition {
+  let value: unknown;
   try {
-    return parseDefinition(JSON.parse(readFileSync(path, 'utf8')));
+    value = JSON.parse(readFileSync(path, 'utf8'));
   } catch {
-    return fail();
+    return fail(
+      '$',
+      'a readable JSON file',
+      'unreadable',
+      'DEFINITION_UNREADABLE'
+    );
   }
+  return parseDefinition(value);
 }
 /** Local v1 roster supplies paths/requirements only for explicitly enrolled workers. */
 export function enrolledRoster(

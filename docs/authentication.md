@@ -59,6 +59,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | `monitoring-backup-secret-key` | when its feature is declared | `DEVFLEET_SECRET_MONITORING_BACKUP_SECRET_KEY` | `~/.config/dev-fleet/secrets/monitoring-backup-secret-key` |
 | `notify-webhook-url`           | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_WEBHOOK_URL`           | `~/.config/dev-fleet/secrets/notify-webhook-url`           |
 | `notify-ntfy-url`              | when its feature is declared | `DEVFLEET_SECRET_NOTIFY_NTFY_URL`              | `~/.config/dev-fleet/secrets/notify-ntfy-url`              |
+| `tailnet-auth-key`             | when its feature is declared | `DEVFLEET_SECRET_TAILNET_AUTH_KEY`             | `~/.config/dev-fleet/secrets/tailnet-auth-key`             |
 
 <!-- end: secrets -->
 
@@ -70,6 +71,7 @@ Every failure code is in [the runbooks](runbooks.md).
 | ----------------------------- | ------------------------------------------ |
 | `auth:github`                 | `src/github/checks.ts`                     |
 | `auth:vault`                  | `src/cli/fleet-sync-vault.ts`              |
+| `auth:vault-isolation`        | `src/cli/fleet-sync-vault.ts`              |
 | `worker:git-identity`         | `src/git-identity.ts`                      |
 | `worker:git-push-auth`        | `src/definition.ts`, `src/git-identity.ts` |
 | `worker:github-sync`          | `src/worker-access-checks.ts`              |

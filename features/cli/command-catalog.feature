@@ -49,6 +49,9 @@ Feature: The command catalog
         | fleet-node-add        |
         | fleet-accounts --add  |
         | fleet-github-verify   |
+        | fleet-node-replace    |
+        | fleet-node-seed       |
+        | fleet-node-retire     |
         | t3-apply              |
         | t3-cleanup            |
         | cliproxy              |
