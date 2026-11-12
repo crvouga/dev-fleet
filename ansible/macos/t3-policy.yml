@@ -1,0 +1,49 @@
+---
+# T3 Code on the manager reads the same administrator policy as on every
+# worker (ansible/ubuntu/t3/policy.json): updates off, so the manager's T3
+# changes only when the fleet's pin does. Provider instances are reconciled
+# by fleet-sync on every run and stay unlocked here: locking them needs an
+# administrator for each change of the account roster. fleet-sync measures
+# the result as t3:updates. Needs an administrator: ansible-playbook -K manager.yml
+- name: Stage the fleet's T3 policy on the manager
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  vars:
+    t3_policy_directory: /Library/Application Support/T3Code
+  tasks:
+    - name: Inspect existing administrator policy
+      ansible.builtin.stat:
+        path: '{{ t3_policy_directory }}/policy.json'
+      register: policy_file
+    - name: Inspect Fleet ownership marker
+      ansible.builtin.stat:
+        path: '{{ t3_policy_directory }}/.personal-fleet-policy'
+      register: policy_owner
+    - name: Refuse to overwrite an unrelated administrator policy
+      ansible.builtin.assert:
+        that: not policy_file.stat.exists or policy_owner.stat.exists
+        fail_msg: T3_POLICY_OWNER_CONFLICT; review and merge the existing administrator policy in Git before adoption.
+    - name: Create administrator-owned policy directory
+      ansible.builtin.file:
+        path: '{{ t3_policy_directory }}'
+        state: directory
+        owner: root
+        group: wheel
+        mode: '0755'
+    - name: Record policy ownership before installation
+      ansible.builtin.copy:
+        dest: '{{ t3_policy_directory }}/.personal-fleet-policy'
+        content: "ansible/ubuntu/t3/policy.json\n"
+        owner: root
+        group: wheel
+        mode: '0644'
+    - name: Install the fleet's policy with backup
+      ansible.builtin.copy:
+        content: "{{ lookup('ansible.builtin.file', '../ubuntu/t3/policy.json') | from_json | to_nice_json }}"
+        dest: '{{ t3_policy_directory }}/policy.json'
+        owner: root
+        group: wheel
+        mode: '0644'
+        backup: true

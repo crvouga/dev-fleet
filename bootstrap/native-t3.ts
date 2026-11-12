@@ -19,6 +19,7 @@ interface Configuration {
     t3_version: string;
     t3_linux_x64_sha256: string;
     t3_linux_arm64_sha256: string;
+    t3_darwin_arm64_sha256?: string;
     t3_desktop_amd64_sha256: string;
     t3_desktop_arm64_sha256: string;
   };
@@ -52,20 +53,27 @@ export function managedT3Desktop() {
   ) as Configuration;
   return desktopT3Artifact(config, process.arch);
 }
-export function nativeT3Artifact(config: Configuration, architecture: string) {
-  if (!['x64', 'arm64'].includes(architecture))
-    throw new Error('Unsupported T3 architecture.');
+/** The pinned server archive: Ubuntu workers on either architecture, and
+ * the manager (macOS on Apple silicon, the only macOS build upstream ships).
+ */
+export function nativeT3Artifact(
+  config: Configuration,
+  architecture: string,
+  platform: string = 'linux'
+) {
+  const sha256 = (<Record<string, string | undefined>>{
+    'linux-x64': config.vars.t3_linux_x64_sha256,
+    'linux-arm64': config.vars.t3_linux_arm64_sha256,
+    'darwin-arm64': config.vars.t3_darwin_arm64_sha256,
+  })[`${platform}-${architecture}`];
+  if (sha256 === undefined) throw new Error('Unsupported T3 architecture.');
   const version = config.vars.t3_version;
-  const sha256 =
-    architecture === 'x64'
-      ? config.vars.t3_linux_x64_sha256
-      : config.vars.t3_linux_arm64_sha256;
   if (
     !/^\d+\.\d+\.\d+(?:-nightly\.\d{8}\.\d+)?$/.test(version) ||
     !/^[a-f0-9]{64}$/.test(sha256)
   )
     throw new Error('Invalid T3 pin.');
-  const name = `t3-${version}-linux-${architecture}`;
+  const name = `t3-${version}-${platform}-${architecture}`;
   return {
     version,
     sha256,
@@ -77,18 +85,21 @@ export function managedT3(): { path: string; version: string } {
   const config = Bun.TOML.parse(
     readFileSync(join(workspaceRoot, 'mise.toml'), 'utf8')
   ) as Configuration;
-  const artifact = nativeT3Artifact(config, process.arch);
+  const artifact = nativeT3Artifact(config, process.arch, process.platform);
   return {
     path: join(homedir(), '.local/share/personal/tools', artifact.name, 't3'),
     version: artifact.version,
   };
 }
+/** Installs the pinned, checksum-verified server archive on a worker and on
+ * the manager, so both run the T3 version the fleet pins.
+ */
 export async function installNativeT3(): Promise<void> {
-  if (process.platform !== 'linux') return;
+  if (!['linux', 'darwin'].includes(process.platform)) return;
   const config = Bun.TOML.parse(
     readFileSync(join(workspaceRoot, 'mise.toml'), 'utf8')
   ) as Configuration;
-  const artifact = nativeT3Artifact(config, process.arch);
+  const artifact = nativeT3Artifact(config, process.arch, process.platform);
   const root = join(homedir(), '.local/share/personal/tools');
   const archive = join(root, `${artifact.name}.tar.gz`);
   mkdirSync(root, { recursive: true, mode: 0o700 });

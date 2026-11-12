@@ -233,6 +233,26 @@ package carries: `fleet-state --example` prints a complete example that points
 | `workers`  | The Ubuntu workers                                                  |
 | `services` | The proxy's public origin and the monitoring dashboard and accounts |
 | `worker`   | Policy every worker must meet                                       |
+| `ides`     | The IDEs every machine runs; `["t3"]` when absent                   |
+| `t3`       | T3 settings every machine holds (`profile`) and `requiredModels`    |
+
+### Supported IDEs
+
+Every supported IDE is reached through one interface (`src/ide/ide.ts`): its
+settings on each machine, the manager's own copy (pinned version and policy)
+and what the manager measures of each worker. Enabling one is `ides` in
+`fleet.json`.
+
+| IDE     | `ides` | Manager                                               | Workers                                    |
+| ------- | ------ | ----------------------------------------------------- | ------------------------------------------ |
+| T3 Code | `t3`   | Pinned CLI, policy with updates off, version measured | Pinned desktop app, locked policy, pairing |
+
+Under `t3.profile`, `fleet.json` names top-level T3 settings every machine
+holds the same, such as tool servers. A setting not named there stays the
+machine's own, and one edited on a machine since `fleet-sync` last wrote it
+is reported as `T3_PROFILE_CONFLICT` by the check `t3:profile`, never
+overwritten. The check `t3:models` reports a model T3 offers that the proxy
+does not serve, and a model in `t3.requiredModels` that is missing.
 
 Secrets are asked for by purpose (`proxy-client-key`,
 `monitoring-account-password`, `monitoring-tunnel-token`,
