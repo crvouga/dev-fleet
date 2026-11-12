@@ -15,6 +15,9 @@ import { FleetUsageError } from '../errors';
 import { selectNodes } from '../config';
 import { loadRoster } from './roster';
 import { enrolledRoster } from '../definition';
+import { readParked, readWorkerStates } from '../state/workers';
+import { withoutParked } from '../worker-parking';
+import { reconcileRecords } from './fleet-sync-records';
 import type { FleetDefinition } from '../definition';
 import { fleet as definition } from '../fleet-config';
 import { synchronizeManager } from '../manager-sync';
@@ -55,14 +58,35 @@ export async function selected(
   if (!options.revision)
     throw new FleetUsageError('An approved source revision is required.');
   const canonical = definition;
+  // Workers whose record disappeared are retired first (planned in a
+  // preview), so they are no longer in the roster.
+  const records = await reconcileRecords(canonical, settings.config, run, {
+    apply: Boolean(options.apply),
+  });
   let roster;
   try {
-    roster = enrolledRoster(canonical, await loadRoster(settings.config));
+    const declared = new Set(canonical.workers.map((worker) => worker.id));
+    const loaded = await loadRoster(settings.config);
+    roster = enrolledRoster(canonical, {
+      ...loaded,
+      nodes: loaded.nodes.filter(
+        (node) =>
+          declared.has(node.id) ||
+          readWorkerStates().workers[node.id]?.origin !== 'records'
+      ),
+    });
   } catch {
     return enrollmentRequired(canonical, options.revision);
   }
-  const nodes = selectNodes(roster, options.node ?? []);
-  const scoped = scopeDefinition(canonical, options.node);
+  // A parked worker is not contacted and never the canary.
+  const active = withoutParked(
+    scopeDefinition(canonical, options.node),
+    selectNodes(roster, options.node ?? []),
+    readParked(),
+    new Date()
+  );
+  const { nodes, definition: scoped } = active;
+  const notes = [...records, ...active.checks];
   const ui = interfaceOptions(options);
   const planFingerprint = createHash('sha256')
     .update(
@@ -122,6 +146,7 @@ export async function selected(
     })
   ).finally(() => ui.progress.stop());
   if (options.enrollment) reportEnrollment(report, options.enrollment);
+  report.checks.push(...notes);
   if (settle) report.checks.push(await settle(report));
   return outcome(report, planFingerprint, started);
 }

@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "dev-fleet worker records, version 1",
+  "description": "Workers as the tool that created them describes them, without naming the tool or the provider. fleet.json names a file or a command that returns this document under workerRecords; dev-fleet only reads it, never creates a machine and never calls a provider. Each record is a declared worker reached from its data: its host key is pinned as given. A record needs a tailnetName or an address. A worker whose record disappears (a file that is gone holds no record) is retired by the next fleet-sync.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "workers"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "workers": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "user"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]{0,62}$",
+            "description": "The worker's fleet ID. No other worker, inline or from a record, may have it."
+          },
+          "tailnetName": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$",
+            "description": "The tailnet name the machine joins under, without the trailing dot."
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$",
+            "description": "A name or address SSH reaches the machine at, when it has no tailnet name."
+          },
+          "user": {
+            "type": "string",
+            "pattern": "^[a-z_][a-z0-9_-]{0,31}$",
+            "description": "The non-root account with passwordless sudo the manager signs in as."
+          },
+          "port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "The port sshd listens on. Default 22."
+          },
+          "hostKey": {
+            "type": "string",
+            "pattern": "^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{16,}$",
+            "description": "The machine's SSH host public key, \"TYPE BASE64\": generated before the machine exists (devfleet fleet-node-seed prints it) or read from the machine by the tool that created it. It is pinned, never learned on first use. Without it the key the fleet state pins is used (devfleet fleet-node-seed --apply --yes), and until there is one every session is refused."
+          },
+          "t3Port": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 65535,
+            "description": "The port the worker's T3 server listens on. Default 3773."
+          },
+          "labels": {
+            "type": "object",
+            "additionalProperties": { "type": "string" },
+            "description": "Free-form labels; only displayed."
+          },
+          "billing": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["hourlyRate"],
+            "properties": {
+              "hourlyRate": { "type": "number", "minimum": 0 },
+              "currency": { "type": "string", "pattern": "^[A-Z]{3}$" },
+              "note": { "type": "string" }
+            },
+            "description": "What the machine costs while it runs, as you declare it; fleet-status sums it for idle workers."
+          }
+        }
+      }
+    }
+  }
+}

@@ -469,6 +469,50 @@ When('T3 is asked whether it runs an agent turn', (world) => {
   turns(world).output = ran.stdout;
 });
 
+Given('T3 has recorded these runs:', (world, table: DataTable) => {
+  const database = new Database(turns(world).state);
+  database.run(
+    'CREATE TABLE orchestration_v2_projection_runs (run_id TEXT, status TEXT, requested_at TEXT, completed_at TEXT, payload_json TEXT)'
+  );
+  for (const [index, run] of table.hashes().entries())
+    database.run(
+      'INSERT INTO orchestration_v2_projection_runs VALUES (?, ?, ?, ?, ?)',
+      [
+        `run-${index}`,
+        run['status']!,
+        run['requested at']!,
+        run['completed at'] || null,
+        run['what the session holds']!,
+      ]
+    );
+  database.close();
+});
+
+When('T3 is asked for its agent activity', (world) => {
+  const ran = spawnSync(
+    'python3',
+    [
+      '-I',
+      '-B',
+      join(checkout, 'ansible/ubuntu/t3-idle.py'),
+      '--state',
+      turns(world).state,
+      '--activity',
+    ],
+    { encoding: 'utf8' }
+  );
+  world.exit = ran.status;
+  turns(world).output = ran.stdout;
+});
+
+Then('the answer is exactly:', (world, text: string) => {
+  expect(JSON.parse(turns(world).output)).toEqual(JSON.parse(text));
+});
+
+Then('the answer does not say {string}', (world, text: string) => {
+  expect(turns(world).output).not.toContain(text);
+});
+
 Then('the answer says {string}', (world, text: string) => {
   expect(turns(world).output).toContain(text);
 });

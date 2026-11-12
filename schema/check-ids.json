@@ -107,6 +107,10 @@
       "meaning": "The monitoring agent is installed at its pinned version."
     },
     {
+      "id": "beszel:leftover",
+      "meaning": "The monitoring hub watches no system that matches no declared worker."
+    },
+    {
       "id": "beszel:lock",
       "meaning": "Monitoring changes could take the machine's operation lock."
     },
@@ -129,6 +133,10 @@
     {
       "id": "beszel:service",
       "meaning": "The monitoring agent service runs."
+    },
+    {
+      "id": "beszel:system",
+      "meaning": "The monitoring hub's system for a replaced worker watches the new machine, or a retired worker's system is gone."
     },
     {
       "id": "bootstrap:*",
@@ -173,6 +181,10 @@
     {
       "id": "enrollment:connection",
       "meaning": "The manager has an enrolled connection to this worker."
+    },
+    {
+      "id": "enrollment:record",
+      "meaning": "A worker whose record disappeared was retired."
     },
     {
       "id": "fleet:enrollment:*",
@@ -347,6 +359,10 @@
       "meaning": "Names the command that converges a worker after it was replaced."
     },
     {
+      "id": "rollout:node",
+      "meaning": "The fleet-sync of one worker that fleet-node-resume runs ended ready."
+    },
+    {
       "id": "rollout:operation",
       "meaning": "The remote rollout operation completed."
     },
@@ -443,6 +459,10 @@
       "meaning": "T3 relay and peer access, which need an operator test."
     },
     {
+      "id": "t3:link",
+      "meaning": "The manager's T3 link to a replaced or retired worker's old environment is gone."
+    },
+    {
       "id": "t3:manager-endpoint",
       "meaning": "The manager reaches the worker's private T3 endpoint."
     },
@@ -505,6 +525,10 @@
     {
       "id": "tailscale:configuration",
       "meaning": "Tailscale is configured as declared."
+    },
+    {
+      "id": "tailscale:device",
+      "meaning": "A replaced or retired worker's old tailnet device was removed."
     },
     {
       "id": "tailscale:discovery",
@@ -571,6 +595,10 @@
       "meaning": "A worker readiness gate."
     },
     {
+      "id": "worker:auto-park",
+      "meaning": "fleet-watch parked a worker idle longer than declared (only with parking.autoPark)."
+    },
+    {
       "id": "worker:account",
       "meaning": "The declared worker account was created over a root login, with the manager's key and the fleet's sudo rule."
     },
@@ -603,8 +631,24 @@
       "meaning": "The worker is signed in to GitHub from the stored credential as the declared login."
     },
     {
+      "id": "worker:idle",
+      "meaning": "An active worker runs an agent turn, or has run one within fleet.json's parking.idleAfterHours; warns once it has been idle longer."
+    },
+    {
       "id": "worker:manifest",
       "meaning": "A worker is made of what the declared pins and a fresh build of the same revision are made of."
+    },
+    {
+      "id": "worker:park-hook",
+      "meaning": "The stop or start command fleet.json declares under parking ran for the worker."
+    },
+    {
+      "id": "worker:parked",
+      "meaning": "A worker parked on purpose: listed with the time since, not contacted and never the canary (not-applicable). As a command result, the worker was parked or resumed."
+    },
+    {
+      "id": "worker:parked-online",
+      "meaning": "A parked worker is not online on the tailnet."
     },
     {
       "id": "worker:package:*",

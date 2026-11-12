@@ -11,6 +11,7 @@ import {
 } from '../../../src/definition';
 import schema from '../../../schema/fleet.schema.json';
 import { conforms } from '../support/json-schema';
+import { expandRecords } from '../../../src/worker-records';
 import { hostId, hubUrl, roleOf, type Role } from '../../../src/topology';
 import { parseWorkerPolicy } from '../../../src/worker-policy';
 import type { FleetNode } from '../../../src/types';
@@ -39,7 +40,9 @@ function set(target: Fields, path: string, value: unknown): void {
   const keys = path.split('.');
   let at = target;
   for (const key of keys.slice(0, -1)) at = at[key] as Fields;
-  at[keys.at(-1)!] = value;
+  // Left out is absent, as in a file nobody wrote the field in.
+  if (value === undefined) delete at[keys.at(-1)!];
+  else at[keys.at(-1)!] = value;
 }
 
 const workers = (world: CoreWorld): Fields[] =>
@@ -147,6 +150,32 @@ Then(/^both (accept|refuse) it$/, (world, wanted: string) => {
   const accepted = wanted === 'accept';
   expect(verdict(world)).toEqual({ schema: accepted, parser: accepted });
 });
+
+When(
+  'the worker records in {string} are judged by {string} and by the parser',
+  (world, path: string, schemaPath: string) => {
+    const records = JSON.parse(
+      readFileSync(resolve(root, path), 'utf8')
+    ) as unknown;
+    const recordSchema = JSON.parse(
+      readFileSync(resolve(root, schemaPath), 'utf8')
+    ) as Record<string, unknown>;
+    let parser = true;
+    try {
+      // The records join the example fleet, as fleet.json names them.
+      parseDefinition(
+        expandRecords(
+          { ...example, workerRecords: [{ file: resolve(root, path) }] },
+          root
+        )
+      );
+    } catch (error) {
+      if (!(error instanceof DefinitionError)) throw error;
+      parser = false;
+    }
+    verdicts.set(world, { schema: conforms(recordSchema, records), parser });
+  }
+);
 
 Then('the schema accepts it and the parser refuses it', (world) => {
   expect(verdict(world)).toEqual({ schema: true, parser: false });

@@ -1,4 +1,5 @@
 import type { PackagePlaybook } from './platform/ansible';
+import { playbookConnection } from './ssh';
 import type { Check } from './types';
 
 /** The codes ansible/ubuntu/worker-account.yml stops with. */
@@ -21,7 +22,7 @@ export function accountCommand(user: string): string {
  * in as root itself.
  */
 export async function createWorkerAccount(
-  target: { ssh: string; login: 'root' | '' },
+  target: { id: string; ssh: string; login: 'root' | '' },
   user: string | undefined,
   playbook: PackagePlaybook
 ): Promise<Check> {
@@ -38,7 +39,12 @@ export async function createWorkerAccount(
     );
   const result = await playbook(
     'ubuntu/worker-account.yml',
-    { target: target.ssh, login: target.login, user },
+    {
+      target: target.ssh,
+      login: target.login,
+      user,
+      ssh_options: playbookConnection(target).options,
+    },
     300_000
   );
   if (result.ok)

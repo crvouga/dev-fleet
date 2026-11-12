@@ -34,7 +34,11 @@ import { parseTailnetConfig, type TailnetConfig } from './tailnet-control';
 
 export interface MachineDefinition {
   id: string;
-  ssh: string;
+  /** A Host alias in the operator's own SSH configuration: an optional
+   * override. Without one the worker is reached from `network` alone, with
+   * its host key pinned in the fleet state (src/ssh-connection.ts).
+   */
+  ssh?: string;
   os: 'linux';
   /** Tool profiles this worker adds to the fleet-wide ones. */
   toolProfiles?: ToolProfile[];
@@ -51,7 +55,46 @@ export interface MachineDefinition {
     user: string;
     sshPort: number;
     t3Port: number;
+    /** The SSH host public key, `TYPE BASE64`, given as data (a worker
+     * record): the pinned key, ahead of one pinned in the fleet state.
+     */
+    hostKey?: string;
   };
+  /** Free-form labels from a worker record; only displayed. */
+  labels?: Record<string, string>;
+  /** What the worker costs while it runs; only displayed and summed. */
+  billing?: WorkerBilling;
+  /** `records`: read from a file or command `workerRecords` names, so it is
+   * retired by itself when its record disappears.
+   */
+  origin?: 'records';
+}
+export interface WorkerBilling {
+  /** The declared cost of one hour of running. No pricing API is asked. */
+  hourlyRate: number;
+  /** ISO 4217 code, such as USD. */
+  currency?: string;
+  note?: string;
+}
+/** Workers that are stopped on purpose, and when an idle one is reported. */
+export interface ParkingPolicy {
+  /** A worker with no agent activity for this long is `worker:idle`. */
+  idleAfterHours?: number;
+  /** fleet-watch parks a worker idle longer than idleAfterHours. Off unless
+   * true.
+   */
+  autoPark?: boolean;
+  /** Run with the worker ID as the last argument when a worker is parked
+   * (stop) or resumed (start): an infrastructure tool, never a provider API
+   * dev-fleet calls itself.
+   */
+  stop?: string[];
+  start?: string[];
+}
+
+/** The name SSH connects to: the alias, or the declared tailnet name. */
+export function sshTarget(worker: MachineDefinition): string {
+  return worker.ssh ?? worker.network!.tailscaleName;
 }
 /** Declared worker features (bootstrap/worker-features.ts): a preset, then
  * single features over it. Absent, a worker has containers and a desktop
@@ -124,6 +167,8 @@ export interface FleetDefinition {
    * Absent, a worker joins the tailnet through its own login.
    */
   tailnet?: TailnetConfig;
+  /** Parking and idle reporting (docs/topology.md). */
+  parking?: ParkingPolicy;
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
 export interface AccountPolicy {
@@ -256,7 +301,7 @@ function network(
   path: string
 ): NonNullable<MachineDefinition['network']> {
   const fields = object(value, path);
-  keys(fields, ['tailscaleName', 'user', 'sshPort', 't3Port'], path);
+  keys(fields, ['tailscaleName', 'user', 'sshPort', 't3Port', 'hostKey'], path);
   return {
     tailscaleName: text(
       fields['tailscaleName'],
@@ -267,6 +312,113 @@ function network(
     user: text(fields['user'], USER, `${path}.user`, 'a login name'),
     sshPort: port(fields['sshPort'], `${path}.sshPort`),
     t3Port: port(fields['t3Port'], `${path}.t3Port`),
+    ...(fields['hostKey'] === undefined
+      ? {}
+      : {
+          hostKey: text(
+            fields['hostKey'],
+            HOST_KEY,
+            `${path}.hostKey`,
+            'one SSH public key, "TYPE BASE64"'
+          ),
+        }),
+  };
+}
+/** One OpenSSH host public key without a comment. */
+export const HOST_KEY =
+  /^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{16,}$/;
+const LABEL = /^[a-z][a-z0-9_.-]{0,31}$/;
+function labels(value: unknown, path: string): Record<string, string> {
+  const fields = object(value, path);
+  const entries = Object.entries(fields);
+  if (entries.length > 32) fail(path, 'at most 32 labels', value);
+  for (const [name, label] of entries) {
+    if (!LABEL.test(name))
+      fail(`${path}.${name}`, 'a lowercase label name', name);
+    text(label, /^[^\x00-\x1f\x7f]{0,128}$/, `${path}.${name}`, 'a short text');
+  }
+  return fields as Record<string, string>;
+}
+function billing(value: unknown, path: string): WorkerBilling {
+  const fields = object(value, path);
+  keys(fields, ['hourlyRate', 'currency', 'note'], path);
+  const rate = fields['hourlyRate'];
+  if (typeof rate !== 'number' || !Number.isFinite(rate) || rate < 0)
+    fail(`${path}.hourlyRate`, 'a number of at least 0', rate);
+  return {
+    hourlyRate: rate as number,
+    ...(fields['currency'] === undefined
+      ? {}
+      : {
+          currency: text(
+            fields['currency'],
+            /^[A-Z]{3}$/,
+            `${path}.currency`,
+            'a three-letter currency code'
+          ),
+        }),
+    ...(fields['note'] === undefined
+      ? {}
+      : {
+          note: text(
+            fields['note'],
+            /^[^\x00-\x1f\x7f]{1,200}$/,
+            `${path}.note`,
+            'a short text'
+          ),
+        }),
+  };
+}
+function argv(value: unknown, path: string): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.length < 1 ||
+    value.length > 64 ||
+    !value.every(
+      (entry) =>
+        typeof entry === 'string' && /^[^\x00-\x1f\x7f]{1,1024}$/.test(entry)
+    )
+  )
+    return fail(path, 'a command as a list of arguments', value);
+  return value as string[];
+}
+function idleHours(
+  fields: Record<string, unknown>,
+  path: string
+): number | undefined {
+  const hours = fields['idleAfterHours'];
+  if (
+    hours !== undefined &&
+    (typeof hours !== 'number' || !(hours >= 1) || hours > 8760)
+  )
+    fail(`${path}.idleAfterHours`, 'a number of hours from 1 to 8760', hours);
+  const autoPark = fields['autoPark'];
+  if (autoPark !== undefined && typeof autoPark !== 'boolean')
+    fail(`${path}.autoPark`, 'true or false', autoPark);
+  if (autoPark === true && hours === undefined)
+    fail(
+      `${path}.idleAfterHours`,
+      'a number of hours, since autoPark is on',
+      hours
+    );
+  return hours as number | undefined;
+}
+function parking(value: unknown): ParkingPolicy {
+  const path = '$.parking';
+  const fields = object(value, path);
+  keys(fields, ['idleAfterHours', 'autoPark', 'stop', 'start'], path);
+  const hours = idleHours(fields, path);
+  return {
+    ...(hours === undefined ? {} : { idleAfterHours: hours }),
+    ...(fields['autoPark'] === undefined
+      ? {}
+      : { autoPark: fields['autoPark'] as boolean }),
+    ...(fields['stop'] === undefined
+      ? {}
+      : { stop: argv(fields['stop'], `${path}.stop`) }),
+    ...(fields['start'] === undefined
+      ? {}
+      : { start: argv(fields['start'], `${path}.start`) }),
   };
 }
 function port(value: unknown, path: string): number {
@@ -287,20 +439,33 @@ function worker(value: unknown, path: string): MachineDefinition {
       'exposure',
       'features',
       'powerRecoveryNote',
+      'labels',
+      'billing',
+      'origin',
     ],
     path
   );
   const id = text(fields['id'], ID, `${path}.id`, 'a lowercase id');
-  const ssh = text(fields['ssh'], HOST, `${path}.ssh`, 'an SSH host alias');
+  // Without an alias the worker is reached from its network block.
+  const ssh =
+    fields['ssh'] === undefined && fields['network'] !== undefined
+      ? undefined
+      : text(
+          fields['ssh'],
+          HOST,
+          `${path}.ssh`,
+          'an SSH host alias, or a network block to connect from'
+        );
   // Workers are the Linux boxes; any other platform is not a worker.
   constant(fields['os'], 'linux', `${path}.os`);
   return {
     id,
-    ssh,
+    ...(ssh === undefined ? {} : { ssh }),
     os: 'linux',
     ...(fields['network']
       ? { network: network(fields['network'], `${path}.network`) }
       : {}),
+    ...described(fields, path),
     ...(fields['toolProfiles'] === undefined
       ? {}
       : {
@@ -332,6 +497,25 @@ function worker(value: unknown, path: string): MachineDefinition {
             'one line of at most 120 characters'
           ),
         }),
+  };
+}
+/** What a worker record says about a worker beside how to reach it: its
+ * labels, what it costs and that it came from a record.
+ */
+function described(
+  fields: Record<string, unknown>,
+  path: string
+): Pick<MachineDefinition, 'labels' | 'billing' | 'origin'> {
+  return {
+    ...(fields['labels'] === undefined
+      ? {}
+      : { labels: labels(fields['labels'], `${path}.labels`) }),
+    ...(fields['billing'] === undefined
+      ? {}
+      : { billing: billing(fields['billing'], `${path}.billing`) }),
+    ...(fields['origin'] === undefined
+      ? {}
+      : { origin: constant(fields['origin'], 'records', `${path}.origin`) }),
   };
 }
 /** A `features` block: fleet-wide under `worker`, or one worker's own. */
@@ -418,6 +602,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'notify',
       'github',
       'tailnet',
+      'parking',
     ],
     '$'
   );
@@ -474,11 +659,23 @@ export function parseDefinition(value: unknown): FleetDefinition {
               fields['notify']
             ),
         }),
+    ...operations(fields),
+  };
+}
+/** How every node signs in to GitHub, how workers are parked, and the
+ * tailnet control plane they are enrolled with. */
+function operations(
+  fields: Record<string, unknown>
+): Pick<FleetDefinition, 'github' | 'parking' | 'tailnet'> {
+  return {
     ...(fields['github'] === undefined
       ? {}
       : {
           github: block('$.github', () => parseGithubPolicy(fields['github'])),
         }),
+    ...(fields['parking'] === undefined
+      ? {}
+      : { parking: parking(fields['parking']) }),
     ...tailnet(fields['tailnet']),
   };
 }
@@ -843,7 +1040,7 @@ export function enrolledRoster(
       throw new FleetUsageError(
         'Roster contains a node that is not a declared worker. Add the worker to fleet.json in Git before rollout; the manager is never a roster node.'
       );
-    if (declared.ssh !== node.ssh)
+    if (sshTarget(declared) !== node.ssh)
       throw new FleetUsageError(
         'Fleet SSH assignment conflicts with the local roster. Review the migration; discovery cannot overwrite explicit assignments.'
       );

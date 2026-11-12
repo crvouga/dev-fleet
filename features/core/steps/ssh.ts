@@ -2,6 +2,7 @@ import { expect } from 'bun:test';
 import type { DataTable } from '../../support/gherkin';
 import { runCommand } from '../../../src/runner';
 import {
+  playbookConnection,
   remoteCommand,
   shellQuote,
   sshArgs,
@@ -10,6 +11,12 @@ import {
 import { bundleProbe, inspectRemote } from '../../../src/transport';
 import type { CommandResult } from '../../../src/types';
 import { core, need, type CoreWorld } from './world';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { declareFleet, workersOf } from '../../support/fleet';
+import { readPinsWith } from '../../../src/ssh-connection';
+import { changeWorkers, readPins } from '../../../src/state/workers';
+import { stateContext } from '../../../src/state/sync';
 import { worker } from './t3';
 
 /** The SSH command the manager builds, what it sends and what it makes of a
@@ -24,6 +31,26 @@ When('the SSH command for the worker is built', (world) => {
   world.argv = sshArgs(worker(world));
   world.text = world.argv.join(' ');
 });
+
+When(
+  'the SSH options a playbook reaches the worker with are built',
+  (world) => {
+    const connection = playbookConnection(worker(world));
+    // As Ansible splits ansible_ssh_common_args: by words, unquoted.
+    world.argv = connection.options
+      .split(' ')
+      .map((word) => word.replace(/^'(.*)'$/, '$1'));
+    world.text = connection.options;
+    world.login = connection.user ?? undefined;
+  }
+);
+
+Then(
+  'the playbook logs in as {string} unless it names root',
+  (world, user: string) => {
+    expect(world.login).toBe(user);
+  }
+);
 
 When('the command that probes the worker over SSH is built', (world) => {
   world.argv = remoteCommand(worker(world), { action: 'probe' });
@@ -98,3 +125,68 @@ When('the probe is bundled', async (world) => {
 Then('it imports no relative path', (world) => {
   expect(need(world, world.text, 'a probe')).not.toMatch(/from["']\.\.?\//);
 });
+
+// ── A worker reached from declared data ──────────────────────────────────
+
+Given(
+  'fleet.json declares this worker with no SSH alias:',
+  (world, table: DataTable) => {
+    const row = table.rowsHash();
+    const id = row['id']!;
+    declareFleet(world, (fleet) => {
+      workersOf(fleet).push({
+        id,
+        os: 'linux',
+        network: {
+          tailscaleName: row['tailnet name'],
+          user: row['user'],
+          sshPort: Number(row['port']),
+          t3Port: 3773,
+        },
+      });
+    });
+    world.node = {
+      id,
+      ssh: row['tailnet name']!,
+      workspace: '/home/dev/workspace',
+      required: [],
+    };
+  }
+);
+
+Given(
+  'the fleet state pins the host key {string} for {string}',
+  async (world, key: string, id: string) => {
+    await changeWorkers(stateContext(world.commands.run), () => ({
+      [id]: { hostKey: key, hostKeyPinnedAt: '2026-11-01T00:00:00.000Z' },
+    }));
+    readPinsWith(() => readPins());
+    world.defer(async () => {
+      readPinsWith(null);
+      await changeWorkers(stateContext(world.commands.run), () => ({
+        [id]: null,
+      }));
+    });
+  }
+);
+
+const knownHosts = (world: CoreWorld): string => {
+  const option = argv(world).find((arg) =>
+    arg.startsWith('UserKnownHostsFile=')
+  );
+  return need(world, option, 'a known_hosts file').slice(
+    'UserKnownHostsFile='.length
+  );
+};
+
+Then(
+  'the known_hosts file it names is not under {string} and pins exactly:',
+  (world, directory: string, pins: string) => {
+    const file = knownHosts(world);
+    expect(file.startsWith(directory.replace(/^~/, homedir()))).toBe(false);
+    const lines = readFileSync(file, 'utf8')
+      .split('\n')
+      .filter((line) => line && !line.startsWith('#'));
+    expect(lines).toEqual(pins ? pins.split('\n') : []);
+  }
+);

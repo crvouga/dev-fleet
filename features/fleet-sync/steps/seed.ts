@@ -144,6 +144,8 @@ When(
         run: world.commands.run,
         playbook: lifecycle.playbook,
         knownHosts: lifecycle.knownHosts,
+        state: lifecycle.state,
+        now: lifecycle.now,
         definition: () =>
           controlPlane(world).config
             ? { ...definition, tailnet: controlPlane(world).config! }

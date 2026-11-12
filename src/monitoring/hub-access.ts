@@ -71,7 +71,7 @@ export async function hubAccess(
     url,
     '/api/collections/users/auth-with-password',
     '',
-    credentials
+    { body: credentials }
   );
   if (
     !record(login) ||
@@ -83,24 +83,30 @@ export async function hubAccess(
   const token = login['token'];
   return {
     userId: login['record']['id'],
-    request: (path, body) => call(url, path, token, body),
+    request: (path, body, method) =>
+      call(url, path, token, {
+        ...(body ? { body } : {}),
+        ...(method ? { method } : {}),
+      }),
   };
 }
 async function call(
   url: string,
   path: string,
   token: string,
-  body?: object
+  { body, method }: { body?: object; method?: 'PATCH' | 'DELETE' } = {}
 ): Promise<unknown> {
   if (!path.startsWith('/api/')) throw new Error('BESZEL_API_PATH');
   const response = await fetch(`${url}${path}`, {
-    method: body ? 'POST' : 'GET',
+    method: method ?? (body ? 'POST' : 'GET'),
     headers: { Authorization: token, 'Content-Type': 'application/json' },
     ...(body ? { body: JSON.stringify(body) } : {}),
     redirect: 'error',
     signal: AbortSignal.timeout(10_000),
   });
   if (!response.ok) throw new Error(failure(response.status, path));
+  // PocketBase answers a deletion with no content.
+  if (response.status === 204) return null;
   return response.json() as Promise<unknown>;
 }
 

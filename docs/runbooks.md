@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 288 codes; 44 need a person.
+There are 296 codes; 46 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -416,6 +416,22 @@ There are 288 codes; 44 need a person.
 - `DEFINITION_MISSING`: definition missing.
 - `DEFINITION_UNREADABLE`: definition unreadable.
 - `SSH_HOST_KEY_NOT_CHANGED`: ssh host key not changed.
+
+## Parked, idle, replaced and retired workers
+
+- **Meaning:** a worker could not be parked or resumed (agent turns under way, a declared `parking.stop` or `parking.start` command failed, the sync after a resume did not end ready), a worker whose record disappeared could not be retired, or the manager's T3 link to a replaced or retired worker could not be removed.
+- **Confirm:** `devfleet fleet-status --workers` lists each worker as active or parked, with its uptime, agent turns and last agent activity; the report of `devfleet fleet-node-park`, `devfleet fleet-node-resume` or `devfleet fleet-sync` names the step that failed.
+- **Fix:** For WORKER_BUSY wait for the turns to end, or repeat `devfleet fleet-node-park` with `--force`. For a failed hook, run the command `fleet.json` names under `parking` by hand with the worker ID, then repeat. For WORKER_RESUME_FAILED follow the sync report and run `devfleet fleet-sync --node ID`. For T3_LINK_UNLINK_FAILED remove the link in the manager's T3 (Settings, Connections).
+- **Escalate:** A record retirement that keeps failing at the same step: follow that step's own runbook.
+
+- `T3_LINK_UNLINK_FAILED`: t3 link unlink failed.
+- `WORKER_ACTIVITY_UNREADABLE`: worker activity unreadable. **Needs a person.**
+- `WORKER_AUTO_PARK_REFUSED`: worker auto park refused.
+- `WORKER_BUSY`: worker busy. **Needs a person.**
+- `WORKER_RECORD_RETIREMENT_FAILED`: worker record retirement failed.
+- `WORKER_RESUME_FAILED`: worker resume failed.
+- `WORKER_START_HOOK_FAILED`: worker start hook failed.
+- `WORKER_STOP_HOOK_FAILED`: worker stop hook failed.
 
 ## Fleet operations and the fleet state
 

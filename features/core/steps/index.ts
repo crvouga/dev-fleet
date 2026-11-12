@@ -15,5 +15,6 @@ import './tools';
 import './capabilities';
 import './health';
 import './features';
+import './activity';
 
 export { CoreWorld, core } from './world';

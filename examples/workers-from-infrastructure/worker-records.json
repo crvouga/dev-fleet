@@ -1,0 +1,14 @@
+{
+  "$schema": "../../schema/worker-record.schema.json",
+  "version": 1,
+  "workers": [
+    {
+      "id": "rented-one",
+      "tailnetName": "rented-one.tail0a1b2c.ts.net",
+      "user": "dev",
+      "hostKey": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIExampleHostKeyOfARentedWorker",
+      "billing": { "hourlyRate": 0.5 },
+      "labels": { "source": "local-vm" }
+    }
+  ]
+}

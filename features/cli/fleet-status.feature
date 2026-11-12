@@ -52,3 +52,58 @@ Feature: fleet-status checks the manager and its workers without changing them
       Then the report covers exactly "manager, two"
       And 1 command was run over SSH
       And every command run over SSH was given the probe "standalone-probe-source"
+
+  Rule: Each worker is listed as parked or active, with what an active one is doing
+    A rented worker costs money while it runs. fleet-status says, for every
+    worker it reaches, how long it has been up, how many agent turns run on
+    it and when an agent last did something (from T3, never the content of
+    a session), and adds what fleet.json declares the idle ones cost.
+
+    Background:
+      Given these workers are registered:
+        | id         | ssh        | workspace           |
+        | worker-one | worker-one | /home/dev/workspace |
+        | worker-two | worker-two | /home/dev/workspace |
+      And the probe sent to workers is "standalone-probe-source"
+      And every worker answers the probe as this workspace does at the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      And fleet.json declares that a worker is idle after 12 hours, and these hourly rates:
+        | worker-one | 0.5 USD |
+        | worker-two | 1.5 USD |
+
+    Scenario: A parked worker is listed as parked, is not contacted and fails nothing
+      Given the fleet state records "worker-two" as parked at "2026-11-01T00:00:00.000Z"
+      And the T3 of "worker-one" runs 1 agent turn, its last agent activity was at "2026-11-01T00:00:00.000Z", and it is up 7200 seconds
+      When the operator runs "devfleet fleet-status --strict --require none"
+      Then every check of "worker-two" is not applicable, which fails nothing even under --strict
+      And workers were probed 1 time
+      And the check "worker:parked" has the status "not-applicable"
+      And the check "worker:parked" of "worker-two" says "worker-two is parked since 2026-11-01T00:00:00.000Z"
+      And in the answer, the worker "worker-two" has:
+        | state    | "parked"                   |
+        | parkedAt | "2026-11-01T00:00:00.000Z" |
+
+    Scenario: The answer carries uptime, agent turns and last activity for every reachable worker
+      Given the T3 of "worker-one" runs 1 agent turn, its last agent activity was at "2026-11-01T00:00:00.000Z", and it is up 7200 seconds
+      And the T3 of "worker-two" runs 0 agent turns, its last agent activity was at "2026-11-01T00:00:00.000Z", and it is up 90000 seconds
+      When the operator runs "devfleet fleet-status --require none"
+      Then in the answer, the worker "worker-one" has:
+        | state           | "active"                   |
+        | uptimeSeconds   | 7200                       |
+        | runningSessions | 1                          |
+        | lastActivityAt  | "2026-11-01T00:00:00.000Z" |
+        | idle            | false                      |
+      And in the answer, the worker "worker-two" has:
+        | state           | "active"                   |
+        | uptimeSeconds   | 90000                      |
+        | runningSessions | 0                          |
+        | lastActivityAt  | "2026-11-01T00:00:00.000Z" |
+        | idle            | true                       |
+      And the check "worker:idle" of "worker-two" says "has run no agent turn for"
+      And the check "worker:idle" of "worker-two" says "longer than the declared 12h"
+      And the check "worker:idle" of "worker-one" says "worker-one runs 1 agent turn(s)"
+      And in the answer, the usage is:
+        | running        | 2     |
+        | idle           | 1     |
+        | parked         | 0     |
+        | idleCostPerDay | 36    |
+        | currency       | "USD" |

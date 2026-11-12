@@ -4,8 +4,10 @@
 # fleet-sync applies it for a worker's first converge, which nothing can be
 # running on yet, and for --maintenance-reboot, one worker at a time. After
 # it returns, fleet-sync converges the worker again to verify it is ready.
-# Variables: target (the SSH alias), login (empty for the alias's own user),
-# home (the account's home directory),
+# Variables: target (the SSH alias, or the declared tailnet name), login
+# (empty for the alias's own user), ssh_options (the SSH options every session
+# of the manager takes, src/ssh-connection.ts), home (the account's home
+# directory),
 # revision (the checkout whose t3-idle.py is asked), reason (first-converge
 # or maintenance) and force (reboot even while agent turns run).
 - name: Address the worker
@@ -17,6 +19,7 @@
       ansible.builtin.assert:
         that:
           - "target is match('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$')"
+          - ssh_options is string and ssh_options is match('^-o ')
           - "home is match('^/[A-Za-z0-9._/-]{1,4000}$')"
           - "revision is match('^[a-f0-9]{40}$')"
           - reason in ['first-converge', 'maintenance']
@@ -26,7 +29,7 @@
         groups: [fleet_reboot]
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
-        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        ansible_ssh_common_args: '{{ ssh_options }}'
         worker_home: '{{ home }}'
         worker_revision: '{{ revision }}'
         reboot_reason: '{{ reason }}'
@@ -41,7 +44,7 @@
         groups: [fleet_reboot]
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
-        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        ansible_ssh_common_args: '{{ ssh_options }}'
         ansible_user: '{{ login }}'
         worker_home: '{{ home }}'
         worker_revision: '{{ revision }}'

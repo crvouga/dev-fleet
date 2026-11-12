@@ -208,6 +208,20 @@ export const COMMANDS: CommandSpec[] = [
       true,
     ],
     [
+      'fleet-node-park',
+      'Park a worker that is off on purpose',
+      'Record in the fleet state that a declared worker is stopped or destroyed on purpose (a rented machine nobody uses): fleet-sync and fleet-status list it as parked with the time since, never contact it or make it the canary, and it does not change the exit code. Refuses while agent turns run on it, unless --force. Runs the stop command fleet.json declares under parking.stop with the worker ID. --dry-run previews.',
+      ['park', 'stop', 'pause', 'idle', 'cost', 'rented', 'shutdown'],
+      true,
+    ],
+    [
+      'fleet-node-resume',
+      'Resume a parked worker',
+      'Run the start command fleet.json declares under parking.start with the worker ID, mark the worker active in the fleet state, then run fleet-sync --node ID, which converges and verifies it. The exit code is the sync’s. --dry-run previews.',
+      ['resume', 'start', 'unpark', 'wake', 'rented'],
+      true,
+    ],
+    [
       'fleet-node-retire',
       'Retire a worker',
       'Preview, or with --apply --yes carry out, taking a worker out of the fleet: revoke its Vault token, forget its pinned host key, remove its roster entry and record a tombstone in the fleet state. Then remove it from fleet.json.',

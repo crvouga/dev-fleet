@@ -30,6 +30,14 @@ export function ansibleCommand(
       ];
 }
 
+/** The package's Ansible configuration (ansible/ansible.cfg): how Ansible
+ * reaches a worker over SSH (timeouts, retries, pipelining, connection
+ * reuse) beside the options src/ssh-connection.ts gives every session.
+ */
+export function ansibleConfig(root = PACKAGE_ROOT): NodeJS.ProcessEnv {
+  return { ANSIBLE_CONFIG: join(root, 'ansible', 'ansible.cfg') };
+}
+
 /** Private fleet state on disk, never /tmp: a worker's /tmp is RAM-backed with a
  * per-user quota that agent caches can exhaust, and the baseline that bounds it
  * must still be able to run then.
@@ -68,7 +76,7 @@ export async function runAnsible(
         '--extra-vars',
         '@' + path,
       ],
-      commandOptions
+      { ...commandOptions, env: { ...ansibleConfig(), ...commandOptions.env } }
     );
   } finally {
     await rm(directory, { recursive: true, force: true });

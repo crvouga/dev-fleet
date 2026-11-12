@@ -19,6 +19,7 @@ import type { CommandOutcome } from './contracts';
 import {
   keyName,
   lifecycleServices,
+  pinHostKey,
   type NodeLifecycleServices,
 } from './fleet-node-lifecycle';
 
@@ -33,7 +34,7 @@ export interface NodeSeedOptions {
 
 export interface NodeSeedServices extends Pick<
   NodeLifecycleServices,
-  'run' | 'playbook' | 'knownHosts'
+  'run' | 'playbook' | 'knownHosts' | 'state' | 'now'
 > {
   definition: () => FleetDefinition;
   secret: SecretsProvider;
@@ -43,11 +44,13 @@ export interface NodeSeedServices extends Pick<
 }
 
 export function seedServices(roster: string): NodeSeedServices {
-  const { run, playbook, knownHosts } = lifecycleServices(roster);
+  const { run, playbook, knownHosts, state, now } = lifecycleServices(roster);
   return {
     run,
     playbook,
     knownHosts,
+    state,
+    now,
     definition: () => fleet,
     secret,
     home: homedir(),
@@ -102,28 +105,11 @@ export async function fleetNodeSeed(
   await writeFile(options.output, seed, { mode: 0o600 });
   const host = await keyName(worker, services.run);
   const publicKey = hostKey.public.split(' ').slice(0, 2).join(' ');
+  // Pinned before the machine answers: in the fleet state for a worker
+  // reached from declared data, else in the operator's known_hosts.
   const pin: Check =
     options.apply && options.yes
-      ? (await services.playbook('macos/worker-host-key.yml', {
-          host,
-          pin: 'present',
-          key: publicKey,
-          known_hosts: services.knownHosts,
-        }))
-        ? {
-            id: 'ssh:host-key',
-            status: 'pass',
-            summary: `The manager trusts the seed's host key for ${host}.`,
-          }
-        : {
-            id: 'ssh:host-key',
-            status: 'fail',
-            summary: 'SSH_HOST_KEY_NOT_CHANGED',
-            remedy: {
-              action:
-                'The pinned Ansible could not change known_hosts; run the command again.',
-            },
-          }
+      ? await pinHostKey(worker, host, publicKey, services)
       : {
           id: 'ssh:host-key',
           status: 'skip',

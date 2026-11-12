@@ -194,7 +194,7 @@ async function rootOnly(
     (worker) => worker.id === node.id
   )?.network?.user;
   const check = await createWorkerAccount(
-    { ssh: node.ssh, login: '' },
+    { id: node.id, ssh: node.ssh, login: '' },
     user,
     deployment.playbook
   );

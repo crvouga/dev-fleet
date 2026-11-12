@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { loadRoster } from './roster';
-import { enrolledRoster, type FleetDefinition } from '../definition';
+import { enrolledRoster, sshTarget, type FleetDefinition } from '../definition';
 import { FleetUsageError } from '../errors';
 import { dirname } from 'node:path';
 import { fleet } from '../fleet-config';
@@ -12,6 +12,7 @@ import { createWorkerAccount } from '../worker-account';
 import { packagePlaybook, type PackagePlaybook } from '../platform/ansible';
 import type { Check, FleetNode, Runner } from '../types';
 import { STATE_ROSTER, readRosterText, writeRosterText } from '../state/roster';
+import { readParked } from '../state/workers';
 
 /** What an enrollment did: the workers whose roster entry it added or
  * completed, and the checks that say why another one was not enrolled (or
@@ -32,6 +33,8 @@ export interface EnrollmentOptions {
   definition?: FleetDefinition;
   /** Applies a playbook of the package from the manager. */
   playbook?: PackagePlaybook;
+  /** When each parked worker was parked; default the fleet state's. */
+  parked?: Record<string, string>;
 }
 
 /** Enrolls declared workers, and resumes earlier enrollments. Existing paths
@@ -57,12 +60,16 @@ export async function enrollManager(
       : enrolledRoster(canonical, await loadRoster(path)).nodes;
   const nodes: FleetNode[] = canonical.workers.map((node) => ({
     id: node.id,
-    ssh: node.ssh,
+    ssh: sshTarget(node),
     workspace: '/',
     required: ['t3', 'toolchain', 'workstation'],
   }));
+  // A parked worker is off on purpose: it is enrolled once it is resumed.
+  const parked = options.parked ?? readParked();
   const pending = nodes.filter(
-    (node) => !saved.find((entry) => entry.id === node.id)?.tailscaleId
+    (node) =>
+      !parked[node.id] &&
+      !saved.find((entry) => entry.id === node.id)?.tailscaleId
   );
   if (!pending.length) return result;
   const tailnet = await discoverTailnet(run);
@@ -207,7 +214,7 @@ async function inspectConnection(
   let home = await probe();
   if (!home.ok && sshFailure(home).id === 'ssh:auth' && context.user) {
     const account = await createWorkerAccount(
-      { ssh: node.ssh, login: 'root' },
+      { id: node.id, ssh: node.ssh, login: 'root' },
       context.user,
       context.options.playbook ?? packagePlaybook(run)
     );

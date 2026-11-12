@@ -32,6 +32,82 @@ Feature: The manager reaches a worker over SSH
         | ServerAliveInterval=15 |
         | ServerAliveCountMax=4  |
 
+    Scenario: A connection that does not come up at once is tried again
+      When the SSH command for the worker is built
+      Then it has each of these arguments:
+        | ConnectionAttempts=3 |
+        | ConnectTimeout=10    |
+
+    Scenario: A worker reached through the operator's own SSH alias is checked against the operator's own files
+      When the SSH command for the worker is built
+      Then it does not contain "UserKnownHostsFile"
+      And it does not contain "HostKeyAlias"
+
+  Rule: A worker without an alias is reached from declared data and a host key the fleet pins
+    Nothing in the operator's ~/.ssh is needed or changed: the user, port and
+    tailnet name come from fleet.json, the host key from the fleet state (or
+    the worker's record), and the manager checks it against a known_hosts
+    file of its own, rendered from them.
+
+    Background:
+      Given fleet.json declares this worker with no SSH alias:
+        | id           | rented-one                   |
+        | user         | dev                          |
+        | port         | 2222                         |
+        | tailnet name | rented-one.tail0a1b2c.ts.net |
+
+    Scenario: The session takes the declared user, port and name, and the pinned key only
+      Given the fleet state pins the host key "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPinnedKeyOfTheRentedWorker" for "rented-one"
+      When the SSH command for the worker is built
+      Then it has each of these arguments:
+        | User=dev                         |
+        | Port=2222                        |
+        | HostKeyAlias=devfleet-rented-one |
+        | StrictHostKeyChecking=yes        |
+        | GlobalKnownHostsFile=/dev/null   |
+        | BatchMode=yes                    |
+      And its last argument is "rented-one.tail0a1b2c.ts.net"
+      And the known_hosts file it names is not under "~/.ssh" and pins exactly:
+        """
+        devfleet-rented-one ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPinnedKeyOfTheRentedWorker
+        """
+
+    Scenario: A playbook that reaches the worker itself takes the same options and the same pin
+      Creating the declared account over a root login and rebooting a worker
+      are plays the manager runs against the worker. They name the login
+      themselves (root, or the declared account), so the declared user is not
+      among their options.
+      Given the fleet state pins the host key "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPinnedKeyOfTheRentedWorker" for "rented-one"
+      When the SSH options a playbook reaches the worker with are built
+      Then it has each of these arguments:
+        | Port=2222                        |
+        | HostKeyAlias=devfleet-rented-one |
+        | StrictHostKeyChecking=yes        |
+        | GlobalKnownHostsFile=/dev/null   |
+        | BatchMode=yes                    |
+      And it does not contain "User=dev"
+      And the playbook logs in as "dev" unless it names root
+
+    Scenario: Without a pinned key nothing is trusted, so the first session is refused
+      When the SSH command for the worker is built
+      Then it has each of these arguments:
+        | StrictHostKeyChecking=yes |
+      And it does not contain "accept-new"
+      And the known_hosts file it names is not under "~/.ssh" and pins exactly:
+        """
+        """
+
+    Scenario: A machine that presents another key is refused, and the remedy pins the new one with one command
+      Given an SSH session that failed, printing:
+        """
+        @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+        @    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+        """
+      When the failed session is classified
+      Then the check "ssh:host-key" fails
+      And the remedy of the check "ssh:host-key" mentions "devfleet fleet-node-replace --id ID --host-key"
+      And the remedy of the check "ssh:host-key" mentions "hostKey in its worker record"
+
   Rule: A path is quoted so a POSIX shell evaluates none of it
 
     @posix

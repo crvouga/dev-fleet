@@ -5,8 +5,10 @@
 # reached with and the fleet's sudo rule (the path and marker
 # authorize-sudo.sh writes), then continues as that account. The developer
 # toolchain never runs as root. Turning root login off afterwards is the SSH
-# policy's. Variables: target (the SSH alias), login (root, or empty for the
-# alias's own user, which is root), user (the declared account).
+# policy's. Variables: target (the SSH alias, or the declared tailnet name),
+# login (root, or empty for the alias's own user, which is root), user (the
+# declared account) and ssh_options (the SSH options every session of the
+# manager takes, src/ssh-connection.ts, with the pinned host key).
 - name: Address the worker over its root login
   hosts: localhost
   connection: local
@@ -16,6 +18,7 @@
       ansible.builtin.assert:
         that:
           - "target is match('^[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}$')"
+          - ssh_options is string and ssh_options is match('^-o ')
           - "user is match('^[a-z_][a-z0-9_-]{0,31}$')"
           - user != 'root'
           - login | default('') in ['', 'root']
@@ -26,7 +29,7 @@
         groups: [fleet_account]
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
-        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        ansible_ssh_common_args: '{{ ssh_options }}'
         account_user: '{{ user }}'
       changed_when: false
       when: login | default('') == ''
@@ -36,7 +39,7 @@
         groups: [fleet_account]
         ansible_python_interpreter: /usr/bin/python3
         ansible_ssh_args: -o ControlMaster=no -o ControlPath=none
-        ansible_ssh_common_args: -o BatchMode=yes -o StrictHostKeyChecking=yes -o UpdateHostKeys=no
+        ansible_ssh_common_args: '{{ ssh_options }}'
         ansible_user: root
         account_user: '{{ user }}'
       changed_when: false

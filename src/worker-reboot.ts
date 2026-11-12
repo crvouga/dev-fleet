@@ -1,3 +1,4 @@
+import { playbookConnection } from './ssh';
 import type { PackagePlaybook } from './platform/ansible';
 import { blocking, type Check, type FleetNode } from './types';
 
@@ -76,9 +77,11 @@ export async function rebootWorker(
       },
     };
   // `user@alias` only for a worker whose account this run created.
+  // A worker reached from declared data logs in as its declared account.
+  const connection = playbookConnection(node);
   const [login, target] = node.ssh.includes('@')
     ? node.ssh.split('@', 2)
-    : ['', node.ssh];
+    : [connection.user ?? '', node.ssh];
   const result = await playbook(
     'ubuntu/reboot.yml',
     {
@@ -88,6 +91,7 @@ export async function rebootWorker(
       revision: request.revision,
       reason: request.reason,
       force: Boolean(request.force),
+      ssh_options: connection.options,
     },
     // The play waits up to 900 seconds for the worker to answer again.
     1_200_000

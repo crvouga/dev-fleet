@@ -10,6 +10,7 @@ import './steps/repair';
 import './steps/menu';
 import './steps/watch';
 import './steps/validate';
+import './steps/usage';
 
 runFeatures({
   directory: import.meta.dir,

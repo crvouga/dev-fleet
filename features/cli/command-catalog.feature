@@ -51,6 +51,8 @@ Feature: The command catalog
         | fleet-github-verify   |
         | fleet-node-replace    |
         | fleet-node-seed       |
+        | fleet-node-park       |
+        | fleet-node-resume     |
         | fleet-node-retire     |
         | t3-apply              |
         | t3-cleanup            |

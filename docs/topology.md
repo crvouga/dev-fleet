@@ -73,5 +73,54 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
 
 - **Add or replace a worker:** add it to `workers`, enroll it with
   `fleet-sync`, done. Remove it by deleting the entry.
+- **Workers an infrastructure tool creates:** `workerRecords` in `fleet.json`
+  names a file (relative to `fleet.json`) or a command that returns worker
+  records, the provider-neutral description of a machine in
+  [`schema/worker-record.schema.json`](../schema/worker-record.schema.json):
+  `id`, `tailnetName` or `address`, `user`, `port`, `hostKey` and optional
+  `labels` and `billing`. Their workers join the inline list; dev-fleet only
+  reads them and never calls a provider or creates a machine. A record that
+  appears is a declared worker, enrolled by the next `fleet-sync`; one that
+  disappears (a file that is gone holds none) is retired by the next
+  `fleet-sync` exactly as `fleet-node-retire` retires one. A worker listed by
+  hand is never retired by itself. An invalid record is refused naming its
+  field, such as `$.workerRecords[0].workers[1].hostKey`.
+  [`examples/workers-from-infrastructure`](../examples/workers-from-infrastructure/main.tf)
+  shows the handoff with a local virtual machine, the seed going in and the
+  record coming out. The canary stays the one `canary` names, so the order
+  of generated records means nothing.
+- **Replace or retire a worker:** `fleet-node-replace` and `fleet-node-retire`
+  take everything of the old machine with it: its pinned host key, its
+  monitoring system (pointed at the new machine, or deleted), the manager's
+  T3 link to its environment (the new one is paired in the manager's T3), its
+  Vault token and, once the tailnet control is wired, its tailnet device.
+  `fleet-status --workers` warns about a monitoring system that matches no
+  declared worker (`beszel:leftover`).
+
+## Parked and idle workers
+
+A rented worker costs money while it runs. `devfleet fleet-node-park --id ID`
+records in the fleet state that it is stopped or destroyed on purpose: from
+then on `fleet-sync` and `fleet-status` list it as parked with the time since
+(`worker:parked`, not applicable), never contact it, never make it the
+canary, and it never changes an exit code. Parking refuses while agent turns
+run on it (`WORKER_BUSY`) unless `--force`. `devfleet fleet-node-resume --id
+ID` marks it active and runs `fleet-sync --node ID`, which converges and
+verifies it. `parking.stop` and `parking.start` in `fleet.json` name commands
+(an infrastructure tool, never a provider dev-fleet calls) run with the worker
+ID as their last argument. A parked worker found online on the tailnet is a
+warning (`worker:parked-online`); one that comes back as a new machine goes
+through `fleet-node-replace`.
+
+`fleet-status` reports, for every worker it reaches, its uptime, the agent
+turns under way and the time of the last agent activity, read from what T3
+records (status and times, never a session's content), in its text and as
+`workers` in its JSON. With `parking.idleAfterHours`, a worker with no agent
+activity for longer is `worker:idle` (a warning whose remedy is to park it);
+one with a turn under way never is. `billing.hourlyRate` on a worker (or its
+record) is only displayed and summed: `usage` says how many workers run, how
+many are idle and what the idle ones cost per day. `parking.autoPark: true`
+lets `fleet-watch` park idle workers by itself; it is off unless set.
+
 - **Replace the manager:** follow
   [replacing the manager](manager-recovery.md).
