@@ -90,3 +90,14 @@ Feature: The policy a worker's T3 has loaded is measured, never assumed
       Given a restart of T3 has been deferred for 25 hours
       When the policy loaded by the T3 at "/managed/t3" is measured after a play that left it running
       Then the check fails with "T3_POLICY_RESTART_PENDING"
+
+  Rule: The staged policy keeps linked environments on
+
+    Scenario: A worker's policy turns linked environments on beside the provider instances it locks
+      The manager pairs with a replaced worker's T3 without a person, which
+      both T3s allow only with linked environments on.
+      When the policy for a worker with the provider instance "codex" is composed
+      Then the policy sets these settings:
+        | setting                   | value              | locked |
+        | linkedEnvironmentsEnabled | true               | true   |
+        | providerInstances.codex   | {"driver":"codex"} | true   |

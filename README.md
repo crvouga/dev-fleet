@@ -268,7 +268,8 @@ Remove a machine with `npx devfleet fleet-node-retire --id ID --apply --yes`
 and leaves a tombstone in the fleet state), then delete its entry and run
 `fleet-sync`. To put a fresh machine in place of a worker under the same id,
 run `npx devfleet fleet-node-replace --id ID --host-key "TYPE BASE64" --apply
---yes` and then `fleet-sync --node ID`.
+--yes` and then `fleet-sync --node ID`; the manager's T3 pairs with the new
+machine's T3 by itself, with no code to copy.
 
 ## Configuration
 

@@ -106,7 +106,9 @@ Feature: A worker is replaced or retired with one command
       And the request carried the credential as a bearer token
       And the report has the check "tailscale:device" passed, saying "The tailnet no longer holds the device old-one"
 
-    Scenario: Replacing points the monitoring system at the new machine, asks for the new T3 pairing and removes the old device
+    Scenario: Replacing points the monitoring system at the new machine, leaves the T3 pairing to fleet-sync and removes the old device
+      The new machine's T3 does not run until fleet-sync converges it, so
+      the next fleet-sync pairs the manager with it.
       Given the fleet declares the tailnet control plane:
         """
         { "api": "tailscale", "tag": "tag:fleet-worker" }
@@ -121,7 +123,8 @@ Feature: A worker is replaced or retired with one command
         | worker-two | worker-two.tail0a1b2c.ts.net |
       And the manager's T3 forgot the environment "0b0c0d0e-1111-4222-8333-444455556666"
       And the roster records no T3 environment of "worker-one"
-      And the report has the check "t3:link" skipped, saying "Pair the new environment of worker-one"
+      And the report has the check "t3:link" skipped, saying "devfleet fleet-sync --node worker-one pairs the manager with it once it runs"
+      And the fleet state asks for a T3 pairing of "worker-one"
       And the control plane was asked to delete only the device "old-one"
       And the report has the check "tailscale:device" passed, saying "The tailnet no longer holds the device old-one"
 
@@ -135,6 +138,81 @@ Feature: A worker is replaced or retired with one command
       Then the command exits with 0
       And the control plane was asked nothing
       And the report has the check "tailscale:device" skipped, saying "the secrets provider holds no tailnet-admin"
+
+  Rule: The manager pairs its T3 with a replaced worker's new environment
+    A rebuilt machine runs a new T3 environment, and the manager pairs with
+    it without a person. The worker mints a one-time pairing code over the
+    SSH session; the manager hands it to its own T3 server, on this machine,
+    in the body of one request, under a session issued for that request and
+    revoked after it. The code is a secret: it never appears on a command
+    line, in a report, in what a command prints or in the fleet state.
+
+    Background:
+      Given the tailnet shows "worker-one" online as the new device "new-one"
+      And the manager's T3 server runs at "http://127.0.0.1:3773"
+
+    Scenario: A new machine whose T3 already runs is paired at once
+      Given the T3 of "worker-one" runs the environment "7a7b7c7d-1111-4222-8333-444455556666"
+      And the manager's T3 links the environment it is handed a code for
+      When the operator runs fleet-node-replace for "worker-one" with --apply --yes
+      Then the command exits with 0
+      And the report has the check "t3:link" passed, saying "The manager's T3 is paired with the T3 environment 7a7b7c7d-1111-4222-8333-444455556666 of worker-one"
+      And the roster records the T3 environment "7a7b7c7d-1111-4222-8333-444455556666" of "worker-one"
+      And the manager's T3 was asked to link "https://worker-one.tail0a1b2c.ts.net" as "7a7b7c7d-1111-4222-8333-444455556666" with the code minted on "worker-one"
+      And the pairing code was sent only to "http://127.0.0.1:3773", in the body of the link request
+      And the session issued for the link was revoked
+      And the pairing code appears in no command line, report, printed output or fleet state
+      And the fleet state asks for no T3 pairing of "worker-one"
+
+    Scenario: A new machine whose T3 did not run yet is paired by the next fleet-sync
+      Given the operator has replaced "worker-one" before its T3 ran
+      And the T3 of "worker-one" runs the environment "7a7b7c7d-1111-4222-8333-444455556666"
+      And the manager's T3 links the environment it is handed a code for
+      When fleet-sync pairs the T3 of "worker-one" if it was asked to
+      Then fleet-sync reports:
+        | id      | status |
+        | t3:link | pass   |
+      And the roster records the T3 environment "7a7b7c7d-1111-4222-8333-444455556666" of "worker-one"
+      And the fleet state asks for no T3 pairing of "worker-one"
+      And the session issued for the link was revoked
+      And the pairing code appears in no command line, report, printed output or fleet state
+
+    Scenario: A worker nobody replaced is left to a person
+      A worker's first pairing is approved by a person in the manager's T3.
+      Given the T3 of "worker-one" runs the environment "7a7b7c7d-1111-4222-8333-444455556666"
+      When fleet-sync pairs the T3 of "worker-one" if it was asked to
+      Then fleet-sync reports:
+        | id | status |
+      And no pairing code was minted on "worker-one"
+
+    Scenario Outline: A refused pairing fails, says why, and is asked for again
+      Given the T3 of "worker-one" runs the environment "7a7b7c7d-1111-4222-8333-444455556666"
+      And the manager's T3 refuses the link because "<reason>"
+      When the operator runs fleet-node-replace for "worker-one" with --apply --yes
+      Then the command exits with 1
+      And the report has the check "t3:link" failed, saying "T3_LINK_PAIRING_FAILED"
+      And the remedy of the check "t3:link" says "<remedy>"
+      And the roster records no T3 environment of "worker-one"
+      And the fleet state asks for a T3 pairing of "worker-one"
+      And the session issued for the link was revoked
+      And the pairing code appears in no command line, report, printed output or fleet state
+
+      Examples:
+        | reason           | remedy                                                   |
+        | disabled         | Linked environments is off in the manager's T3           |
+        | pairing_rejected | The T3 of worker-one refused the link (pairing_rejected) |
+        | unreachable      | The T3 of worker-one refused the link (unreachable)      |
+
+    Scenario: A manager's T3 that is not on this machine is never handed a code
+      Given the manager's T3 server runs at "http://192.0.2.10:3773"
+      And the T3 of "worker-one" runs the environment "7a7b7c7d-1111-4222-8333-444455556666"
+      And the manager's T3 links the environment it is handed a code for
+      When the operator runs fleet-node-replace for "worker-one" with --apply --yes
+      Then the command exits with 1
+      And the remedy of the check "t3:link" says "The manager's T3 did not answer on this machine"
+      And the manager's T3 was sent nothing
+      And no session was issued for a link
+      And the pairing code appears in no command line, report, printed output or fleet state
 
   Rule: A worker reached from declared data has its host key pinned in the fleet state
     The operator's ~/.ssh/known_hosts is neither needed nor changed: the key

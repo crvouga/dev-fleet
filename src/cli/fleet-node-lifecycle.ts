@@ -34,6 +34,8 @@ import { mutateState, stateContext, type StateContext } from '../state/sync';
 import { discoverTailnet, type TailnetComputer } from '../tailscale';
 import type { Check, FleetConfig, FleetNode, Runner } from '../types';
 import { usesVault } from '../vault-config';
+import { managerT3, type ManagerT3 } from '../t3/peer-link';
+import { pairAndRecord } from '../t3/pairing';
 import {
   issueWorkerToken,
   revokeWorkerToken,
@@ -74,6 +76,8 @@ export interface NodeLifecycleServices {
    * reported as skipped, with what a person does instead.
    */
   tailnet?: TailnetCleanup;
+  /** The manager's own T3, which pairs with a replacement's environment. */
+  t3: () => ManagerT3;
 }
 
 export type { TailnetCleanup };
@@ -99,6 +103,7 @@ export function lifecycleServices(roster: string): NodeLifecycleServices {
     ...(fleet.tailnet
       ? { tailnet: tailnetCleanup(fleet.tailnet, secret) }
       : {}),
+    t3: () => managerT3(runCommand),
   };
 }
 
@@ -428,8 +433,10 @@ async function tombstone(
 /** Puts a fresh machine in place of a worker under the same id: verifies the
  * new device on the tailnet, pins its host key, binds the roster entry to the
  * new device, points its monitoring system at it, removes the manager's T3
- * link to the old environment and the old tailnet device (when the tailnet
- * control is wired) and issues it a token of its own (revoking the old one).
+ * link to the old environment, pairs the manager's T3 with the new one (now,
+ * or in the next fleet-sync once it runs), removes the old tailnet device
+ * (when the tailnet control is wired) and issues it a token of its own
+ * (revoking the old one).
  * Preview until --apply --yes; then `fleet-sync --node ID` brings it to
  * ready. When nothing changed (the same device, the same key, a token of its
  * own) it changes nothing.
@@ -446,6 +453,7 @@ export async function fleetNodeReplace(
   const replaced = entry.tailscaleId !== device.computer.id;
   const plan: Replacement = {
     worker,
+    node: { ...entry, tailscaleId: device.computer.id },
     device: device.computer.id,
     host: await keyName(worker, services.run),
     hostKey: options.hostKey,
@@ -481,6 +489,8 @@ export async function fleetNodeReplace(
 
 interface Replacement {
   worker: MachineDefinition;
+  /** The roster entry, bound to the new device. */
+  node: FleetNode;
   device: string;
   host: string;
   hostKey: string | undefined;
@@ -533,6 +543,13 @@ function planReplacement(plan: Replacement): Check[] {
     steps.push(
       planned('t3:link', `remove the manager's T3 link to ${plan.environment}`)
     );
+  if (plan.replaced)
+    steps.push(
+      planned(
+        't3:link',
+        `pair the manager's T3 with the new T3 environment of ${plan.worker.id}`
+      )
+    );
   if (plan.previous)
     steps.push(
       planned('tailscale:device', `remove the tailnet device ${plan.previous}`)
@@ -582,14 +599,9 @@ async function carryOut(
       )
     );
   }
-  if (plan.environment) {
+  if (plan.environment)
     steps.push(await unlinkT3(plan.environment, services.run));
-    steps.push({
-      id: 't3:link',
-      status: 'skip',
-      summary: `Pair the new environment of ${worker.id}: link it in the manager's T3 (Settings, Connections). Its identity is recorded by the next fleet-sync.`,
-    });
-  }
+  if (plan.replaced) steps.push(await pairReplacement(plan.node, services));
   if (plan.previous)
     steps.push(await removeDevice(worker, plan.previous, services));
   if (plan.needsToken) {
@@ -606,6 +618,23 @@ async function carryOut(
     summary: `Run devfleet fleet-sync --node ${worker.id} to converge the new machine.`,
   });
   return steps;
+}
+
+/** Pairs the manager's T3 with a replacement's environment and records it
+ * in the roster. A machine whose T3 does not run yet (or refuses) is left to
+ * the next fleet-sync, which pairs it once it runs.
+ */
+function pairReplacement(
+  node: FleetNode,
+  services: NodeLifecycleServices
+): Promise<Check> {
+  return pairAndRecord(node, {
+    roster: services.roster,
+    run: services.run,
+    manager: services.t3(),
+    context: services.state,
+    now: services.now,
+  });
 }
 
 async function ownToken(id: string, run: Runner): Promise<boolean> {

@@ -1589,15 +1589,15 @@
       "meaning": "T3 relay and peer access, which need an operator test.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
       "id": "t3:link",
-      "meaning": "The manager's T3 link to a replaced or retired worker's old environment is gone.",
+      "meaning": "The manager's T3 link to a replaced or retired worker's old environment is gone, and the manager's T3 is paired with a replacement's new environment.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1605,7 +1605,7 @@
       "meaning": "The manager reaches the worker's private T3 endpoint.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1613,7 +1613,7 @@
       "meaning": "The manager's T3 origin is configured.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1621,7 +1621,7 @@
       "meaning": "T3 offers only the declared models for every account instance the fleet manages.",
       "severity": "advisory",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1629,7 +1629,7 @@
       "meaning": "The manager's T3 is linked to this worker.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1637,7 +1637,7 @@
       "meaning": "The running T3 loaded the managed policy.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1645,7 +1645,7 @@
       "meaning": "The managed T3 policy is installed.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1653,7 +1653,7 @@
       "meaning": "The T3 baseline prerequisites are present.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1661,7 +1661,7 @@
       "meaning": "T3's private HTTPS route is served.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1669,7 +1669,7 @@
       "meaning": "The declared T3 settings are in place on this machine.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1677,7 +1677,7 @@
       "meaning": "T3 lists the fleet's provider names.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1685,7 +1685,7 @@
       "meaning": "T3's provider instances are the declared ones.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1693,7 +1693,7 @@
       "meaning": "The running T3 server is the installed release; a restart the release needs waits for running agent turns.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1701,7 +1701,7 @@
       "meaning": "The pinned T3 app runs.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1717,7 +1717,7 @@
       "meaning": "T3's own updater is off, as the fleet's policy declares.",
       "severity": "advisory",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {
@@ -1725,7 +1725,7 @@
       "meaning": "This machine runs the T3 version the fleet pins.",
       "severity": "required",
       "repair": {
-        "manual": "T3 pairing and its private route are approved by a person; fleet-sync applies the rest."
+        "manual": "A worker’s first T3 pairing and its private route are approved by a person; a replaced worker is paired by fleet-node-replace or the next fleet-sync, and fleet-sync applies the rest."
       }
     },
     {

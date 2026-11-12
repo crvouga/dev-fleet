@@ -1,6 +1,9 @@
 {
   "schemaVersion": 1,
   "organization": "Personal developer fleet",
+  "settings": {
+    "linkedEnvironmentsEnabled": { "value": true, "locked": true }
+  },
   "limits": {
     "updates": { "mode": "off", "allowNightly": true }
   }

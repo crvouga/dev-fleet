@@ -397,7 +397,7 @@ export const CHECK_MEANINGS: Record<string, string> = {
   't3:api': 'The local T3 API answers.',
   't3:end-to-end': 'T3 relay and peer access, which need an operator test.',
   't3:link':
-    "The manager's T3 link to a replaced or retired worker's old environment is gone.",
+    "The manager's T3 link to a replaced or retired worker's old environment is gone, and the manager's T3 is paired with a replacement's new environment.",
   't3:manager-endpoint':
     "The manager reaches the worker's private T3 endpoint.",
   't3:manager-origin': "The manager's T3 origin is configured.",

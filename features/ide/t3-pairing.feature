@@ -26,3 +26,25 @@ Feature: The roster remembers which T3 environment each worker runs
     When the environment "not-an-id" is recorded for "dev-one"
     Then recording is refused
     And the roster enrolls "dev-one" with no T3 environment
+
+  Rule: The manager pairs with a worker it cannot reach only when asked to
+    fleet-node-replace asks for it; the pairing itself is
+    features/fleet-sync/node-lifecycle.feature. A worker's first pairing is
+    a person's.
+
+    Background:
+      Given the T3 of the manager has no links
+
+    Scenario: A worker the manager is asked to pair is paired, then verified and recorded
+      Given the manager is asked to pair with the worker, and pairing links "11111111-2222-3333-4444-555555555555" for 30 days
+      When the manager checks the T3 of the worker
+      Then the check "t3:link" passes
+      And the check "t3:paired-access" passes
+      And the roster enrolls "dev-one" with the T3 environment "11111111-2222-3333-4444-555555555555"
+
+    Scenario: A worker the manager is not asked to pair stays unverified
+      Given the manager is not asked to pair with the worker
+      When the manager checks the T3 of the worker
+      Then the check "t3:paired-access" fails with "MANAGER_T3_LINK_UNVERIFIED"
+      And no check "t3:link" was reported
+      And the roster enrolls "dev-one" with no T3 environment

@@ -40,4 +40,9 @@ export interface WorkerContext {
    * time it is seen through a verified link.
    */
   remember?: (node: string, identity: string) => Promise<void>;
+  /** Pairs the manager's IDE with the worker's when the manager cannot
+   * reach it and a pairing was asked for (a replaced worker): the check
+   * that says how it went, or nothing when no pairing was asked for.
+   */
+  pair?: (node: FleetNode) => Promise<Check | undefined>;
 }

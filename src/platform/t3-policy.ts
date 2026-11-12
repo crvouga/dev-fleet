@@ -8,6 +8,26 @@ import { rename, rm, symlink } from 'node:fs/promises';
 import { userInfo } from 'node:os';
 import type { Runner, Check } from '../types';
 
+/** The administrator policy a worker's T3 runs: the fleet's
+ * (`ansible/ubuntu/t3/policy.json`, which keeps linked environments on so
+ * the manager pairs with a replaced worker without a person) with the
+ * worker's provider instances locked.
+ */
+export function workerPolicy(instances: Record<string, unknown>) {
+  return {
+    ...policy,
+    settings: {
+      ...policy.settings,
+      ...Object.fromEntries(
+        Object.entries(instances).map(([id, value]) => [
+          `providerInstances.${id}`,
+          { value, locked: true },
+        ])
+      ),
+    },
+  };
+}
+
 export async function stageT3Policy(
   root: string,
   executable: string,
@@ -21,15 +41,7 @@ export async function stageT3Policy(
     node
   );
   const user = userInfo();
-  const document = {
-    ...policy,
-    settings: Object.fromEntries(
-      Object.entries(instances).map(([id, value]) => [
-        `providerInstances.${id}`,
-        { value, locked: true },
-      ])
-    ),
-  };
+  const document = workerPolicy(instances);
   const result = await runAnsible(run, 't3-policy.yml', {
     cwd: resolve(root, 'ansible/ubuntu'),
     input: JSON.stringify({
