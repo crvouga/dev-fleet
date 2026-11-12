@@ -150,6 +150,7 @@ Feature: The health of a machine itself
         | softwareupdate | No new software available.                                                              |
         | df             | Filesystem 1024-blocks Used Available Capacity Mounted␊/dev/disk3s5 1 1 104857600 1% /x |
         | docker         | 10GB␊1.5GB␊0B␊500MB                                                                     |
+        | cat            | {}                                                                                      |
 
     Scenario: A manager with nothing to do passes every check
       When the health of the manager is checked
@@ -180,3 +181,32 @@ Feature: The health of a machine itself
         | softwareupdate | Software Update found the following new or updated software:␊* Label: Safari-PRIVATE |
       When the health of the manager is checked
       Then nothing reported contains "PRIVATE"
+
+  Rule: A container that stays unhealthy is restarted, a bounded number of times an hour
+    Docker restarts a container that exits, never one that hangs while it
+    still holds its port. The watchdog on the manager restarts one that was
+    unhealthy for 3 checks in a row, at most 3 times an hour.
+
+    Scenario Outline: A container whose health was <seen> is <outcome>
+      When the watchdog has seen the container "proxy" as <seen>, having restarted it <restarts> times in the last hour
+      Then the watchdog <outcome>
+
+      Examples:
+        | seen                                  | restarts | outcome                          |
+        | unhealthy, unhealthy                  | 0        | restarts nothing                 |
+        | unhealthy, unhealthy, unhealthy       | 0        | restarts "proxy", "unhealthy for 3 checks" |
+        | unhealthy, healthy, unhealthy         | 0        | restarts nothing                 |
+        | starting, starting, starting          | 0        | restarts nothing                 |
+        | unhealthy, unhealthy, unhealthy       | 3        | restarts nothing and caps "proxy" |
+
+    Scenario Outline: The manager reports a container the watchdog <did>
+      Given the container watchdog remembers '<memory>', where NOW is the time now
+      When the health of the manager is checked
+      Then the check "manager:container-watchdog" <verdict>
+      And the summary of the check "manager:container-watchdog" mentions "<summary>"
+
+      Examples:
+        | did                     | memory                                                    | verdict | summary                       |
+        | never had to restart    | {"proxy":{"unhealthy":0,"restarts":[],"capped":null}}     | passes  | No container                  |
+        | restarted just now      | {"proxy":{"unhealthy":0,"restarts":[NOW],"capped":null}}  | warns   | CONTAINER_RESTARTED_UNHEALTHY proxy |
+        | stopped restarting      | {"proxy":{"unhealthy":5,"restarts":[NOW],"capped":NOW}}   | fails   | CONTAINER_RESTART_STORM proxy |

@@ -1,3 +1,5 @@
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import macos from '../ansible/macos/policy.json';
 import type { Check, Runner } from './types';
 
@@ -5,11 +7,15 @@ import type { Check, Runner } from './types';
  * the floors `ansible/macos/policy.json` declares. Nothing a command printed
  * is reported: only what was concluded from it.
  */
-export async function managerHealth(run: Runner): Promise<Check[]> {
+export async function managerHealth(
+  run: Runner,
+  home = homedir()
+): Promise<Check[]> {
   return [
     await managerRelease(run),
     await managerUpdates(run),
     await managerDisk(run),
+    await containerWatchdog(run, home),
   ];
 }
 
@@ -135,4 +141,65 @@ async function dockerBytes(run: Runner): Promise<number | null> {
     if (match) total += Number(match[1]) * (UNITS[match[2]!] ?? 0);
   }
   return total;
+}
+
+/** What the container watchdog remembers (ansible/monitoring/container-watchdog.py). */
+type WatchdogMemory = Record<
+  string,
+  { restarts?: number[]; capped?: number | null }
+>;
+
+/** A container the watchdog stopped restarting is a restart storm: it fails,
+ * and one it restarted within the hour warns.
+ */
+export async function containerWatchdog(
+  run: Runner,
+  home: string,
+  now = Date.now()
+): Promise<Check> {
+  const id = 'manager:container-watchdog';
+  const result = await run([
+    'cat',
+    join(home, 'Library/Caches/dev-fleet/container-watchdog.json'),
+  ]);
+  let memory: WatchdogMemory;
+  try {
+    memory = JSON.parse(result.stdout) as WatchdogMemory;
+  } catch {
+    memory = {};
+  }
+  if (!result.ok || typeof memory !== 'object' || memory === null)
+    return { id, status: 'skip', summary: 'CONTAINER_WATCHDOG_UNOBSERVED' };
+  const hour = (time: unknown) =>
+    typeof time === 'number' && now / 1000 - time < 3600;
+  const names = Object.keys(memory).filter((name) =>
+    /^[A-Za-z0-9_.-]{1,128}$/.test(name)
+  );
+  const capped = names.filter((name) => hour(memory[name]?.capped));
+  const restarted = names.filter((name) =>
+    (memory[name]?.restarts ?? []).some(hour)
+  );
+  const remedy = {
+    action:
+      'Read the container watchdog log (~/Library/Application Support/dev-fleet/container-watchdog/watchdog.log) and the container logs, fix the cause, then docker restart the container.',
+  };
+  if (capped.length)
+    return {
+      id,
+      status: 'fail',
+      summary: `CONTAINER_RESTART_STORM ${capped.join(' ')}`,
+      remedy,
+    };
+  if (restarted.length)
+    return {
+      id,
+      status: 'warn',
+      summary: `CONTAINER_RESTARTED_UNHEALTHY ${restarted.join(' ')}`,
+      remedy,
+    };
+  return {
+    id,
+    status: 'pass',
+    summary: 'No container stayed unhealthy in the last hour.',
+  };
 }

@@ -14,6 +14,12 @@
       - compose
       - '-f'
       - '{{ playbook_dir }}/compose.yml'
+    watchdog_policy: "{{ (lookup('ansible.builtin.file', playbook_dir ~ '/../macos/policy.json') | from_json).containerWatchdog }}"
+    watchdog_label: dev.devfleet.container-watchdog
+    watchdog_root: '{{ ansible_facts.env.HOME }}/Library/Application Support/dev-fleet/container-watchdog'
+    watchdog_state: '{{ ansible_facts.env.HOME }}/Library/Caches/dev-fleet/container-watchdog.json'
+    watchdog_plist: '{{ ansible_facts.env.HOME }}/Library/LaunchAgents/{{ watchdog_label }}.plist'
+    watchdog_domain: 'gui/{{ ansible_facts.user_uid }}'
     beszel_environment:
       BESZEL_HUB_URL: '{{ beszel_hub_url }}'
       BESZEL_APP_URL: '{{ beszel_public_url | default(beszel_hub_url) }}'
@@ -159,3 +165,84 @@
             or ((hub_settings.json.backups | default({})).s3 | default({})).endpoint | default('') != beszel_backup_endpoint
             or ((hub_settings.json.backups | default({})).s3 | default({})).accessKey | default('') != beszel_backup_access_key
             or ((hub_settings.json.backups | default({})).s3 | default({})).forcePathStyle | default(false) != beszel_backup_force_path_style | default(false) | bool
+    # Docker restarts a container that exits, never one that hangs while it
+    # holds its port. The watchdog restarts a labelled container (the hub, the
+    # CLI proxy) that stays unhealthy, a bounded number of times an hour; the
+    # bounds are containerWatchdog in ansible/macos/policy.json, and
+    # manager:container-watchdog reports a container past them.
+    - name: Create the container watchdog's directories
+      ansible.builtin.file:
+        path: '{{ item }}'
+        state: directory
+        mode: '0700'
+      loop:
+        - '{{ watchdog_root }}'
+        - '{{ watchdog_state | dirname }}'
+        - '{{ ansible_facts.env.HOME }}/Library/LaunchAgents'
+    - name: Install the container watchdog
+      ansible.builtin.copy:
+        src: '{{ playbook_dir }}/container-watchdog.py'
+        dest: '{{ watchdog_root }}/container-watchdog.py'
+        mode: '0700'
+    - name: Install the container watchdog's launch agent
+      ansible.builtin.copy:
+        dest: '{{ watchdog_plist }}'
+        mode: '0644'
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!-- Managed by personal Fleet: container watchdog -->
+          <plist version="1.0"><dict>
+            <key>Label</key><string>{{ watchdog_label }}</string>
+            <key>ProgramArguments</key><array>
+              <string>/usr/bin/python3</string>
+              <string>-I</string>
+              <string>-B</string>
+              <string>{{ watchdog_root }}/container-watchdog.py</string>
+              <string>--state</string>
+              <string>{{ watchdog_state }}</string>
+              <string>--unhealthy-checks</string>
+              <string>{{ watchdog_policy.unhealthyChecks }}</string>
+              <string>--max-restarts-per-hour</string>
+              <string>{{ watchdog_policy.maxRestartsPerHour }}</string>
+            </array>
+            <key>EnvironmentVariables</key><dict>
+              <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin:/Applications/Docker.app/Contents/Resources/bin</string>
+            </dict>
+            <key>StartInterval</key><integer>{{ watchdog_policy.intervalSeconds }}</integer>
+            <key>ProcessType</key><string>Background</string>
+            <key>Umask</key><integer>63</integer>
+            <key>StandardOutPath</key><string>{{ watchdog_root }}/watchdog.log</string>
+            <key>StandardErrorPath</key><string>{{ watchdog_root }}/watchdog.log</string>
+          </dict></plist>
+      register: watchdog_agent
+    - name: Inspect whether the container watchdog is loaded
+      ansible.builtin.command:
+        argv:
+          [/bin/launchctl, print, '{{ watchdog_domain }}/{{ watchdog_label }}']
+      changed_when: false
+      failed_when: false
+      register: watchdog_loaded
+    # launchd caches a loaded definition: a changed plist needs a reload.
+    - name: Unload a stale container watchdog definition
+      ansible.builtin.command:
+        argv:
+          [
+            /bin/launchctl,
+            bootout,
+            '{{ watchdog_domain }}/{{ watchdog_label }}',
+          ]
+      when: watchdog_agent.changed and watchdog_loaded.rc == 0
+      failed_when: false
+      changed_when: true
+    - name: Load the container watchdog
+      ansible.builtin.command:
+        argv:
+          [
+            /bin/launchctl,
+            bootstrap,
+            '{{ watchdog_domain }}',
+            '{{ watchdog_plist }}',
+          ]
+      when: watchdog_agent.changed or watchdog_loaded.rc != 0
+      changed_when: true
