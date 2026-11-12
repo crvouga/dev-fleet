@@ -23,6 +23,8 @@
       Components: main universe restricted multiverse
       Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
   register: snapshot_sources
+# Fetching the snapshot indexes must leave the indexes of the system's own
+# sources in place: the system's APT and unattended upgrades still use them.
 - name: Isolate snapshot selection from unrelated APT operations
   ansible.builtin.copy:
     dest: /etc/personal-fleet/apt.conf
@@ -32,6 +34,7 @@
     content: |
       Dir::Etc::sourcelist "/etc/personal-fleet/ubuntu.sources";
       Dir::Etc::sourceparts "-";
+      APT::Get::List-Cleanup "false";
       DPkg::Lock::Timeout "{{ aptLockTimeoutSeconds }}";
 - name: Inspect immutable snapshot package index
   ansible.builtin.stat:
