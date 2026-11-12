@@ -1,0 +1,56 @@
+# The control plane of the tailnet-box scenarios: Headscale on a private
+# Docker network, with its own relay (DERP) and TLS from a certificate
+# authority the scenario generates. Nothing here reaches a hosted service.
+server_url: https://headscale.fleet.test:8443
+listen_addr: 0.0.0.0:8443
+metrics_listen_addr: 127.0.0.1:9090
+grpc_listen_addr: 127.0.0.1:50443
+grpc_allow_insecure: false
+tls_cert_path: /etc/headscale/tls.crt
+tls_key_path: /etc/headscale/tls.key
+noise:
+  private_key_path: /var/lib/headscale/noise_private.key
+prefixes:
+  v4: 100.64.0.0/10
+  v6: fd7a:115c:a1e0::/48
+  allocation: sequential
+derp:
+  server:
+    enabled: true
+    region_id: 999
+    region_code: fleet-test
+    region_name: Fleet test relay
+    verify_clients: true
+    stun_listen_addr: 0.0.0.0:3478
+    private_key_path: /var/lib/headscale/derp_server_private.key
+    automatically_add_embedded_derp_region: true
+  # No public relay map: nothing is fetched from a hosted service.
+  urls: []
+  paths: []
+  auto_update_enabled: false
+  update_frequency: 24h
+disable_check_updates: true
+database:
+  type: sqlite
+  sqlite:
+    path: /var/lib/headscale/db.sqlite
+    write_ahead_log: true
+log:
+  level: info
+  format: text
+policy:
+  mode: file
+  path: ''
+# Tailnet names under tailnet.test; every other name still goes to Docker's
+# resolver, which knows headscale.fleet.test (as Headscale's own tests do).
+dns:
+  magic_dns: true
+  base_domain: tailnet.test
+  override_local_dns: false
+  nameservers:
+    global:
+      - 127.0.0.11
+unix_socket: /var/lib/headscale/headscale.sock
+unix_socket_permission: '0770'
+logtail:
+  enabled: false

@@ -2,7 +2,9 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended", "helpers:pinGitHubActionDigests"],
   "labels": ["deps"],
-  "lockFileMaintenance": { "enabled": true },
+  "lockFileMaintenance": {
+    "enabled": true
+  },
   "customManagers": [
     {
       "customType": "regex",
@@ -10,6 +12,15 @@
       "managerFilePatterns": ["/^ansible/monitoring/lock\\.json$/"],
       "matchStrings": [
         "\"tunnelImage\": \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "The self-hosted tailnet control plane of the tailnet-box scenarios, by tag and digest.",
+      "managerFilePatterns": ["/^features/tailnet-box/support/lock\\.json$/"],
+      "matchStrings": [
+        "\"headscale\": \"(?<depName>[^:\"]+):(?<currentValue>[^@\"]+)@(?<currentDigest>sha256:[a-f0-9]{64})\""
       ],
       "datasourceTemplate": "docker"
     }
@@ -20,6 +31,9 @@
       "matchManagers": ["mise"],
       "groupName": null
     },
-    { "matchManagers": ["github-actions"], "groupName": "actions" }
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "actions"
+    }
   ]
 }

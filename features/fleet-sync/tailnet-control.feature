@@ -128,12 +128,15 @@ Feature: A tailnet control plane issues one single-use key per new worker
     Scenario: The Tailscale play joins only a node that was never logged in, reading the key from a root-only file
       A worker with Tailscale state keeps its identity: it is never re-joined
       or reset. The key is read by tailscale itself, so it is never an
-      argument, and it is deleted whether or not the join succeeded.
+      argument, and it is deleted whether or not the join succeeded. The tag
+      comes with the key: Headscale refuses a pre-authorised join that also
+      advertises tags, which features/tailnet-box proves against a real one.
       When the Tailscale play of a worker is read
       Then its join runs only when these hold:
         | tailnet_key.stat.exists                                       |
         | (tailscale_status.stdout \| from_json).BackendState == 'NeedsLogin' |
       And its join passes "--auth-key=file:/run/devfleet/tailnet-auth-key" and the declared worker ID as the hostname
+      And its join advertises no tag: the key carries the fleet's tag
       And its join logs nothing
       And after the join the key file is removed, whatever the join did
       And without a join it still stops with "TAILSCALE_LOGIN_REQUIRED"

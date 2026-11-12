@@ -77,22 +77,30 @@ Feature: Every pull request is checked the way machines run
     And the "Ubuntu VM" workflow runs on "workflow_dispatch"
     And its "vm" job runs "bun ansible/ubuntu/tests/run-vm.ts"
 
+  Scenario: Tailnet enrolment is tested weekly against a self-hosted control plane and can be run by hand
+    Then the "Tailnet" workflow runs on "schedule"
+    And the "Tailnet" workflow runs on "workflow_dispatch"
+    And its "tailnet" job runs "bun test features/tailnet-box"
+    And its "tailnet" job sets "DEVFLEET_TEST_TAILNET_BOX" to "required"
+
   Scenario: A release stamps the commit it is published from into the package
     fleet-sync run from the package converges every machine to the commit the
     package names, so a release that does not name one cannot move a fleet.
     When the "Pack the release" step of the "Release" workflow is read
     Then it runs "npm pkg set gitHead=\"$(git rev-parse HEAD)\"" before "npm pack"
 
-  Scenario: Nothing is published until the packed release ran and the VM test passed for its commit
-    A broken bin path, a file missing from the package or a machine the
-    release cannot bring up fails the run before npm sees anything.
-    Then the "Release" workflow's "release" job needs "pack", "smoke" and "vm"
+  Scenario: Nothing is published until the packed release ran and the VM and tailnet tests passed for its commit
+    A broken bin path, a file missing from the package, a machine the
+    release cannot bring up or a worker that cannot join the tailnet fails
+    the run before npm sees anything.
+    Then the "Release" workflow's "release" job needs "pack", "smoke", "vm" and "tailnet"
     And its "smoke" job runs "bun bootstrap/package-smoke.ts"
     And its "smoke" job runs once for each of:
       | node |
       | 22   |
       | 24   |
     And its "vm" job calls ".github/workflows/vm.yml" for the commit "pack" packed
+    And its "tailnet" job calls ".github/workflows/tailnet.yml" for the commit "pack" packed
     When the "Publish to npm" step of the "Release" workflow is read
     Then it runs "npm publish \"$TARBALL\"" before "--provenance"
 

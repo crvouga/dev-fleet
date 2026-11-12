@@ -1,0 +1,15 @@
+---
+# Test tooling: the fleet firewall of a worker (ansible/ubuntu/tasks/firewall.yml)
+# applied alone, as the Ubuntu baseline applies it. Copied next to the Ubuntu
+# playbooks on the disposable machine, because the task file renders its
+# rules from the playbook's directory.
+- name: Apply the fleet firewall alone
+  hosts: localhost
+  connection: local
+  become: true
+  gather_facts: false
+  vars_files:
+    - policy.json
+  tasks:
+    - name: Close inbound traffic but loopback and the tailnet
+      ansible.builtin.import_tasks: tasks/firewall.yml

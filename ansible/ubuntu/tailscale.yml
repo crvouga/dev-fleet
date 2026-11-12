@@ -90,7 +90,9 @@
     # the seed or the bootstrap left in a root-only file. It joins only when
     # it has never been logged in (NeedsLogin): a node with Tailscale state
     # keeps its identity, and is never re-joined or reset. The key is read
-    # from the file by tailscale itself, so it is never an argument.
+    # from the file by tailscale itself, so it is never an argument. The tag
+    # comes with the key and is never advertised as well: Headscale refuses a
+    # pre-authorised join that advertises tags (features/tailnet-box).
     - name: Look for a single-use enrolment key
       ansible.builtin.stat:
         path: /run/devfleet/tailnet-auth-key
@@ -100,7 +102,6 @@
         argv: >-
           {{ ['tailscale', 'up', '--auth-key=file:/run/devfleet/tailnet-auth-key',
               '--hostname=' ~ tailnet_hostname, '--ssh=false', '--timeout=120s']
-             + (['--advertise-tags=' ~ tailnet_tag] if tailnet_tag | default('') else [])
              + (['--login-server=' ~ tailnet_login_server] if tailnet_login_server | default('') else []) }}
       when:
         - tailnet_key.stat.exists

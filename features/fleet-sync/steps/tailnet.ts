@@ -214,6 +214,13 @@ Then(
   }
 );
 
+Then("its join advertises no tag: the key carries the fleet's tag", (world) => {
+  const argv = String(
+    (joinTask(world)['ansible.builtin.command'] as { argv: string }).argv
+  );
+  expect(argv).not.toContain('--advertise-tags');
+});
+
 Then('its join logs nothing', (world) => {
   expect(joinTask(world)['no_log']).toBe(true);
   expect(joinTask(world)['failed_when']).toBe(false);

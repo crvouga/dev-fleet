@@ -244,8 +244,9 @@ async function baselineServicesActive(
   return user.ok;
 }
 
-/** A worker that was never logged in joins under its declared ID, with the
- * fleet's tag, when the seed or the bootstrap left it a single-use key.
+/** A worker that was never logged in joins under its declared ID when the
+ * seed or the bootstrap left it a single-use key; the key carries the fleet's
+ * tag.
  */
 async function applyTailscale(
   root: string,
@@ -261,7 +262,6 @@ async function applyTailscale(
       timeoutMs: 300_000,
       input: JSON.stringify({
         tailnet_hostname: node,
-        tailnet_tag: fleet.tailnet?.tag ?? '',
         tailnet_login_server: loginServer(fleet.tailnet) ?? '',
       }),
     },

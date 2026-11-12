@@ -1,0 +1,4 @@
+{
+  "$comment": "The tailnet control plane of the tailnet-box scenarios (features/tailnet-box): a self-hosted Headscale, by version tag and index digest. Test tooling only; Renovate moves it (renovate.json).",
+  "headscale": "headscale/headscale:v0.29.7@sha256:11f81665e842809db9fe3006a38c56a66e968baa5abd4bac498e86445572b970"
+}
