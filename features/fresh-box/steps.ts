@@ -89,7 +89,15 @@ When(
 Given('the manager has bootstrapped the machine', bootstrapped);
 
 When('the manager bootstraps the machine again', async (world) => {
+  // DIAGNOSTIC (temporary): time each Ansible task of the second run.
+  await world.remote(
+    'echo ANSIBLE_LOG_PATH=/tmp/fleet-ansible.log | sudo -n tee -a /etc/environment >/dev/null; sudo -n rm -f /tmp/fleet-ansible.log'
+  );
   world.bootstrap = await bootstrap(world.machine);
+  const log = await world.remote(
+    "grep -E 'TASK \\[|PLAY \\[|fatal' /tmp/fleet-ansible.log | cut -c1-200 | awk '{print}'"
+  );
+  console.log(`\nAnsible tasks of the second run:\n${log.stdout}`);
 });
 
 /** Reaching node convergence proves the machine needed nothing beforehand:
