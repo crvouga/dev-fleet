@@ -33,9 +33,9 @@ from pathlib import Path
 GIT = ['git', '-c', 'safe.directory=*']
 AUTHOR = {
     'GIT_AUTHOR_NAME': 'dev-fleet work-in-progress guard',
-    'GIT_AUTHOR_EMAIL': 'wip-guard@dev-fleet.invalid',
+    'GIT_AUTHOR_EMAIL': 'wip-guard@example.invalid',
     'GIT_COMMITTER_NAME': 'dev-fleet work-in-progress guard',
-    'GIT_COMMITTER_EMAIL': 'wip-guard@dev-fleet.invalid',
+    'GIT_COMMITTER_EMAIL': 'wip-guard@example.invalid',
 }
 
 
