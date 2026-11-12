@@ -86,7 +86,9 @@ function nodeChecks(value: unknown): CheckRow[] {
 }
 
 export function isStatus(value: unknown): value is string {
-  return ['pass', 'warn', 'fail', 'skip'].includes(String(value));
+  return ['pass', 'warn', 'fail', 'skip', 'not-applicable'].includes(
+    String(value)
+  );
 }
 
 export function isCancellation(error: unknown): boolean {

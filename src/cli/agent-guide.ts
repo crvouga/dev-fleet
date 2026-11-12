@@ -94,7 +94,7 @@ export function agentGuide(release: Release) {
         'Each output has a JSON schema in this package; parse by it and by its version. Diagnostic reports (fleet-status, fleet-state, fleet-repair): schema/output/report.schema.json, version 1. fleet-sync: schema/output/fleet-sync.schema.json, version 3 (a --dry-run adds plan). fleet-report: schema/output/fleet-report.schema.json, version 1.',
       checks:
         'schema/check-ids.json lists every check ID with what a passing check means; * stands for a name. Each failing check carries its own remedy.',
-      statuses: ['pass', 'warn', 'fail', 'skip'],
+      statuses: ['pass', 'warn', 'fail', 'skip', 'not-applicable'],
       coverage:
         'Default fleet-status tests the manager and all configured nodes. --local tests only this manager; --tailnet and --workers cover Tailscale computers. A missing roster fails explicitly. T3/VS Code end-to-end checks remain manual.',
     },

@@ -1,6 +1,6 @@
 Feature: A report says what was checked on every machine
   A command ends with one report: the checks of each machine and how many
-  passed, warned, failed or were skipped. A warning or a skip is shown and
+  passed, warned, failed, were skipped or do not apply to that machine. A warning or a skip is shown and
   counted; it fails a run only when the operator asked for a strict one.
 
   Rule: A failed check fails a run; a warning or a skip fails only a strict one
@@ -13,12 +13,31 @@ Feature: A report says what was checked on every machine
         | three | skip   | not run    |
       When the "doctor" report is made
       Then the report counts:
-        | pass | 1 |
-        | warn | 1 |
-        | skip | 1 |
-        | fail | 0 |
+        | pass           | 1 |
+        | warn           | 1 |
+        | skip           | 1 |
+        | fail           | 0 |
+        | not-applicable | 0 |
       And the run exits with 0
       But a strict run exits with 1
+
+    Scenario: A check that does not apply to a machine fails no run, not even a strict one
+      A virtual machine has no firmware power setting and no lid. Saying so is
+      not a gap in what was measured, so it is counted apart from a skip.
+      Given the worker "virtual" has these checks:
+        | id                         | status         | summary                                   |
+        | worker:capacity            | pass           | passed                                    |
+        | worker:power-loss-recovery | not-applicable | A virtual machine; the provider restarts it |
+      When the "doctor" report is made
+      Then the report counts:
+        | pass           | 1 |
+        | warn           | 0 |
+        | skip           | 0 |
+        | fail           | 0 |
+        | not-applicable | 1 |
+      And the run exits with 0
+      And a strict run exits with 0
+      And the printed report says "NOT-APPLICABLE worker:power-loss-recovery: A virtual machine; the provider restarts it"
 
     Scenario: A failed check fails a run
       Given the worker "bad" has these checks:
