@@ -33,6 +33,8 @@ export interface Hub {
 }
 
 export class FleetSyncWorld extends World {
+  /** Systems the hub watches beyond the declared workers, by name. */
+  hubExtra: string[] | undefined;
   /** Stands in for every subprocess. */
   readonly commands = new Commands();
   /** What a scenario said must not happen, and happened. */

@@ -35,6 +35,10 @@ export interface FleetWatchServices {
   secrets: SecretsProvider;
   send: typeof fetch;
   now: () => Date;
+  /** Parks the workers `worker:idle` warns about; only when fleet.json turns
+   * parking.autoPark on. One check per worker it parked or could not.
+   */
+  autoPark?: (reports: NodeReport[]) => Promise<Check[]>;
 }
 
 /** Compares the fleet's health with the previous run and notifies on
@@ -61,7 +65,8 @@ export async function fleetWatch(
   const previous = services.store
     ? parseMemory(await services.store.read().catch(() => null))
     : null;
-  const observed = observe(await services.status());
+  const reports = await services.status();
+  const observed = observe(reports);
   const { notifications, memory } = transitions(
     previous,
     observed,
@@ -80,6 +85,7 @@ export async function fleetWatch(
         ))
       );
   if (!notify) checks.push(unconfigured('warn'));
+  if (services.autoPark) checks.push(...(await services.autoPark(reports)));
   checks.push(await heartbeat(services.store, JSON.stringify(memory)));
   return outcome(checks, notifications);
 }

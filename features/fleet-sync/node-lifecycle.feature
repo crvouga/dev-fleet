@@ -17,6 +17,8 @@ Feature: A worker is replaced or retired with one command
       Then the report lists these planned steps:
         | auth:worker-token     |
         | ssh:host-key          |
+        | beszel:system         |
+        | tailscale:device      |
         | enrollment:connection |
         | state:retired         |
       And nothing was run on Vault or Ansible
@@ -65,3 +67,102 @@ Feature: A worker is replaced or retired with one command
       Then the command exits with 1
       And the report mentions "TAILSCALE_NODE_MISSING"
       And the roster binds "worker-one" to "old-one"
+
+  Rule: A worker that is replaced or retired leaves no stale identity behind
+    A rented machine is rebuilt as a matter of routine. Its monitoring
+    system, the manager's T3 link to it, its tailnet device and its token
+    each go with it, so the next machine under the same id starts clean.
+
+    Background:
+      Given the monitoring hub watches "worker-one" at "worker-one-old.tail0a1b2c.ts.net"
+      And the monitoring hub watches "worker-two" at "worker-two.tail0a1b2c.ts.net"
+      And the roster records the T3 environment "0b0c0d0e-1111-4222-8333-444455556666" of "worker-one"
+
+    Scenario: Retiring deletes the monitoring system and the T3 link, and says the device is left to a person
+      When the operator runs fleet-node-retire for "worker-one" with --apply --yes
+      Then the command exits with 0
+      And the monitoring hub watches only:
+        | name       | host                         |
+        | worker-two | worker-two.tail0a1b2c.ts.net |
+      And the manager's T3 forgot the environment "0b0c0d0e-1111-4222-8333-444455556666"
+      And the report has the check "tailscale:device" skipped, saying "no tailnet control is configured"
+
+    Scenario: With the tailnet control wired, retiring also removes the old device
+      Given the tailnet control is wired
+      When the operator runs fleet-node-retire for "worker-one" with --apply --yes
+      Then the command exits with 0
+      And the tailnet control removed the device "old-one"
+
+    Scenario: Replacing points the monitoring system at the new machine and asks for the new T3 pairing
+      Given the tailnet shows "worker-one" online as the new device "new-one"
+      And the tailnet control is wired
+      When the operator runs fleet-node-replace for "worker-one" with --apply --yes
+      Then the command exits with 0
+      And the monitoring hub watches only:
+        | name       | host                         |
+        | worker-one | worker-one.tail0a1b2c.ts.net |
+        | worker-two | worker-two.tail0a1b2c.ts.net |
+      And the manager's T3 forgot the environment "0b0c0d0e-1111-4222-8333-444455556666"
+      And the roster records no T3 environment of "worker-one"
+      And the report has the check "t3:link" skipped, saying "Pair the new environment of worker-one"
+      And the tailnet control removed the device "old-one"
+
+  Rule: A worker reached from declared data has its host key pinned in the fleet state
+    The operator's ~/.ssh/known_hosts is neither needed nor changed: the key
+    is kept in the fleet state, and the manager connects against a
+    known_hosts file of its own rendered from it.
+
+    Background:
+      Given fleet.json declares "worker-one" with no SSH alias, so the roster reaches it by its tailnet name
+      And the tailnet shows "worker-one" online as the new device "new-one"
+
+    Scenario: Replacing pins the new key with one command
+      When the operator runs fleet-node-replace for "worker-one" with the host key "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTheNewMachine" and --apply --yes
+      Then the command exits with 0
+      And the fleet state pins "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTheNewMachine" for "worker-one"
+      And the fleet-owned known_hosts pins exactly:
+        """
+        devfleet-worker-one ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyForTheNewMachine
+        """
+      And no personal known_hosts was changed
+
+    Scenario: Retiring forgets the pinned key
+      Given the operator has replaced "worker-one"
+      When the operator runs fleet-node-retire for "worker-one" with --apply --yes
+      Then the command exits with 0
+      And the fleet state pins no host key for "worker-one"
+      And the fleet-owned known_hosts pins exactly:
+        """
+        """
+
+  Rule: Workers that come from worker records come and go with their records
+    A record that appears is a declared worker, enrolled by the next sync. One
+    that disappears is retired by the same path as fleet-node-retire. A worker
+    someone listed in fleet.json by hand is never retired by itself.
+
+    Scenario: A worker whose record disappeared is retired by the next sync
+      Given the fleet state records that "worker-three" was enrolled from a worker record, bound to the device "old-three"
+      And the monitoring hub watches "worker-three" at "worker-three.tail0a1b2c.ts.net"
+      When fleet-sync reads the worker records
+      Then fleet-sync reports:
+        | id                | status |
+        | enrollment:record | pass   |
+      And the roster does not hold "worker-three"
+      And the fleet state records "worker-three" as retired
+      And the monitoring hub watches only:
+        | name | host |
+
+    Scenario: A preview only plans the retirement
+      Given the fleet state records that "worker-three" was enrolled from a worker record, bound to the device "old-three"
+      When fleet-sync reads the worker records to preview them
+      Then fleet-sync reports:
+        | id                | status |
+        | enrollment:record | skip   |
+      And the roster holds "worker-three"
+
+    Scenario: A worker removed from fleet.json by hand is not retired by itself
+      Given the roster still holds "worker-three", which fleet.json listed by hand
+      When fleet-sync reads the worker records
+      Then fleet-sync reports:
+        | id | status |
+      And the roster holds "worker-three"

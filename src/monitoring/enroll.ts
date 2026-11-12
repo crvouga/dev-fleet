@@ -3,7 +3,14 @@ import { record } from '../config';
 import { privateHub } from './beszel';
 import lock from '../../ansible/monitoring/lock.json';
 
-export type HubRequest = (path: string, body?: object) => Promise<unknown>;
+/** A call to the hub's API: GET without a body, POST with one, or the
+ * method named (PATCH a record, DELETE one).
+ */
+export type HubRequest = (
+  path: string,
+  body?: object,
+  method?: 'PATCH' | 'DELETE'
+) => Promise<unknown>;
 export interface AgentEnrollment {
   systemId: string;
   hubUrl: string;

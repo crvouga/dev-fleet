@@ -17,3 +17,4 @@ import './run-script';
 export { FleetSyncWorld, fleetSync } from '../support/world';
 import './history';
 import './plan';
+import './parking';

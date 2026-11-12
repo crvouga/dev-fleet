@@ -88,12 +88,23 @@ mise. `fleet-sync` installs them. If `sudo -n true` fails, that is fine for
 the first, interactive run, which asks for the password once and installs a
 sudo rule for the fleet; it is not fine for unattended runs.
 
-The `ssh` value of a worker in `fleet.json` is an alias from the manager's
-`~/.ssh/config`. dev-fleet always connects with `BatchMode=yes` and
-`StrictHostKeyChecking=yes`, so the host key must already be in
-`known_hosts`. **Ask** the human to verify each fingerprint out of band and
-connect once by hand; never add `StrictHostKeyChecking=no` or
-`accept-new`. A typical alias:
+A worker is reached in one of two ways, always with `BatchMode=yes` and
+`StrictHostKeyChecking=yes`; never add `StrictHostKeyChecking=no` or
+`accept-new`.
+
+- **From declared data (no alias).** Leave `ssh` out: dev-fleet connects as
+  `network.user` on `network.sshPort` to `network.tailscaleName`, and checks
+  the host key against a known_hosts file of its own, rendered from the key
+  the fleet state pins. The human's `~/.ssh/config` and `~/.ssh/known_hosts`
+  are neither needed nor changed. The key is pinned without trusting a first
+  connection: `npx devfleet fleet-node-seed --id ID --output PATH --apply
+--yes` generates it for a new machine, `npx devfleet fleet-node-replace
+--id ID --host-key "TYPE BASE64" --apply --yes` pins one the human verified
+  out of band, and a worker record (below) may carry it as `hostKey`.
+- **Through the human's own alias.** `ssh` names a Host alias in the
+  manager's `~/.ssh/config`, and its host key must already be in their
+  `known_hosts`. **Ask** the human to verify each fingerprint out of band and
+  connect once by hand. A typical alias:
 
 ```
 Host worker-one

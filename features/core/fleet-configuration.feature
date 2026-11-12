@@ -124,6 +124,10 @@ Feature: The fleet configuration
         | the bucket is a directory         | accept  | state   | {"directory":"/mnt/fleet"}                       |
         | another fleet's source is named   | accept  | source  | {"repository":"https://git.example.org/a/b.git"} |
         | secrets come from the environment | accept  | secrets | {"provider":"env"}                               |
+        | workers are parked and judged idle | accept | parking | {"idleAfterHours":12,"stop":["infra/stop"],"start":["infra/start"]} |
+        | a worker declares what it costs   | accept  | workers.0.billing | {"hourlyRate":0.5,"currency":"USD","note":"rented"} |
+        | a worker's host key is given      | accept  | workers.0.network.hostKey | "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHostKeyOfTheWorker" |
+        | a worker carries labels           | accept  | workers.0.labels | {"pool":"rented"} |
 
       Examples: Refused
         | change                           | verdict | field                       | value                                                          |
@@ -144,6 +148,10 @@ Feature: The fleet configuration
         | the bucket holds credentials     | refuse  | state                       | {"bucket":"my-fleet-state","accessKeyId":"x"}                  |
         | there is an unknown block        | refuse  | extra                       | {}                                                             |
         | a canary id is malformed         | refuse  | canary                      | "Not An Id"                                                    |
+        | a host key is not a key          | refuse  | workers.0.network.hostKey   | "not a key"                                                    |
+        | an hourly rate is negative       | refuse  | workers.0.billing           | {"hourlyRate":-1}                                              |
+        | a worker is idle after no time   | refuse  | parking                     | {"idleAfterHours":0}                                           |
+        | parking has an unknown setting   | refuse  | parking                     | {"sleep":true}                                                 |
 
     Scenario Outline: Only the parser refuses a definition where <change>
       A rule that relates two fields cannot be written in the schema. These
@@ -157,6 +165,16 @@ Feature: The fleet configuration
         | two workers share an id             | workers.1.id | "worker-one"  |
         | a worker carries the manager's id   | workers.0.id | "manager-mac" |
         | the canary is not a declared worker | canary       | "worker-nine" |
+        | workers are parked by themselves, never judged idle | parking | {"autoPark":true} |
+
+    Scenario: The example worker records conform to their published schema, and the parser reads them
+      When the worker records in "examples/workers-from-infrastructure/worker-records.json" are judged by "schema/worker-record.schema.json" and by the parser
+      Then both accept it
+
+    Scenario: The schema and the parser both accept a worker reached from its network block alone
+      Given the fleet configuration leaves out "workers.0.ssh"
+      When the fleet configuration is judged by the schema and by the parser
+      Then both accept it
 
   Rule: Every fleet declares its own endpoints, accounts and source repository
 

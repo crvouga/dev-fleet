@@ -12,6 +12,8 @@ import { readRoster } from './roster';
 import { publicHubUrl } from '../monitoring/beszel';
 import { stableUrls } from './fleet-sync-output';
 import { timeout } from './options';
+import { appendUsage } from './worker-usage-report';
+import { withUsage } from '../worker-activity';
 import type { FleetServices } from './fleet';
 import type { Settings } from './settings';
 import type { CliOptions } from './options';
@@ -62,7 +64,14 @@ export async function executeTailnet(
   const dashboard = options.workers
     ? await appendDashboardEvidence(nodes, discovered)
     : null;
-  const report = makeReport('health', nodes);
+  // Parked workers, and what each active one is doing (uptime, agent turns).
+  const usage = options.managed
+    ? await appendUsage(nodes, registered, {
+        run: services.run,
+        computers: discovered.computers,
+      })
+    : null;
+  const report = { ...makeReport('health', nodes), ...(usage ?? {}) };
   const exitCode = reportExitCode(report, true);
   const verified = exitCode === 0;
   return {
@@ -77,13 +86,16 @@ export async function executeTailnet(
         inspected: nodes.filter((node) => node.snapshot).length,
       },
     },
-    text: options.workers
-      ? workerHealthText(
-          { ...report, ok: verified },
-          coverage,
-          publicDashboard(dashboard)
-        )
-      : `${stableUrls(renderReport({ ...report, ok: verified }))}\nCoverage: ${coverage.computers} visible computers; ${coverage.excludedMobile} mobile devices excluded.\n${coverage.limitation}`,
+    text: withUsage(
+      options.workers
+        ? workerHealthText(
+            { ...report, ok: verified },
+            coverage,
+            publicDashboard(dashboard)
+          )
+        : `${stableUrls(renderReport({ ...report, ok: verified }))}\nCoverage: ${coverage.computers} visible computers; ${coverage.excludedMobile} mobile devices excluded.\n${coverage.limitation}`,
+      usage
+    ),
   };
 }
 

@@ -19,6 +19,9 @@ const DECLARATION =
 const HARDWARE =
   'It is a property of the hardware, the firmware or the operating system release, which no command changes.';
 
+const PARKING =
+  'Whether a worker runs is the operator’s choice: park it with fleet-node-park or resume it with fleet-node-resume.';
+
 export const CHECK_OWNERS: CheckOwner[] = [
   // Toolchain and workstation: automatic.
   { pattern: 'tool:*', repair: 'workspace' },
@@ -68,6 +71,10 @@ export const CHECK_OWNERS: CheckOwner[] = [
       'Re-converge the worker with fleet-sync: it applies the whole worker policy at the approved revision.',
   },
   { pattern: 'worker:power-loss-recovery', manual: HARDWARE },
+  // Whether a worker runs is the operator's choice (fleet-node-park).
+  { pattern: 'worker:idle', manual: PARKING },
+  { pattern: 'worker:park*', manual: PARKING },
+  { pattern: 'worker:auto-park', manual: PARKING },
   { pattern: 'worker:github-principal', manual: IDENTITY },
   { pattern: 'worker:vault-renewal', manual: IDENTITY },
   {

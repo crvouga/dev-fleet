@@ -1,15 +1,29 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import {
   DefinitionError,
   parseDefinition,
+  sshTarget,
   type DefinitionProblem,
   type FleetDefinition,
 } from '../definition';
 import { FleetUsageError } from '../errors';
 import { PACKAGE_ROOT } from '../package-info';
-import { ansibleCommand } from '../platform/ansible';
+import { ansibleCommand, ansibleConfig } from '../platform/ansible';
+import { shellQuote } from '../ssh';
+import {
+  connectionOptions,
+  declaredConnection,
+  knownHostsPath,
+  SSH_TRANSPORT,
+  sshOptionArgs,
+} from '../ssh-connection';
+import {
+  expandRecords,
+  runRecordCommand,
+  type RecordCommand,
+} from '../worker-records';
 import { runCommand } from '../runner';
 import type { Check, Runner } from '../types';
 import type { CommandOutcome } from './contracts';
@@ -26,6 +40,8 @@ export interface FleetValidateServices {
   platform: NodeJS.Platform;
   /** The package's Ansible playbooks, relative to `root`. */
   root: string;
+  /** Runs a command `workerRecords` names. */
+  records?: RecordCommand;
 }
 
 const SERVICES: FleetValidateServices = {
@@ -42,20 +58,34 @@ const PLAYBOOK_DIRECTORIES = ['ansible/ubuntu', 'ansible/macos'];
  * worker in the `workers` group in the order it is declared. Host names are
  * the fleet ids; a machine is reached as fleet-sync reaches it.
  */
-export function fleetInventory(definition: FleetDefinition): unknown {
+export function fleetInventory(
+  definition: FleetDefinition,
+  knownHosts = knownHostsPath()
+): unknown {
   const workers = Object.fromEntries(
-    definition.workers.map((worker) => [
-      worker.id,
-      {
-        ansible_host: worker.ssh,
-        ...(worker.network
-          ? {
-              ansible_user: worker.network.user,
-              ansible_port: worker.network.sshPort,
-            }
-          : {}),
-      },
-    ])
+    definition.workers.map((worker) => {
+      const declared = declaredConnection(worker);
+      // The same options a direct session takes (src/ssh-connection.ts).
+      const options = [
+        ...SSH_TRANSPORT,
+        ...(declared ? connectionOptions(declared, knownHosts) : []),
+      ];
+      return [
+        worker.id,
+        {
+          ansible_host: sshTarget(worker),
+          ...(worker.network
+            ? {
+                ansible_user: worker.network.user,
+                ansible_port: worker.network.sshPort,
+              }
+            : {}),
+          ansible_ssh_common_args: sshOptionArgs(options)
+            .map((arg) => (arg === '-o' ? arg : shellQuote(arg)))
+            .join(' '),
+        },
+      ];
+    })
   );
   return {
     all: {
@@ -89,7 +119,13 @@ export async function fleetValidate(
     );
   let definition: FleetDefinition;
   try {
-    definition = parseDefinition(await readJson(path));
+    definition = parseDefinition(
+      expandRecords(
+        await readJson(path),
+        dirname(path),
+        services.records ?? runRecordCommand
+      )
+    );
   } catch (error) {
     if (error instanceof DefinitionError) return invalid(path, error.problem);
     throw error;
@@ -164,14 +200,16 @@ async function ansibleChecks(
   const directory = await mkdtemp(join(tmpdir(), 'devfleet-validate-'));
   const inventory = join(directory, 'inventory.json');
   try {
-    await writeFile(inventory, JSON.stringify(fleetInventory(definition)), {
-      mode: 0o600,
-    });
+    await writeFile(
+      inventory,
+      JSON.stringify(fleetInventory(definition, knownHostsPath(services.env))),
+      { mode: 0o600 }
+    );
     const playbook = ansibleCommand(services.platform, services.root);
     const tool = (name: string) => [...playbook.slice(0, -1), name];
     const listed = await services.run(
       [...tool('ansible-inventory'), '-i', inventory, '--list'],
-      { timeoutMs: 120_000 }
+      { timeoutMs: 120_000, env: ansibleConfig(services.root) }
     );
     const checks: Check[] = [
       listed.ok
@@ -200,7 +238,7 @@ async function ansibleChecks(
           '--syntax-check',
           join(services.root, file),
         ],
-        { timeoutMs: 120_000 }
+        { timeoutMs: 120_000, env: ansibleConfig(services.root) }
       );
       if (!result.ok) failed.push(file);
     }

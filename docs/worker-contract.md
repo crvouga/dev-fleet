@@ -69,7 +69,8 @@ ten minutes) and audits again; only a database still inconsistent stops with
 Health does not mutate configuration, renew tokens, log in, install software, or
 make billable inference requests. It audits the immutable desired worker deployment,
 not an unrelated developer branch. Every declared worker must be enrolled and
-reachable. Extra service hosts are listed as outside scope. Required failures,
+reachable, unless it is parked (`devfleet fleet-node-park`): a parked worker
+is listed as parked and never contacted. Extra service hosts are listed as outside scope. Required failures,
 warnings and unverified checks prevent a ready result; explicitly non-required
 checks remain visible without inventing a pass.
 

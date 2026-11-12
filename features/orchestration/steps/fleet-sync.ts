@@ -8,6 +8,7 @@ import {
 } from '../../../src/manager-sync';
 import type { TailnetComputer } from '../../../src/tailscale';
 import type { Status } from '../../../src/types';
+import { withoutParked } from '../../../src/worker-parking';
 import { succeeded } from '../../support/commands';
 import type { DataTable } from '../../support/gherkin';
 import {
@@ -112,10 +113,17 @@ When(
       (command) => command[0] === 'tailscale',
       succeeded(tailscaleStatus(world.computers))
     );
+    // As fleet-sync sets parked workers aside before it converges.
+    const active = withoutParked(
+      need(world.sync.definition, 'a fleet configuration'),
+      world.nodes,
+      world.sync.parked,
+      new Date('2026-11-12T00:00:00Z')
+    );
     const report = await synchronizeManager(
       {
-        definition: need(world.sync.definition, 'a fleet configuration'),
-        nodes: world.nodes,
+        definition: active.definition,
+        nodes: active.nodes,
         revision: need(world.sync.revision, 'an approved revision'),
         apply: mode === 'applies',
         ...(canary ? { canary } : {}),
@@ -131,6 +139,7 @@ When(
         };
       }
     );
+    report.checks.push(...active.checks);
     world.sync.report = report;
     world.reports = report.nodes;
     world.outcome = report;
@@ -178,6 +187,27 @@ Then(
   'the report shows {string} as {string}',
   (world, id: string, reachability: string) => {
     expect<string>(worker(world, id).reachability).toBe(reachability);
+  }
+);
+
+Given('{string} was parked at {string}', (world, id: string, at: string) => {
+  world.sync.parked[id] = at;
+});
+
+Then(
+  'the report says {string} is parked, and was not contacted',
+  (world, id: string) => {
+    expect(report(world).checks).toContainEqual(
+      expect.objectContaining({
+        id: 'worker:parked',
+        status: 'not-applicable',
+        summary: expect.stringContaining(`${id} is parked since`),
+      })
+    );
+    expect(report(world).nodes.map((node) => node.node)).not.toContain(id);
+    expect(
+      world.commands.ran((command) => command.join(' ').includes(id))
+    ).toEqual([]);
   }
 );
 

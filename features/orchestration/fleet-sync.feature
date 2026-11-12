@@ -188,3 +188,20 @@ Feature: fleet-sync converges every worker on one approved revision
     And these workers were announced as finished, in order:
       | first  |
       | second |
+
+  Rule: A parked worker is off on purpose
+    A rented machine is stopped, or destroyed, while nobody needs it
+    (devfleet fleet-node-park). It is listed as parked, never contacted,
+    never the canary, and the fleet is ready without it.
+
+    Scenario: Parking the first worker does not block promotion to the others
+      Given "first" was parked at "2026-11-11T20:00:00.000Z"
+      And deploying a worker reports these checks:
+        | id   | status | summary |
+        | done | pass   | fixture |
+      When fleet-sync applies the approved revision with "first" as its canary
+      Then the revision was deployed to these workers, in order:
+        | second |
+      And the report names "second" as the canary
+      And the report says "first" is parked, and was not contacted
+      And the fleet is ready

@@ -114,6 +114,8 @@ When(
         run: world.commands.run,
         playbook: lifecycle.playbook,
         knownHosts: lifecycle.knownHosts,
+        state: lifecycle.state,
+        now: lifecycle.now,
         definition: () => definition,
         secret: async (name) => seeding(world).secrets[name] ?? null,
         home: seeding(world).directory,

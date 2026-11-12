@@ -73,7 +73,9 @@ export class OrchestrationWorld extends World {
     deployed: { worker: string; revision: string }[];
     finished: string[];
     report?: ManagerReport;
-  } = { checks: [], deployed: [], finished: [] };
+    /** When each parked worker was parked. */
+    parked: Record<string, string>;
+  } = { checks: [], deployed: [], finished: [], parked: {} };
 
   health: { excludedMobile: number; checks: Check[] } = {
     excludedMobile: 0,

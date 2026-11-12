@@ -1,6 +1,6 @@
 import { mkdir, rm } from 'node:fs/promises';
 import { loadRoster } from './roster';
-import { enrolledRoster } from '../definition';
+import { enrolledRoster, sshTarget } from '../definition';
 import { FleetUsageError } from '../errors';
 import { dirname } from 'node:path';
 import { fleet as definition } from '../fleet-config';
@@ -23,7 +23,7 @@ export async function enrollManager(path: string, run: Runner): Promise<void> {
       : enrolledRoster(canonical, await loadRoster(path)).nodes;
   const nodes: FleetNode[] = canonical.workers.map((node) => ({
     id: node.id,
-    ssh: node.ssh,
+    ssh: sshTarget(node),
     workspace: '/',
     required: ['t3', 'toolchain', 'workstation'],
   }));
