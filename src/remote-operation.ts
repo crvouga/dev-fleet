@@ -148,16 +148,30 @@ function followable(operation: Operation, revision: string): boolean {
   );
 }
 
-function finishedWith(operation: Operation, revision: string): Check[] | null {
+/** The result of a finished operation of this revision, unless it is the
+ * operation that had already finished before this run opened a session: a
+ * re-sync of the same revision finds the record of the last run still there,
+ * and its result is not this run's.
+ */
+function finishedWith(
+  operation: Operation,
+  revision: string,
+  earlier: number | null | undefined
+): Check[] | null {
   return !operation.held &&
     operation.finished &&
-    operation.revision === revision
+    operation.revision === revision &&
+    !(typeof earlier === 'number' && operation.started === earlier)
     ? operation.result
     : null;
 }
 
 export interface Follow {
   clock?: Clock;
+  /** When the operation that had finished on the worker before this run
+   * began had started there (the worker's clock, in seconds), when known.
+   */
+  earlier?: number | null;
   /** Told the phase and how long the operation has run, at every look. */
   progress?: (phase: string) => void;
 }
@@ -176,7 +190,7 @@ export async function followOperation(
   const deadline = clock.now() + FOLLOW_AT_MOST_MS;
   let operation = await inspectOperation(node, run, clock);
   if (!operation) return null;
-  const done = finishedWith(operation, revision);
+  const done = finishedWith(operation, revision, options.earlier);
   if (done) return [attached(operation, 'finished'), ...done];
   if (!followable(operation, revision)) return null;
   let last: Operation = operation;
@@ -186,7 +200,7 @@ export async function followOperation(
     operation = await inspectOperation(node, run, clock);
     if (!operation) continue;
     last = operation;
-    const result = finishedWith(operation, revision);
+    const result = finishedWith(operation, revision, options.earlier);
     if (result) return [attached(operation, 'followed'), ...result];
     if (!followable(operation, revision)) return null;
   }
