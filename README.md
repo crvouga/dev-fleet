@@ -316,9 +316,11 @@ fleet.json contents.
   `fleet-sync` fetches that copy again when it is deleted, but the proxy then
   needs `devfleet cliproxy install` once more.
 - The manager is a Mac host. There is no container image of the manager.
-- `fleet-sync --schedule enable` (unattended runs on a timer) is not available
-  from the published package yet, so nothing re-applies the fleet until you
-  run `fleet-sync`.
+- `fleet-sync --schedule enable --apply --yes` (unattended runs every 30
+  minutes) is installed by that command on the manager, not yet by the
+  manager's playbook, and its interval is not yet part of `fleet.json`.
+  `fleet-sync --schedule status` lists its last runs, and `fleet-status` fails
+  `manager:schedule` when it has not converged the fleet for two intervals.
 - Not everything on a machine is pinned. [What is declared, and
   where](docs/declared.md) lists what is and what is not: most of a worker's
   own packages, the manager's applications and every login are outside it.

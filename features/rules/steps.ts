@@ -5,6 +5,11 @@ import { parse } from 'yaml';
 import macos from '../../ansible/macos/policy.json';
 import ubuntu from '../../ansible/ubuntu/policy.json';
 import beszel from '../../ansible/monitoring/lock.json';
+import {
+  publishedRelease,
+  release,
+  scheduledCommand,
+} from '../../src/cli/fleet-sync-schedule';
 import { World, scenariosOf, steps, type DataTable } from '../support/gherkin';
 
 const root = resolve(import.meta.dir, '../..');
@@ -675,6 +680,24 @@ When('the package is packed', async (world) => {
 Then('it contains:', (world, table: DataTable) => {
   for (const path of table.list()) expect(world.packed).toContain(path);
 });
+
+Then(
+  "the file the manager's schedule runs, once the package is installed, is one it contains",
+  (world) => {
+    const published = {
+      ...release(root),
+      version: '1.2.3',
+      revision: 'a'.repeat(40),
+    };
+    expect(publishedRelease(published)).toBe(true);
+    const prefix = '/runtime';
+    const command = scheduledCommand(published, 'a'.repeat(40), prefix);
+    const installed = `${prefix}/node_modules/${String(manifest()['name'])}/`;
+    const entry = command.find((part) => part.startsWith(installed));
+    expect(entry).toBeDefined();
+    expect(world.packed).toContain(entry!.slice(installed.length));
+  }
+);
 
 const manifest = (): Record<string, unknown> =>
   JSON.parse(readFileSync(resolve(root, 'package.json'), 'utf8')) as Record<

@@ -32,3 +32,108 @@ Feature: The manager's schedule changes only when that is authorized
       | personal-fleet-sync |
     And the command exits with 0
     And the report does not mention "raw output"
+
+  Rule: The schedule runs the published package the operator runs, never a path into their project
+
+    Scenario: Enabling installs the exact release and schedules its own entry point
+      Given the CLI is the published release "1.4.0" of the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      And npm installs any package it is asked to
+      And the platform installs a scheduled job it is asked to
+      When the schedule action "enable" is requested with authorization
+      Then the command exits with 0
+      And npm installed exactly "@crvouga/dev-fleet@1.4.0"
+      And the scheduled job "personal-fleet-sync" runs, every 30 minutes:
+        | /usr/bin/env                                                |
+        | node                                                        |
+        | {root}/runtime/node_modules/@crvouga/dev-fleet/bin/devfleet.mjs |
+        | fleet-sync                                                  |
+        | --revision                                                  |
+        | aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa                    |
+        | --apply                                                     |
+        | --yes                                                       |
+        | --non-interactive                                           |
+        | --json                                                      |
+      And the scheduled job runs with "DEVFLEET_TRIGGER" set to "schedule"
+      And the scheduled job's PATH names only the fleet's own tools and the system's
+      And the fleet state records the schedule as on, every 30 minutes
+      And the report does not mention "raw output"
+
+    Scenario: A build that names no commit cannot be scheduled
+      Given the CLI is the published release "1.4.0" built from no commit
+      And the platform installs a scheduled job it is asked to
+      When the schedule action "enable" is requested with authorization
+      Then the command exits with 1
+      And no command was run
+      And no scheduled job was installed
+
+    Scenario: A checkout's development version cannot be scheduled
+      Given the CLI is the published release "0.0.0-development" of the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      And the platform installs a scheduled job it is asked to
+      When the schedule action "enable" is requested with authorization
+      Then the command exits with 1
+      And no scheduled job was installed
+
+  Rule: The schedule's runs are kept, and a schedule that stopped converging fails a check
+
+    Background:
+      Given a fleet state of its own, holding no history
+
+    Scenario: The status lists the last three scheduled runs, newest first
+      Given the platform says the schedule is installed and supported, with the detail "loaded"
+      And the schedule was turned on at "2026-11-01T08:00:00Z", every 30 minutes
+      And fleet-sync recorded these runs:
+        | finished             | trigger  | ok  | failing     |
+        | 2026-11-01T09:00:00Z | schedule | yes |             |
+        | 2026-11-01T09:30:00Z | schedule | no  | ssh:timeout |
+        | 2026-11-01T09:40:00Z | operator | yes |             |
+        | 2026-11-01T10:00:00Z | schedule | yes |             |
+        | 2026-11-01T10:30:00Z | schedule | no  | tool:node   |
+      When the schedule action "status" is requested without authorization
+      Then the command exits with 0
+      And the report has:
+        | intervalSeconds         | 1800                     |
+        | runs.0.finishedAt       | 2026-11-01T10:30:00.000Z |
+        | runs.0.failing.0        | tool:node                |
+        | runs.1.finishedAt       | 2026-11-01T10:00:00.000Z |
+        | runs.2.finishedAt       | 2026-11-01T09:30:00.000Z |
+
+    Scenario Outline: A schedule whose last success was at <last success> is checked at <now>: <outcome>
+      Given the schedule was turned on at "2026-11-01T08:00:00Z", every 30 minutes
+      And fleet-sync recorded these runs:
+        | finished         | trigger  | ok  |
+        | <last success>   | schedule | yes |
+        | 2026-11-01T11:00:00Z | schedule | no  |
+      When the schedule is checked at "<now>"
+      Then the check "manager:schedule" <outcome>
+
+      Examples:
+        | last success         | now                  | outcome |
+        | 2026-11-01T10:00:00Z | 2026-11-01T11:00:00Z | passes  |
+        | 2026-11-01T10:00:00Z | 2026-11-01T11:00:01Z | fails   |
+        | 2026-11-01T08:30:00Z | 2026-11-01T11:00:00Z | fails   |
+
+    Scenario: A schedule turned on a moment ago has not failed yet
+      Given the schedule was turned on at "2026-11-01T10:00:00Z", every 30 minutes
+      When the schedule is checked at "2026-11-01T10:45:00Z"
+      Then the check "manager:schedule" passes
+
+    Scenario: A schedule that never succeeded since it was turned on fails after two intervals
+      Given the schedule was turned on at "2026-11-01T10:00:00Z", every 30 minutes
+      When the schedule is checked at "2026-11-01T11:00:01Z"
+      Then the check "manager:schedule" fails
+
+    Scenario: A schedule that is off, or was never turned on, is not checked
+      Given the schedule was turned off at "2026-11-01T08:00:00Z", every 30 minutes
+      When the schedule is checked at "2026-11-02T08:00:00Z"
+      Then there is no schedule check
+
+  Rule: The schedule's logs stay under a fixed size
+
+    Scenario: A scheduled run caps the schedule's logs and leaves other files alone
+      Given the schedule's log "personal-fleet-sync.out.log" holds 2048 KiB of lines
+      And the schedule's log "personal-fleet-sync.err.log" holds 16 KiB of lines
+      And the schedule's log "other.txt" holds 2048 KiB of lines
+      When a scheduled run starts, with logs capped at 1024 KiB
+      Then the log "personal-fleet-sync.out.log" holds at most 1024 KiB, and ends with a whole line
+      And the log "personal-fleet-sync.err.log" still holds 16 KiB
+      And the log "other.txt" still holds 2048 KiB

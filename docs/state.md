@@ -4,11 +4,12 @@ A fleet is described in two places you own. Your project in Git holds
 `fleet.json` and pins the dev-fleet version. Everything else the manager
 cannot rebuild from Git is the **fleet state**:
 
-| Document     | What it is                                                           |
-| ------------ | -------------------------------------------------------------------- |
-| `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device) |
-| `enrollment` | The revision `fleet-sync` approved and the one it last applied       |
-| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json` |
+| Document     | What it is                                                            |
+| ------------ | --------------------------------------------------------------------- |
+| `roster`     | The enrolled connection to each worker (SSH alias, Tailscale device)  |
+| `enrollment` | The revision `fleet-sync` approved and the one it last applied        |
+| `definition` | The fleet configuration `fleet-sync` last applied: your `fleet.json`  |
+| `history`    | The last 90 days of `fleet-sync` runs (at most 500), and the schedule |
 
 They live in one SQLite database, and [Litestream](https://litestream.io)
 replicates that database to a storage bucket you own. The bucket is the source
@@ -118,6 +119,7 @@ way, needs no credentials and is the quickest way to try this out.
 ```sh
 devfleet fleet-state            # read-only: where the state is, and how it stands with the bucket
 devfleet fleet-state --example  # print a fleet.json to start a project from
+devfleet fleet-report --since 30d  # read-only: how reliably fleet-sync ran, from the history
 devfleet fleet-state --export   # print the configuration fleet-sync last applied
 devfleet fleet-state --push     # upload changes made while the bucket was unreachable
 devfleet fleet-state --restore  # replace the local copy with the bucket's

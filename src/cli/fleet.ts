@@ -14,6 +14,8 @@ import { addNode, nodeFromOptions, readRoster } from './roster';
 import { executeTailnet } from './tailnet';
 import { probeSource } from './probe-source';
 import { executeRepairCommand } from './repair';
+import { scheduleCheck } from '../schedule-check';
+import { readHistory } from '../state/history';
 
 export interface FleetServices {
   run: Runner;
@@ -125,6 +127,8 @@ async function diagnose(
     services.run
   );
   if (!options.local && settings.missingRoster) reports.push(missingRoster());
+  const schedule = scheduleCheck(readHistory(), new Date());
+  if (schedule) reports[0]?.checks.push(schedule);
   const report = {
     ...makeReport('doctor', reports),
     coverage: {

@@ -18,6 +18,12 @@ Feature: The published package is the whole CLI and nothing else
       | mise.toml                      |
       | mise.lock                      |
 
+  Scenario: The manager's schedule runs a file the package ships
+    The schedule installs this package, at its exact version, into the
+    manager's runtime and runs the entry point its manifest declares.
+    When the package is packed
+    Then the file the manager's schedule runs, once the package is installed, is one it contains
+
   Scenario: The package carries the documents an agent sets a fleet up from
     An agent in a project that uses dev-fleet reads them from node_modules,
     at the version the project pins, without fetching anything.
