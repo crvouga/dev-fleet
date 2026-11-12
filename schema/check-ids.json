@@ -67,6 +67,14 @@
       "meaning": "This machine has its own Vault session."
     },
     {
+      "id": "auth:vault-isolation",
+      "meaning": "A worker reads its Vault token from a document of its own, not from the fleet's shared one."
+    },
+    {
+      "id": "auth:worker-token",
+      "meaning": "A worker has a Vault token of its own that only it and the manager can read, or a retired worker's token is revoked."
+    },
+    {
       "id": "beszel:*",
       "meaning": "A monitoring (Beszel) check of this machine."
     },
@@ -149,6 +157,18 @@
     {
       "id": "configuration:operation",
       "meaning": "The remote configuration operation completed."
+    },
+    {
+      "id": "definition:inventory",
+      "meaning": "Ansible reads the inventory the fleet definition describes."
+    },
+    {
+      "id": "definition:playbooks",
+      "meaning": "Every playbook passes ansible-playbook --syntax-check."
+    },
+    {
+      "id": "definition:schema",
+      "meaning": "fleet.json follows every rule of the fleet definition."
     },
     {
       "id": "enrollment:connection",
@@ -307,6 +327,10 @@
       "meaning": "A worker's rollout produced verification evidence."
     },
     {
+      "id": "rollout:next",
+      "meaning": "Names the command that converges a worker after it was replaced."
+    },
+    {
       "id": "rollout:operation",
       "meaning": "The remote rollout operation completed."
     },
@@ -389,6 +413,10 @@
     {
       "id": "state:replica",
       "meaning": "The bucket holds this manager's fleet state."
+    },
+    {
+      "id": "state:retired",
+      "meaning": "The fleet state records that a retired worker was retired."
     },
     {
       "id": "t3:api",
@@ -537,6 +565,10 @@
     {
       "id": "worker:package:*",
       "meaning": "The pinned Ubuntu package is installed at or past its pin."
+    },
+    {
+      "id": "worker:manifest",
+      "meaning": "A worker is made of what the declared pins and a fresh build of the same revision are made of."
     },
     {
       "id": "worker:power-loss-recovery",

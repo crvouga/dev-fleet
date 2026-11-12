@@ -1,0 +1,61 @@
+# The first boot of a new worker, as cloud-init user data. devfleet
+# fleet-node-seed fills each ${NAME} with a value of the worker it seeds:
+# values from fleet.json, the manager's public key, a host key generated for
+# the machine, the Tailscale version and key digest ansible/ubuntu/policy.json
+# pins, and a short-lived single-use auth key that is deleted once the machine
+# has joined. The sudoers fragment is the one ansible/ubuntu/authorize-sudo.sh
+# writes: its path and marker are already on running machines.
+hostname: '${HOSTNAME}'
+users:
+  - name: '${USER}'
+    groups: [sudo]
+    shell: /bin/bash
+    lock_passwd: true
+    ssh_authorized_keys: ['${MANAGER_KEY}']
+ssh_pwauth: false
+ssh_deletekeys: true
+ssh_genkeytypes: []
+ssh_keys:
+  ed25519_private: '${HOST_KEY_PRIVATE}'
+  ed25519_public: '${HOST_KEY_PUBLIC}'
+write_files:
+  - path: '/etc/sudoers.d/personal-fleet-${USER}'
+    owner: root:root
+    permissions: '0440'
+    content: "# Managed by personal Fleet: designated development user\n${USER} ALL=(ALL:ALL) NOPASSWD: ALL\n"
+  - path: /run/devfleet/tailnet-auth-key
+    owner: root:root
+    permissions: '0600'
+    content: "${AUTH_KEY}\n"
+runcmd:
+  - [visudo, -cf, '/etc/sudoers.d/personal-fleet-${USER}']
+  - [
+      curl,
+      --fail,
+      --silent,
+      --show-error,
+      --location,
+      --output,
+      /usr/share/keyrings/tailscale-archive-keyring.gpg,
+      'https://pkgs.tailscale.com/stable/ubuntu/${CODENAME}.noarmor.gpg',
+    ]
+  - [
+      sh,
+      -c,
+      "echo '${TAILSCALE_KEY_SHA256}  /usr/share/keyrings/tailscale-archive-keyring.gpg' | sha256sum -c -",
+    ]
+  - [
+      sh,
+      -c,
+      "echo 'deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg] https://pkgs.tailscale.com/stable/ubuntu ${CODENAME} main' > /etc/apt/sources.list.d/tailscale.list",
+    ]
+  - [apt-get, update]
+  - [apt-get, install, --yes, 'tailscale=${TAILSCALE_VERSION}']
+  - [
+      tailscale,
+      up,
+      '--auth-key=file:/run/devfleet/tailnet-auth-key',
+      '--hostname=${HOSTNAME}',
+      '--ssh=false',
+    ]
+  - [rm, -f, /run/devfleet/tailnet-auth-key]

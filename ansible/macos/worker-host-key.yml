@@ -1,0 +1,33 @@
+---
+# A worker's pinned SSH host key in the manager's known_hosts. fleet-sync
+# connects with StrictHostKeyChecking=yes, so this is the only way a key is
+# trusted: devfleet fleet-node-replace pins the key of a replacement worker
+# (given by the operator, or by the seed that created it with
+# fleet-node-seed) and devfleet fleet-node-retire forgets it. A key is never
+# learned on first use. Variables: host (the name ssh connects to, with
+# [host]:port for another port), pin (present or absent), key (with present:
+# "TYPE BASE64") and known_hosts (the file).
+- name: Pin or forget a worker's SSH host key on the manager
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Check the request
+      ansible.builtin.assert:
+        that:
+          - "host is match('^\\[?[a-zA-Z0-9][a-zA-Z0-9._-]{0,252}(\\]:[0-9]{1,5})?$')"
+          - "pin in ['present', 'absent']"
+          - "pin == 'absent' or (key is match('^(ssh-ed25519|ecdsa-sha2-nistp256|ssh-rsa) [A-Za-z0-9+/=]{16,}$'))"
+    - name: Pin the worker's host key
+      ansible.builtin.known_hosts:
+        name: '{{ host }}'
+        key: '{{ host }} {{ key }}'
+        path: '{{ known_hosts }}'
+        state: present
+      when: pin == 'present'
+    - name: Forget every key of the retired worker
+      ansible.builtin.known_hosts:
+        name: '{{ host }}'
+        path: '{{ known_hosts }}'
+        state: absent
+      when: pin == 'absent'

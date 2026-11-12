@@ -34,33 +34,27 @@ function validCapabilities(value: unknown): boolean {
     REQUIRED.every((item) => value.includes(item))
   );
 }
-function validPolicy(value: Record<string, unknown>): boolean {
+const FIELDS: Record<string, (value: unknown) => boolean> = {
+  requiredCapabilities: validCapabilities,
+  githubLogin: (value) =>
+    typeof value === 'string' && /^[a-zA-Z0-9-]{1,39}$/.test(value),
+  vaultUser: (value) =>
+    typeof value === 'string' && /^[a-zA-Z0-9_.-]{1,64}$/.test(value),
+  toolchain: (value) => value === 'mise.lock',
+  agentProfile: (value) => value === 'proxy',
+  unattendedSudo: (value) => value === true,
+  persistentT3: (value) => value === true,
+  neverSleep: (value) => value === true,
+  toolProfiles: (value) => value === undefined || toolProfiles(value) !== null,
+  tools: (value) => value === undefined || toolNames(value),
+};
+/** The first field of a worker policy that breaks its rule, or null. */
+export function policyFault(value: Record<string, unknown>): string | null {
+  const unknown = Object.keys(value).find((key) => !(key in FIELDS));
+  if (unknown !== undefined) return unknown;
   return (
-    Object.keys(value).every((key) =>
-      [
-        'requiredCapabilities',
-        'githubLogin',
-        'vaultUser',
-        'toolchain',
-        'agentProfile',
-        'unattendedSudo',
-        'persistentT3',
-        'neverSleep',
-        'toolProfiles',
-        'tools',
-      ].includes(key)
-    ) &&
-    validTools(value) &&
-    validCapabilities(value['requiredCapabilities']) &&
-    typeof value['githubLogin'] === 'string' &&
-    /^[a-zA-Z0-9-]{1,39}$/.test(value['githubLogin']) &&
-    typeof value['vaultUser'] === 'string' &&
-    /^[a-zA-Z0-9_.-]{1,64}$/.test(value['vaultUser']) &&
-    value['toolchain'] === 'mise.lock' &&
-    value['agentProfile'] === 'proxy' &&
-    ['unattendedSudo', 'persistentT3', 'neverSleep'].every(
-      (key) => value[key] === true
-    )
+    Object.entries(FIELDS).find(([key, valid]) => !valid(value[key]))?.[0] ??
+    null
   );
 }
 /** A list of known tool profiles, each once; null when it is not one. */
@@ -70,14 +64,6 @@ export function toolProfiles(value: unknown): ToolProfile[] | null {
     value.every((item) => TOOL_PROFILES.includes(item as ToolProfile))
     ? (value as ToolProfile[])
     : null;
-}
-/** The optional tool profiles and single tools every worker adds. */
-function validTools(value: Record<string, unknown>): boolean {
-  return (
-    (value['toolProfiles'] === undefined ||
-      toolProfiles(value['toolProfiles']) !== null) &&
-    (value['tools'] === undefined || toolNames(value['tools']))
-  );
 }
 function toolNames(value: unknown): boolean {
   return (
@@ -89,7 +75,7 @@ function toolNames(value: unknown): boolean {
   );
 }
 export function parseWorkerPolicy(value: unknown): WorkerPolicy {
-  if (!record(value) || !validPolicy(value))
+  if (!record(value) || policyFault(value) !== null)
     throw new FleetUsageError(
       'Invalid mandatory worker policy. Workers require the locked toolchain, common services, unattended sudo, persistent T3 and no sleep.'
     );

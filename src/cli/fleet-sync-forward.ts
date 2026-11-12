@@ -104,9 +104,11 @@ export function forwardedFlags(
 ): string[] {
   const flags = revision ? ['--revision', revision] : [];
   for (const node of options.node ?? []) flags.push('--node', node);
+  if (options.canary) flags.push('--canary', options.canary);
   if (options.schedule) flags.push('--schedule', options.schedule);
   const switches: [boolean | undefined, string][] = [
     [options.all, '--all'],
+    [options.vaultPasswordLogin, '--vault-password-login'],
     [options.dryRun, '--dry-run'],
     [options.apply, '--apply'],
     [options.yes, '--yes'],

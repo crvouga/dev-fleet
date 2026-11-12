@@ -143,6 +143,6 @@ Then(
         ...example,
         workers: [{ id: 'worker-a', ssh: 'worker-a', os }],
       })
-    ).toThrow('Invalid Fleet definition');
+    ).toThrow('Invalid fleet definition');
   }
 );

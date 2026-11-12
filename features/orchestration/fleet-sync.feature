@@ -91,15 +91,32 @@ Feature: fleet-sync converges every worker on one approved revision
       | first |
     And the last check of "second" says "FLEET_PROMOTION_BLOCKED"
 
-  Scenario: An offline canary stops promotion
+  Scenario: An offline canary hands the proof to the next reachable worker
+    A worker that is powered off or being rebuilt is reported as offline, not
+    as a blocked rollout: workers are cattle, and no single one stops the
+    fleet from being updated.
     Given "first" is offline in the tailnet
     And deploying a worker reports these checks:
       | id   | status | summary |
       | done | pass   | fixture |
     When fleet-sync applies the approved revision with "first" as its canary
-    Then the revision was deployed to no worker
-    And the last check of "second" says "FLEET_PROMOTION_BLOCKED"
-    And the checks of "second" include "ssh:fresh-session"
+    Then the revision was deployed to these workers, in order:
+      | second |
+    And the report names "second" as the canary
+    And the report shows "first" as "offline"
+    And no check of "first" says "FLEET_PROMOTION_BLOCKED"
+    And "second" holds the approved revision
+    And the fleet is not ready
+
+  Scenario: A named canary that is reachable proves the revision first
+    Given deploying a worker reports these checks:
+      | id   | status | summary |
+      | done | pass   | fixture |
+    When fleet-sync applies the approved revision with "second" as its canary
+    Then the revision was deployed to these workers, in order:
+      | second |
+      | first  |
+    And the report names "second" as the canary
 
   Scenario: A preview deploys nothing, and a worker the manager has not registered is still accounted for
     Given the manager has no registration for "second"

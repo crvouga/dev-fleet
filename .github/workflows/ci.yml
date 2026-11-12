@@ -22,12 +22,13 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: package.json
-      # The Python and restic every machine runs, from the same lock: never
-      # the runner's own or the distribution's.
+      # The Python, restic and Vault every machine runs, from the same lock:
+      # never the runner's own or the distribution's. Vault runs the worker
+      # credential scenarios against a development server.
       - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           version: 2026.10.24
-          install_args: python restic
+          install_args: python restic vault
       - name: Install dependencies
         run: |
           bun install --frozen-lockfile
@@ -35,7 +36,9 @@ jobs:
       - run: bun run format
       - run: bun run tc
       - run: bun run lint
-      - run: mise exec python restic -- bun test
+      - run: mise exec python restic vault -- bun test
+        env:
+          DEVFLEET_TEST_VAULT: required
       - run: mise exec python restic -- bun run lint:cliproxy
       - run: mise exec python restic -- bun run test:cliproxy
   state:

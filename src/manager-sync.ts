@@ -37,6 +37,8 @@ export interface ManagerReport {
   ok: boolean;
   applied: boolean;
   desiredRevision: string | null;
+  /** The worker that proved a revision new to the fleet first, when one did. */
+  canary?: string;
   checks: Check[];
   nodes: ManagerNode[];
   candidates: number;
@@ -196,12 +198,10 @@ async function applyNodes(
   deploy: DeployNode
 ): Promise<void> {
   const workers = report.nodes.filter((node) => node.role !== 'manager');
-  // A revision new to the fleet is proven on one worker first. When the run
-  // selects only later workers, the first selected one proves it instead:
-  // narrowing a run never skips the canary.
   const canary = input.canary
-    ? (workers.find((node) => node.node === input.canary) ?? workers[0])
+    ? chooseCanary(workers, input.canary, input.nodes)
     : undefined;
+  if (canary) report.canary = canary.node;
   let blocked = report.checks.some(blocking);
   const step = async (result: ManagerNode) => {
     const deployable = mayDeploy(result, input.nodes);
@@ -217,6 +217,26 @@ async function applyNodes(
     if (!deployable || canary.checks.some(blocksPromotion)) blocked = true;
   }
   await Promise.all(workers.filter((node) => node !== canary).map(step));
+}
+
+/** A revision new to the fleet is proven on one worker first: the preferred
+ * one, or when it cannot be reached (powered off, being rebuilt, offline)
+ * the next worker in declared order that can. An unreachable worker is
+ * reported as such and never blocks the others; only a canary that was
+ * deployed and failed stops promotion. When the run selects only later
+ * workers, the first selected one proves it instead: narrowing a run never
+ * skips the canary.
+ */
+function chooseCanary(
+  workers: ManagerNode[],
+  preferred: string,
+  nodes: FleetNode[]
+): ManagerNode | undefined {
+  const first = workers.find((node) => node.node === preferred);
+  const order = first
+    ? [first, ...workers.filter((node) => node !== first)]
+    : workers;
+  return order.find((node) => mayDeploy(node, nodes));
 }
 
 /** One node's rollout step; true when its remote operation ran. */

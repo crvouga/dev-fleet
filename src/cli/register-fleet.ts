@@ -13,6 +13,23 @@ import { fleetWatch, watchServices } from './fleet-watch';
 import type { NodeReport } from '../types';
 import { registerGithubVerify } from './github-verify';
 import { fleetRestore, type FleetRestoreOptions } from './fleet-restore';
+import { fleetValidate, type FleetValidateOptions } from './fleet-validate';
+import {
+  fleetManifest,
+  manifestServices,
+  type FleetManifestOptions,
+} from './fleet-manifest';
+import {
+  fleetNodeSeed,
+  seedServices,
+  type NodeSeedOptions,
+} from './fleet-node-seed';
+import {
+  fleetNodeReplace,
+  fleetNodeRetire,
+  lifecycleServices,
+  type NodeLifecycleOptions,
+} from './fleet-node-lifecycle';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -186,6 +203,14 @@ function registerSync({ program, defaults, complete }: Registration) {
       'Explicit enrolled remote target; repeatable',
       collect,
       []
+    )
+    .option(
+      '--vault-password-login',
+      'Opt-in: log a worker without a token of its own in with the shared Vault user, on its own terminal'
+    )
+    .option(
+      '--canary <id>',
+      'The worker that proves a new revision first when it is reachable; defaults to canary in fleet.json, then the first worker'
     )
     .option(
       '--all',
@@ -362,6 +387,114 @@ function registerRestore({ program, complete }: Registration) {
     });
 }
 
+function registerValidate({ program, complete }: Registration) {
+  program
+    .command('fleet-validate')
+    .description(
+      'Validate fleet.json and name the field that breaks a rule; contacts nothing'
+    )
+    .option(
+      '--file <path>',
+      'The fleet.json to validate; defaults to the project’s'
+    )
+    .option(
+      '--ansible',
+      'Also render the Ansible inventory and syntax-check every playbook with the pinned Ansible'
+    )
+    .action(async (_options, command: Command) => {
+      complete(
+        await fleetValidate(command.optsWithGlobals<FleetValidateOptions>())
+      );
+    });
+}
+
+function registerLifecycle({ program, defaults, complete }: Registration) {
+  const action =
+    (name: 'replace' | 'retire') =>
+    async (_options: unknown, command: Command) => {
+      const options = command.optsWithGlobals<
+        NodeLifecycleOptions & CliOptions
+      >();
+      const settings = await withSettings(defaults, options);
+      const services = lifecycleServices(settings.config);
+      complete(
+        name === 'replace'
+          ? await fleetNodeReplace(options, services)
+          : await fleetNodeRetire(options, services)
+      );
+    };
+  program
+    .command('fleet-node-replace')
+    .description(
+      'Put a fresh machine in place of a worker under the same id; writes need --apply --yes'
+    )
+    .requiredOption('--id <name>', 'The declared worker being replaced')
+    .option(
+      '--host-key <key>',
+      'The new machine’s SSH host key, "TYPE BASE64", verified out of band or printed by fleet-node-seed'
+    )
+    .option('--apply', 'Change the manager and Vault; requires --yes')
+    .option('--yes', 'Confirm an explicitly requested --apply operation')
+    .action(action('replace'));
+  program
+    .command('fleet-node-retire')
+    .description(
+      'Take a worker out of the fleet: revoke its token, forget its host key and roster entry; writes need --apply --yes'
+    )
+    .requiredOption('--id <name>', 'The declared worker to retire')
+    .option(
+      '--apply',
+      'Change the manager, Vault and the fleet state; requires --yes'
+    )
+    .option('--yes', 'Confirm an explicitly requested --apply operation')
+    .action(action('retire'));
+  program
+    .command('fleet-node-seed')
+    .description(
+      'Write cloud-init (or autoinstall) user data a new worker joins the fleet with by itself'
+    )
+    .requiredOption('--id <name>', 'The declared worker to seed')
+    .requiredOption(
+      '--output <path>',
+      'Where to write the seed (mode 600); it holds a single-use auth key and is never printed'
+    )
+    .option(
+      '--public-key <path>',
+      'The manager public key to authorize; default ~/.ssh/id_ed25519.pub'
+    )
+    .option('--autoinstall', 'An Ubuntu autoinstall file, for bare metal')
+    .option(
+      '--apply',
+      'Also pin the seed host key on this manager; requires --yes'
+    )
+    .option('--yes', 'Confirm an explicitly requested --apply operation')
+    .action(async (_options: unknown, command: Command) => {
+      const options = command.optsWithGlobals<NodeSeedOptions & CliOptions>();
+      const settings = await withSettings(defaults, options);
+      complete(await fleetNodeSeed(options, seedServices(settings.config)));
+    });
+}
+
+function registerManifest({ program, defaults, complete }: Registration) {
+  program
+    .command('fleet-manifest')
+    .description(
+      'Measure what a worker is made of and check it against the pins and a fresh build'
+    )
+    .requiredOption('--id <name>', 'The enrolled worker to measure')
+    .option(
+      '--reference <path>',
+      'A fleet-manifest --json of a fresh build of the same revision'
+    )
+    .action(async (_options: unknown, command: Command) => {
+      const options = command.optsWithGlobals<
+        FleetManifestOptions & CliOptions
+      >();
+      const settings = await withSettings(defaults, options);
+      complete(await fleetManifest(options, manifestServices(settings.config)));
+    });
+}
+
 export function registerFleet(
   program: Command,
   defaults: Settings,
@@ -379,6 +512,9 @@ export function registerFleet(
   registerReport(registration);
   registerWatch(registration);
   registerRestore(registration);
+  registerValidate(registration);
+  registerLifecycle(registration);
+  registerManifest(registration);
   registerRepair(registration);
   registerNodes(registration);
   registerAccounts(registration);

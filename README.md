@@ -128,8 +128,10 @@ npm install --save-dev --save-exact @crvouga/dev-fleet@latest
 npx devfleet fleet-sync              # the fleet moves to that release
 ```
 
-Install an older version and run `fleet-sync` to go back. The first worker
-proves a new revision before the others receive it.
+Install an older version and run `fleet-sync` to go back. One worker, the
+canary, proves a new revision before the others receive it: the first
+reachable worker, or the one `canary` in `fleet.json` (or `--canary`) names
+when it is reachable. An offline worker never holds the others back.
 
 ## Your project's own tools
 
@@ -222,7 +224,26 @@ propagates them without a full sync.
    Ubuntu machine, over SSH
    ([`fresh-box.feature`](features/fresh-box/fresh-box.feature)).
 
-Remove a machine by deleting its entry and running `fleet-sync`.
+A new machine can also join by itself: `npx devfleet fleet-node-seed --id ID
+--output seed.yaml --apply --yes` writes cloud-init user data (or an Ubuntu
+autoinstall file with `--autoinstall`) holding the worker account with your
+manager's key, the privilege rule, a host key the manager pins at once and the
+pinned Tailscale with a short-lived single-use auth key from your secrets
+provider (`tailnet-auth-key`). Boot a stock Ubuntu image with it, then add the
+worker with `fleet-node-add` and run `fleet-sync`.
+
+`npx devfleet fleet-manifest --id ID` measures what a worker is made of
+(packages, active tools, always-on services) with a digest that is the same
+for two workers built from the same revision; its check `worker:manifest`
+names every difference from the declared pins and, with `--reference` (the
+`--json` manifest of a fresh build), from that build.
+
+Remove a machine with `npx devfleet fleet-node-retire --id ID --apply --yes`
+(it revokes the worker's Vault token, forgets its host key and roster entry
+and leaves a tombstone in the fleet state), then delete its entry and run
+`fleet-sync`. To put a fresh machine in place of a worker under the same id,
+run `npx devfleet fleet-node-replace --id ID --host-key "TYPE BASE64" --apply
+--yes` and then `fleet-sync --node ID`.
 
 ## Configuration
 
@@ -231,6 +252,10 @@ Your `fleet.json` is validated by
 package carries: `fleet-state --example` prints a complete example that points
 `$schema` at it, so an editor checks the file as you type.
 [`examples/fleet.json`](examples/fleet.json) is the same example.
+`devfleet fleet-validate` checks the file without contacting anything and
+names the first field that breaks a rule (`{code, path, expected, actual}`);
+`--ansible` also renders the Ansible inventory and syntax-checks every
+playbook with the pinned Ansible.
 
 | Block      | What it declares                                                    |
 | ---------- | ------------------------------------------------------------------- |

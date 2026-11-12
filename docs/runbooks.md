@@ -346,6 +346,20 @@ There are 244 codes; 31 need a person.
 - `VAULT_LOGIN_REQUIRED`: vault login required. **Needs a person.**
 - `VAULT_POLICY_PERMISSION_REQUIRED`: vault policy permission required. **Needs a person.**
 - `VAULT_RENEWAL_FAILING`: vault renewal failing.
+- `VAULT_WORKER_POLICY_FAILED`: vault worker policy failed.
+
+## The fleet definition and a worker's lifecycle
+
+- **Meaning:** `fleet.json` breaks a rule of the fleet definition, the pinned Ansible rejects the inventory it describes, or a seed, replacement or retirement could not change the host keys the manager trusts.
+- **Confirm:** `devfleet fleet-validate` names the field that breaks a rule as `{code, path, expected, actual}`; `devfleet fleet-validate --ansible` also renders the inventory and syntax-checks every playbook.
+- **Fix:** Correct the field the check names in `fleet.json`, then run the command again. For SSH_HOST_KEY_NOT_CHANGED run `devfleet fleet-validate --ansible`, then repeat `devfleet fleet-node-seed`, `devfleet fleet-node-replace` or `devfleet fleet-node-retire`.
+- **Escalate:** An inventory the pinned Ansible rejects for a valid definition is an issue.
+
+- `DEFINITION_INVALID`: definition invalid.
+- `DEFINITION_INVENTORY_REJECTED`: definition inventory rejected.
+- `DEFINITION_MISSING`: definition missing.
+- `DEFINITION_UNREADABLE`: definition unreadable.
+- `SSH_HOST_KEY_NOT_CHANGED`: ssh host key not changed.
 
 ## Fleet operations and the fleet state
 

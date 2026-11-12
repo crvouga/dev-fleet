@@ -317,6 +317,11 @@ Given(/^the run (converges|converged)$/, (world, verb: string) =>
 When('the run ends without converging', (world) =>
   world.attempt(() => runs(world).record!.settle(false))
 );
+When(
+  'the run ends without converging, with these workers converged:',
+  (world, table: DataTable) =>
+    world.attempt(() => runs(world).record!.settle(false, table.rowsHash()))
+);
 When('the run stops before its report', (world) =>
   world.attempt(() => runs(world).record!.abandon())
 );

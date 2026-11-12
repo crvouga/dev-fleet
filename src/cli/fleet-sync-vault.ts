@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { fleet as definition } from '../fleet-config';
 import { sshArgs, shellQuote } from '../ssh';
 import { resolveVaultConfig, usesVault } from '../vault-config';
+import { workerTokenLocation } from '../worker-credentials';
 import type { Check, FleetNode, Runner } from '../types';
 
 const TOOL_PATH =
@@ -15,7 +16,11 @@ const terminal: TerminalRunner = (args) =>
 
 type VaultState = 'authenticated' | 'unauthenticated' | 'unavailable';
 
-/** Vault field holding the issued token for one worker node. */
+/** The field of the fleet's shared document that held a worker's token
+ * before each worker had a document of its own (src/worker-credentials.ts).
+ * Read only when the worker's own document holds none, and reported: every
+ * worker that can read the shared document can read that field.
+ */
 export function workerTokenField(node: string): string {
   return `FLEET_WORKER_TOKEN_${node.toUpperCase().replace(/[^A-Z0-9]/g, '_')}`;
 }
@@ -49,7 +54,13 @@ export async function authorizeManager(
  */
 export async function authorizeVault(
   node: FleetNode,
-  options: { interactive: boolean },
+  options: {
+    interactive: boolean;
+    /** Opt-in: the fleet's shared Vault user, typed on the worker's own
+     * terminal, when no token of its own was issued.
+     */
+    passwordLogin?: boolean;
+  },
   run: Runner,
   attach: TerminalRunner = terminal
 ): Promise<Check[]> {
@@ -59,8 +70,10 @@ export async function authorizeVault(
   if (before === 'authenticated') return [pass(node)];
   // Fresh node: the locked toolchain (including vault) is not installed yet.
   if (before === 'unavailable') return [];
-  if (await deliverWorkerToken(node, run)) return [pass(node)];
-  if (!options.interactive) return [required(node)];
+  const delivered = await deliverWorkerToken(node, run);
+  if (delivered === 'own') return [pass(node)];
+  if (delivered === 'shared') return [pass(node), shared(node)];
+  if (!options.interactive || !options.passwordLogin) return [required(node)];
   process.stderr.write(
     `[${node.id}] No issued worker token found. Enter the Vault password to log this machine in.\n`
   );
@@ -72,30 +85,54 @@ export async function authorizeVault(
   ];
 }
 
+/** Delivers the worker's token, from its own document or else from the
+ * field it used to have in the shared one; says which, or that none was.
+ */
 async function deliverWorkerToken(
   node: FleetNode,
   run: Runner
-): Promise<boolean> {
-  const { addr, mount, project, config } = resolveVaultConfig();
-  const secret = await run(
-    [
-      'vault',
-      'kv',
-      'get',
-      `-address=${addr}`,
-      `-mount=${mount}`,
-      `-field=${workerTokenField(node.id)}`,
-      `${project}/${config}`,
-    ],
-    { timeoutMs: 20_000 }
-  );
-  const token = secret.ok ? secret.stdout.trim() : '';
-  if (!/^[\x21-\x7e]{16,4096}$/.test(token)) return false;
-  const delivered = await run(
-    remote(node, ['vault', 'login', `-address=${addr}`, '-no-print', '-']),
-    { input: token + '\n', timeoutMs: 30_000 }
-  );
-  return delivered.ok && (await vaultState(node, run)) === 'authenticated';
+): Promise<'own' | 'shared' | null> {
+  const vault = resolveVaultConfig();
+  const own = workerTokenLocation(node.id, vault);
+  const sources = [
+    { from: 'own' as const, ...own },
+    {
+      from: 'shared' as const,
+      mount: vault.mount,
+      path: `${vault.project}/${vault.config}`,
+      field: workerTokenField(node.id),
+    },
+  ];
+  for (const source of sources) {
+    const secret = await run(
+      [
+        'vault',
+        'kv',
+        'get',
+        `-address=${vault.addr}`,
+        `-mount=${source.mount}`,
+        `-field=${source.field}`,
+        source.path,
+      ],
+      { timeoutMs: 20_000 }
+    );
+    const token = secret.ok ? secret.stdout.trim() : '';
+    if (!/^[\x21-\x7e]{16,4096}$/.test(token)) continue;
+    const delivered = await run(
+      remote(node, [
+        'vault',
+        'login',
+        `-address=${vault.addr}`,
+        '-no-print',
+        '-',
+      ]),
+      { input: token + '\n', timeoutMs: 30_000 }
+    );
+    return delivered.ok && (await vaultState(node, run)) === 'authenticated'
+      ? source.from
+      : null;
+  }
+  return null;
 }
 
 async function vaultState(node: FleetNode, run: Runner): Promise<VaultState> {
@@ -153,6 +190,18 @@ function pass(node: FleetNode): Check {
   };
 }
 
+function shared(node: FleetNode): Check {
+  const own = workerTokenLocation(node.id);
+  return {
+    id: 'auth:vault-isolation',
+    status: 'warn',
+    summary: 'VAULT_WORKER_TOKEN_SHARED',
+    remedy: {
+      action: `${node.id}'s token was read from the fleet's shared document, which every worker can read. Issue it a token of its own with devfleet fleet-node-replace --id ${node.id} --apply --yes (kept at ${own.mount}/${own.path}), then remove ${workerTokenField(node.id)} from the shared document.`,
+    },
+  };
+}
+
 function required(node: FleetNode): Check {
   const { addr } = resolveVaultConfig();
   return {
@@ -160,7 +209,7 @@ function required(node: FleetNode): Check {
     status: 'fail',
     summary: 'VAULT_LOGIN_REQUIRED',
     remedy: {
-      action: `Run devfleet fleet-sync in a terminal, or store this node's token in the shared Vault document as ${workerTokenField(node.id)}. Manual fallback on ${node.id}: vault login -address=${addr} -method=userpass username=${definition.worker!.vaultUser}. Proxy providers in T3 stay unavailable until then.`,
+      action: `Issue ${node.id} a token of its own with devfleet fleet-node-replace --id ${node.id} --apply --yes. Opt-in fallback: devfleet fleet-sync --vault-password-login in a terminal, or on ${node.id}: vault login -address=${addr} -method=userpass username=${definition.worker!.vaultUser}. Proxy providers in T3 stay unavailable until then.`,
     },
   };
 }

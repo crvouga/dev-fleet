@@ -106,7 +106,26 @@ Feature: The manager converges itself before any worker
       Then each time the check's status is "fail"
       And each time the check's summary is "MANAGER_POWER_POLICY_DRIFT" and the name of that setting
       And each time the check's remedy contains "cd /fleet/checkout && "
-      And each time the check's remedy ends with "-K ansible/macos/manager.yml"
+      And each time the check's remedy ends with "-K ansible/macos/manager-privilege.yml"
+
+  Rule: Once granted, every sync holds the power policy with no prompt
+    The administrator grants the manager its power settings once, with
+    manager-privilege.yml; from then on an applying sync applies manager.yml
+    whenever the settings drifted, and asks nobody for a password.
+
+    Scenario: A drifted manager with the grant is brought back by the sync
+      Given pmset reports on AC power every setting the manager's power policy declares, but "sleep" as "10"
+      And the manager's power grant is in place
+      When an applying sync holds the manager's power policy
+      Then the check's status is "pass"
+      And manager.yml was applied without a password prompt
+
+    Scenario: Without the grant nothing is applied, and the remedy names the one grant
+      Given pmset reports on AC power every setting the manager's power policy declares, but "sleep" as "10"
+      When an applying sync holds the manager's power policy
+      Then the check's summary is "MANAGER_SLEEPS_ON_POWER"
+      And the check's remedy contains "manager-privilege.yml"
+      And no playbook was applied
 
   Rule: Docker Desktop is measured against its pin and never fails the run
     The manager's services run in Docker Desktop, which no playbook installs

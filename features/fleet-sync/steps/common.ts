@@ -196,6 +196,10 @@ Then(
   }
 );
 
+Then("the last check's summary is {string}", (world, summary: string) => {
+  expect(world.checks.at(-1)?.summary).toBe(summary);
+});
+
 Then(
   /^the (?:first )?check's remedy contains "([^"]*)"$/,
   (world, text: string) => {

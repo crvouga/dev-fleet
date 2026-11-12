@@ -1,3 +1,4 @@
+import type { ManagerReport } from '../manager-sync';
 import { localCheckoutRevision } from '../machine/local-source';
 import {
   definitionSource,
@@ -63,6 +64,14 @@ export interface FleetSyncOptions {
   json?: boolean;
   nonInteractive?: boolean;
   node?: string[];
+  /** The worker to prove a revision new to the fleet on first, when it is
+   * reachable; overrides `canary` in fleet.json.
+   */
+  canary?: string;
+  /** Opt-in: a worker without a token of its own may be logged in with the
+   * fleet's shared Vault user, typed on its own terminal.
+   */
+  vaultPasswordLogin?: boolean;
   all?: boolean;
   schedule?: ScheduleAction;
   /** `accounts`: only the account-derived configuration, on every node. */
@@ -316,7 +325,7 @@ function applyLocked(
         { ...request, rolledOut: state?.appliedRevision === revision },
         settings,
         run,
-        (report) => record.settle(report.ok)
+        (report) => record.settle(report.ok, appliedRevisions(report))
       );
     } finally {
       await record.abandon();
@@ -356,7 +365,7 @@ async function offManager(
   if (forwardingDisabled())
     return actionRequired(
       'FLEET_NOT_MANAGER',
-      `fleet-sync runs only on the manager (${definition.manager.id}); nothing was changed. Run it there, or from a worker that can SSH to the manager.`,
+      `fleet-sync runs only on the manager (${definition.manager.id}), which is always a macOS machine; nothing was changed. Run it there, or from a worker that can SSH to the manager.`,
       revision ?? null
     );
   const runScript = revision
@@ -518,5 +527,16 @@ async function selectedRevision(
     packageRevision() ??
     (await localCheckoutRevision(settings.workspace, run)) ??
     approved
+  );
+}
+
+/** The revision each worker holds after this run, for the fleet state: a
+ * worker that converged keeps its progress even when the fleet is not ready.
+ */
+function appliedRevisions(report: ManagerReport): Record<string, string> {
+  return Object.fromEntries(
+    report.nodes
+      .filter((node) => node.role !== 'manager' && node.appliedRevision)
+      .map((node) => [node.node, node.appliedRevision!])
   );
 }

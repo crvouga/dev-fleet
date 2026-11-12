@@ -1,15 +1,24 @@
 import { expect } from 'bun:test';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import policy from '../../../ansible/macos/policy.json';
 import type { Account } from '../../../src/agents/accounts';
 import {
   managerAgentProfiles,
   managerDocker,
+  holdManagerPower,
   managerPower,
   pinnedDockerDesktop,
 } from '../../../src/cli/fleet-sync-manager';
 import { machineProviders } from '../../../src/t3/providers';
+import { MACOS_MANAGER } from '../../../src/platform/manager-host';
 import type { Check, Status } from '../../../src/types';
 import { failed, succeeded } from '../../support/commands';
 import type { DataTable } from '../../support/gherkin';
@@ -200,6 +209,55 @@ Given(
 When('the power settings of the manager are measured', async (world) => {
   pmset(world, manager(world).power);
   world.checks = [await managerPower(world.commands.run)];
+});
+
+const granted = new WeakSet<FleetSyncWorld>();
+
+Given("the manager's power grant is in place", (world) => {
+  granted.add(world);
+});
+
+const appliedPlaybooks = (world: FleetSyncWorld) =>
+  world.commands.ran((command) =>
+    command.some((arg) => arg.endsWith('manager.yml'))
+  );
+
+When("an applying sync holds the manager's power policy", async (world) => {
+  pmset(world, manager(world).power);
+  world.commands.answer(
+    (command) => command[0] === 'sudo' && command[2] === '-l',
+    granted.has(world) ? succeeded() : failed()
+  );
+  world.commands.answer(
+    (command) => command.some((arg) => arg.endsWith('manager.yml')),
+    () => {
+      manager(world).power = { ...policy.pmset };
+      pmset(world, manager(world).power);
+      return succeeded();
+    }
+  );
+  const scratch = mkdtempSync(join(tmpdir(), 'devfleet-power-'));
+  world.defer(() => rmSync(scratch, { recursive: true, force: true }));
+  world.checks = [
+    await holdManagerPower(
+      world.commands.run,
+      '.',
+      MACOS_MANAGER,
+      ROOT,
+      scratch
+    ),
+  ];
+});
+
+Then('manager.yml was applied without a password prompt', (world) => {
+  const [applied] = appliedPlaybooks(world);
+  expect(applied).toBeDefined();
+  expect(applied).not.toContain('-K');
+  expect(applied).not.toContain('--ask-become-pass');
+});
+
+Then('no playbook was applied', (world) => {
+  expect(appliedPlaybooks(world)).toEqual([]);
 });
 
 When(
