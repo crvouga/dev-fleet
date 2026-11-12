@@ -2,7 +2,7 @@ import { record } from './config';
 import { FINGERPRINT_FILES } from './input-hashes';
 import type { Check, Snapshot } from './types';
 
-const STATUSES = ['pass', 'warn', 'fail', 'skip'];
+const STATUSES = ['pass', 'warn', 'fail', 'skip', 'not-applicable'];
 
 export function validCheck(value: unknown): value is Check {
   if (

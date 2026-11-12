@@ -4,7 +4,12 @@ import { join, relative } from 'node:path';
 import type { DataTable } from '../../support/gherkin';
 import { diagnostic } from '../../../src/diagnostics';
 import { cleanCheck, decodeSnapshot, validCheck } from '../../../src/protocol';
-import { makeReport, mapBounded, reportExitCode } from '../../../src/report';
+import {
+  makeReport,
+  mapBounded,
+  renderReport,
+  reportExitCode,
+} from '../../../src/report';
 import type { Check, Status } from '../../../src/types';
 import { core, need, root, valueOf, type CoreWorld } from './world';
 
@@ -47,6 +52,10 @@ Then(
     );
   }
 );
+
+Then('the printed report says {string}', (world, line: string) => {
+  expect(renderReport(report(world)).split('\n')).toContain(`  ${line}`);
+});
 
 const numbers = (table: DataTable): number[] => table.raw()[0]!.map(Number);
 
