@@ -88,10 +88,12 @@ mise_linux_x64_sha256 = "9a6c9c55f5c6372d0af70a9979fe6d742aea3793267a929e1738022
 mise_linux_arm64_sha256 = "8c8f5d7f748bf3aef431dc50f0ad776270f36025c788aa21c74e2fabdbbd6d3e"
 mise_macos_x64_sha256 = "83a36355bf6ee7c1660300e12dd94464de5c672dab1b8cc33ec4d19356e7ddac"
 mise_macos_arm64_sha256 = "aa2fc59242db108f97ea9fb2d2e2cb42ff1467fcafe3c91e48d51c841ba67a65"
-# Official native Ubuntu server distribution; bootstrap/native-t3.ts owns installation.
+# Official native server distribution (Ubuntu workers, and the manager's
+# pinned CLI); bootstrap/native-t3.ts owns installation. From the release's SHA256SUMS.
 t3_version = "0.1.8-nightly.20261106.4262"
 t3_linux_x64_sha256 = "5df94ca15c4f68f749fa5540fbb9d5ca879ca8750ac43dd2704f6a18899ed6d5"
 t3_linux_arm64_sha256 = "0649615c4a294eee40bc753c8668e4a83c5c3620794f2163758f8dc48a39b880"
+t3_darwin_arm64_sha256 = "40c81f1d696e7056c0c43e29bdfd2a154ea6f6bd9129826034256751418de633"
 # Official T3 Code desktop .deb (same release). Workers run this GUI app as their
 # only T3 process; it embeds the server. Upstream SHA256SUMS omits .deb files,
 # so these digests were computed from the release assets.

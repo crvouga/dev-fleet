@@ -279,6 +279,37 @@
         }
       }
     },
+    "ides": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["t3"] },
+      "description": "The IDEs every machine runs. Defaults to [\"t3\"]; the README's support matrix lists the supported ones."
+    },
+    "t3": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "What every machine's T3 Code holds beyond the provider instances generated from the proxy's accounts.",
+      "properties": {
+        "profile": {
+          "type": "object",
+          "description": "Top-level T3 settings every machine holds the same (tool servers, projects, selected preferences). Keys not named here stay local; a key edited on a machine since dev-fleet last wrote it is reported as a conflict, never overwritten.",
+          "propertyNames": {
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$",
+            "not": { "const": "providerInstances" }
+          }
+        },
+        "requiredModels": {
+          "type": "object",
+          "description": "Models T3 must offer, and the proxy must serve, for every account of a tool, by tool (claude, codex, opencode).",
+          "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]{0,63}$" },
+          "additionalProperties": {
+            "type": "array",
+            "items": { "type": "string", "pattern": "^[A-Za-z0-9._:-]{1,128}$" }
+          }
+        }
+      }
+    },
     "state": {
       "description": "The bucket that holds the fleet state (the roster, the approved revision and the configuration last applied). Any S3-compatible service, or a directory. Never credentials: a devfleet command reads those from DEVFLEET_BUCKET_ACCESS_KEY_ID and DEVFLEET_BUCKET_SECRET_ACCESS_KEY.",
       "oneOf": [

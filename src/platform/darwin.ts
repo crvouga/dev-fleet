@@ -176,19 +176,6 @@ export class DarwinPlatform implements Platform {
     );
   }
 
-  vscodeSettingsPath(): string | null {
-    return join(
-      homedir(),
-      'Library/Application Support/Code/User/settings.json'
-    );
-  }
-
-  vscodeCliBinaries(): readonly string[] {
-    return [
-      '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code',
-    ].filter((p) => existsSync(p));
-  }
-
   installScheduledJob(job: ScheduledJob): NotifierTestResult {
     return installLaunchdJob(job);
   }

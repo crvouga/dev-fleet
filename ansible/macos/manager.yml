@@ -28,3 +28,6 @@
         observed: "{{ ac_section | regex_findall('^\\s*' ~ item.key ~ '\\s+(\\S+)', multiline=True) | first | default('') }}"
       when: observed != item.value
       changed_when: true
+
+- name: Stage the fleet's T3 policy
+  ansible.builtin.import_playbook: t3-policy.yml

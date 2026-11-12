@@ -58,3 +58,41 @@
     daemon_reload: true
     enabled: true
     state: started
+- name: Declare the work-in-progress guard of agent worktrees
+  ansible.builtin.copy:
+    dest: '{{ development_home }}/.config/systemd/user/personal-worker-wip-guard.service'
+    owner: '{{ development_user }}'
+    mode: '0600'
+    content: |
+      # Managed by personal fleet-sync: ansible/ubuntu/wip-guard.py
+      [Unit]
+      Description=Push work in progress of agent worktrees to recovery refs
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/bin/python3 {{ development_source }}/ansible/ubuntu/wip-guard.py --root {{ development_home }}/.t3/worktrees --node %l
+      TimeoutStartSec=600
+- name: Declare how often work in progress is saved
+  ansible.builtin.copy:
+    dest: '{{ development_home }}/.config/systemd/user/personal-worker-wip-guard.timer'
+    owner: '{{ development_user }}'
+    mode: '0600'
+    content: |
+      [Unit]
+      Description=Save work in progress of agent worktrees every 15 minutes
+      [Timer]
+      OnBootSec=5min
+      OnUnitActiveSec=15min
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+- name: Enable the work-in-progress guard
+  become: true
+  become_user: '{{ development_user }}'
+  environment:
+    XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+  ansible.builtin.systemd_service:
+    scope: user
+    name: personal-worker-wip-guard.timer
+    daemon_reload: true
+    enabled: true
+    state: started

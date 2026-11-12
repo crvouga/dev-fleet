@@ -5,6 +5,12 @@ import { parseConfig, record } from './config';
 import type { FleetConfig } from './types';
 import { parseSecretsConfig, type SecretsConfig } from './secrets';
 import { parseLocation, type BucketLocation } from './state/bucket';
+import {
+  parseIdes,
+  parseT3,
+  type IdeId,
+  type T3Definition,
+} from './ide/definition';
 
 export interface MachineDefinition {
   id: string;
@@ -52,6 +58,10 @@ export interface FleetDefinition {
     };
   };
   worker?: WorkerPolicy;
+  /** The IDEs every machine runs; `["t3"]` when not named (idesOf). */
+  ides?: IdeId[];
+  /** What every machine's T3 holds beyond its provider instances. */
+  t3?: T3Definition;
   ubuntu: { release: '26.04'; architectures: ['amd64', 'arm64'] };
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
@@ -164,6 +174,8 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'services',
       'ubuntu',
       'worker',
+      'ides',
+      't3',
     ])
   )
     return fail();
@@ -185,6 +197,9 @@ export function parseDefinition(value: unknown): FleetDefinition {
     ...(value['worker'] === undefined
       ? {}
       : { worker: parseWorkerPolicy(value['worker']) }),
+    // Kept only when named: an earlier revision must still read the copy.
+    ...(value['ides'] === undefined ? {} : { ides: parseIdes(value['ides']) }),
+    ...(value['t3'] === undefined ? {} : { t3: parseT3(value['t3']) }),
   };
 }
 /** Singleton services name no host: they always run on the manager. */

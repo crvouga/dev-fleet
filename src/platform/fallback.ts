@@ -78,14 +78,6 @@ export class FallbackPlatform implements Platform {
     return [];
   }
 
-  vscodeSettingsPath(): string | null {
-    return null;
-  }
-
-  vscodeCliBinaries(): readonly string[] {
-    return [];
-  }
-
   installScheduledJob(job: ScheduledJob): NotifierTestResult {
     return {
       ok: false,

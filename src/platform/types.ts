@@ -110,10 +110,6 @@ export type Platform = {
 
   /** App-bundled Tailscale CLI binaries that exist (used when `tailscale` is not on PATH). */
   tailscaleAppBinaries(): readonly string[];
-  /** VS Code user `settings.json`, or `null` when unknown on this OS. */
-  vscodeSettingsPath(): string | null;
-  /** VS Code `code` CLI binaries shipped inside the installed app. */
-  vscodeCliBinaries(): readonly string[];
 
   /** Install (or replace) a periodic job. Never throws — returns a result. */
   installScheduledJob(job: ScheduledJob): NotifierTestResult;

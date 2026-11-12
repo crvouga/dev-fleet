@@ -53,6 +53,8 @@ your project's `fleet.json` (version 3, checked by [the schema](../schema/fleet.
   the manager.
 - Anything on a worker is disposable: T3 sessions and worktrees, caches,
   checkouts. Durable work lives in Git remotes; credentials come from Vault.
+  Work in progress in agent worktrees is pushed to a recovery ref every 15
+  minutes; [durability](durability.md) says what a lost machine takes with it.
 - The first declared worker is the rollout canary for a revision new to the
   fleet: a failed canary stops promotion to the other workers. Repeating a
   revision that already converged everywhere runs all workers at once.
