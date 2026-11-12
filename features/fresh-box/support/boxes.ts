@@ -257,6 +257,8 @@ export async function bootstrap(
   run: Runner = transport
 ): Promise<Bootstrap> {
   const prepared = await bootstrapPayload();
+  // The Ansible task log covers this bootstrap only.
+  await asRoot(machine, 'rm -f /tmp/fleet-ansible.log');
   let transferred = false;
   const observing: Runner = (command, options) => {
     if (command.at(-1)?.includes("'fleet-bootstrap'"))

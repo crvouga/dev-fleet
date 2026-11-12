@@ -220,7 +220,7 @@ Then('it took less than {int} seconds', async (world, seconds: number) => {
     // Every Ansible task on the machine is logged with its time (the
     // Dockerfile sets ANSIBLE_LOG_PATH for SSH sessions): name the slowest.
     const slowest = await world.remote(
-      `awk -F' [|] ' '/TASK \\[|PLAY \\[/ { split($1, t, /[ ,]/); split(t[2], h, ":"); now = h[1] * 3600 + h[2] * 60 + h[3]; if (task) print now - start, task; task = $NF; start = now }' /tmp/fleet-ansible.log | sort -rn | head -10`
+      `awk -F' [|] ' '/TASK \\[|PLAY \\[/ { split($1, t, /[ ,]/); split(t[2], h, ":"); now = h[1] * 3600 + h[2] * 60 + h[3]; if (task) print now - start, at, task; task = $NF; start = now; at = t[2] }' /tmp/fleet-ansible.log | sort -rn | head -10`
     );
     console.log(`\nSlowest Ansible tasks (seconds):\n${slowest.stdout}`);
   }
