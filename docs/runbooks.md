@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 296 codes; 46 need a person.
+There are 298 codes; 46 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -394,7 +394,7 @@ There are 296 codes; 46 need a person.
 ## Vault and credentials
 
 - **Meaning:** A machine cannot read the secrets it needs with its own Vault session.
-- **Confirm:** `vault token lookup` on the machine and the `worker:vault-renewal` check.
+- **Confirm:** `vault token lookup` on the machine and the `worker:vault-renewal` or `manager:vault-renewal` check.
 - **Fix:** Log the machine in once (`devfleet fleet-sync` asks on the manager); renewal is automatic afterwards.
 - **Escalate:** A refused policy needs the Vault administrator.
 
@@ -402,6 +402,8 @@ There are 296 codes; 46 need a person.
 - `VAULT_LOGIN_REQUIRED`: vault login required. **Needs a person.**
 - `VAULT_POLICY_PERMISSION_REQUIRED`: vault policy permission required. **Needs a person.**
 - `VAULT_RENEWAL_FAILING`: vault renewal failing.
+- `VAULT_RENEWAL_MISSING`: vault renewal missing: the manager's renewal job is not loaded. Run `devfleet fleet-sync` on the manager.
+- `VAULT_RENEWAL_NOT_MANAGER`: vault renewal not manager.
 - `VAULT_WORKER_POLICY_FAILED`: vault worker policy failed.
 
 ## The fleet definition and a worker's lifecycle

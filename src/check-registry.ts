@@ -317,6 +317,8 @@ export const CHECK_MEANINGS: Record<string, string> = {
   'manager:schedule':
     "The manager's schedule converged the fleet within two of its intervals.",
   'manager:updates': 'No macOS update is pending on the manager.',
+  'manager:vault-renewal':
+    'The manager is logged in to Vault and its launch agent renews the session.',
   'manager:watch':
     'fleet-watch runs on the manager on a schedule, so the heartbeat reaches the bucket.',
   'notify:*': 'A notification target fleet.json names took the notification.',

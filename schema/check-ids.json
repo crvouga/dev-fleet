@@ -980,6 +980,14 @@
       }
     },
     {
+      "id": "manager:vault-renewal",
+      "meaning": "The manager is logged in to Vault and its launch agent renews the session.",
+      "severity": "required",
+      "repair": {
+        "manual": "The manager converges itself in fleet-sync; what needs an administrator is granted once with ansible-playbook -e user=$(id -un) -K ansible/macos/manager-privilege.yml."
+      }
+    },
+    {
       "id": "manager:watch",
       "meaning": "fleet-watch runs on the manager on a schedule, so the heartbeat reaches the bucket.",
       "severity": "required",

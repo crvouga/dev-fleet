@@ -20,6 +20,7 @@ import { scheduleIntervals } from '../schedule-check';
 import { convergeGithub } from '../github/converge';
 import { PACKAGE_ROOT } from '../package-info';
 import { managerHealth } from '../manager-health';
+import { holdManagerVault } from './fleet-sync-vault';
 import { readFileSync } from 'node:fs';
 import { homedir, userInfo } from 'node:os';
 import {
@@ -59,6 +60,13 @@ export async function convergeManager(
       checks.push(await managerPower(run, input.workspace, host));
     checks.push(await managerBootRecovery(run, input.workspace, host));
     checks.push(await managerDocker(run));
+    // The renewal job is a launch agent: macOS managers only.
+    if (host.platform === 'macOS')
+      checks.push(
+        ...(await attempt('manager:vault-renewal', () =>
+          holdManagerVault(run, { apply: input.apply, root: PACKAGE_ROOT })
+        ))
+      );
     // Each enabled IDE: its settings, pinned version and policy.
     checks.push(
       ...(await managerChecks(enabled(idesOf(definition), IDES), {

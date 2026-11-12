@@ -200,3 +200,27 @@ Feature: The manager converges itself before any worker
       When the Docker Desktop of the manager is measured
       Then the check's status is "warn"
       And the check's summary is "MANAGER_DOCKER_DESKTOP_UNOBSERVED"
+
+  Rule: The manager's Vault session renews itself
+    Every worker renews its own Vault session; so does the manager, with a
+    launch agent vault-renew.yml loads on every applying sync. Without it the
+    session lapses while nobody runs fleet-sync. A lapsed session needs one
+    login by a person.
+
+    Scenario: An applying sync loads the renewal job for the fleet's Vault
+      Given the manager is logged in to Vault
+      When an applying sync holds the manager's Vault session
+      Then the check's status is "pass"
+      And vault-renew.yml was applied for "https://vault.example.com" without a password prompt
+
+    Scenario: A manager whose renewal job is not loaded fails
+      Given the manager is logged in to Vault
+      And the manager's Vault renewal job is not loaded
+      When the manager's Vault session is measured
+      Then the check's summary is "VAULT_RENEWAL_MISSING"
+
+    Scenario: A lapsed session names the one login that fixes it
+      Given the manager's Vault session has lapsed
+      When an applying sync holds the manager's Vault session
+      Then the check's summary is "VAULT_LOGIN_REQUIRED"
+      And the check's remedy contains "vault login -address=https://vault.example.com -method=userpass"

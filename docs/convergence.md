@@ -30,6 +30,7 @@ is missing from it.
 | `ansible/macos/t3-policy.yml`             | T3's administrator policy on the manager                                   |
 | `ansible/macos/manager-privilege.yml`     | The one administrator grant: sudoers, job log rotation and the T3 policy   |
 | `ansible/macos/worker-host-key.yml`       | A worker's pinned SSH host key in the manager's known_hosts                |
+| `ansible/macos/vault-renew.yml`           | The launch agent that renews the manager's own Vault session               |
 | `ansible/github/git.yml`                  | The Git identity and GitHub credentials of every node                      |
 
 Every playbook passes `ansible-lint` in the production profile, every command
