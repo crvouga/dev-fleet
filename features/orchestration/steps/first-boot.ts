@@ -44,6 +44,25 @@ function firstBoot(world: OrchestrationWorld): FirstBoot {
   if (!found) {
     const bin = mkdtempSync(join(tmpdir(), 'devfleet-first-boot-'));
     world.defer(() => rmSync(bin, { recursive: true, force: true }));
+    // Every Ubuntu worker has GNU timeout; older macOS runners have none, so
+    // there a stand-in with its exit code 124 takes its place.
+    if (!['/usr/bin/timeout', '/bin/timeout'].some(existsSync)) {
+      writeFileSync(
+        join(bin, 'timeout'),
+        [
+          '#!/bin/sh',
+          'limit=$1; shift',
+          '"$@" & child=$!',
+          '( sleep "$limit"; kill "$child" 2>/dev/null; : >"$0.expired" ) >/dev/null 2>&1 & timer=$!',
+          'wait "$child"; code=$?',
+          'kill "$timer" 2>/dev/null',
+          'if [ -e "$0.expired" ]; then rm -f "$0.expired"; exit 124; fi',
+          'exit "$code"',
+          '',
+        ].join('\n')
+      );
+      chmodSync(join(bin, 'timeout'), 0o755);
+    }
     found = { bin };
     boots.set(world, found);
   }
