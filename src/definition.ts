@@ -16,6 +16,7 @@ import {
   type IdeId,
   type T3Definition,
 } from './ide/definition';
+import { parseNotify, type NotifyConfig } from './notify';
 
 export interface MachineDefinition {
   id: string;
@@ -75,6 +76,8 @@ export interface FleetDefinition {
    * included, commits and pushes with.
    */
   git?: GitIdentity;
+  /** Where fleet-watch sends notifications; absent, nobody is notified. */
+  notify?: NotifyConfig;
   ubuntu: { release: '26.04'; architectures: ['amd64', 'arm64'] };
 }
 /** How provider accounts are watched and chosen (src/accounts/). */
@@ -219,6 +222,7 @@ export function parseDefinition(value: unknown): FleetDefinition {
       'ides',
       't3',
       'git',
+      'notify',
     ])
   )
     return fail();
@@ -237,13 +241,25 @@ export function parseDefinition(value: unknown): FleetDefinition {
     workers,
     services: services(value['services']),
     ubuntu: baseline(value['ubuntu']),
+    ...optionalSections(value),
+  };
+}
+/** The sections a fleet may leave out, kept only when named: an earlier
+ * revision must still read the copy.
+ */
+function optionalSections(
+  value: Record<string, unknown>
+): Pick<FleetDefinition, 'worker' | 'ides' | 't3' | 'git' | 'notify'> {
+  return {
     ...(value['worker'] === undefined
       ? {}
       : { worker: parseWorkerPolicy(value['worker']) }),
-    // Kept only when named: an earlier revision must still read the copy.
     ...(value['ides'] === undefined ? {} : { ides: parseIdes(value['ides']) }),
     ...(value['t3'] === undefined ? {} : { t3: parseT3(value['t3']) }),
     ...(value['git'] === undefined ? {} : { git: gitIdentity(value['git']) }),
+    ...(value['notify'] === undefined
+      ? {}
+      : { notify: parseNotify(value['notify']) ?? fail() }),
   };
 }
 /** Singleton services name no host: they always run on the manager. */

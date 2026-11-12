@@ -167,6 +167,10 @@
       "meaning": "The checkout has no uncommitted changes."
     },
     {
+      "id": "git:configuration",
+      "meaning": "The fleet's Git identity and credential helper were written on this node."
+    },
+    {
       "id": "login:*",
       "meaning": "A native per-machine login is in place."
     },
@@ -193,6 +197,10 @@
     {
       "id": "manager:schedule",
       "meaning": "The manager's schedule converged the fleet within two of its intervals."
+    },
+    {
+      "id": "notify:configured",
+      "meaning": "Every notification target fleet.json names has its address available as a secret."
     },
     {
       "id": "platform:unsupported",

@@ -12,7 +12,8 @@ What it deletes:
   * Docker images and build cache that no container uses and that are older
     than --docker-age-hours (never containers or volumes);
   * the apt package cache.
-When a watched filesystem has less than --pressure-mib free, idle checkouts
+When a watched filesystem has less than --pressure-mib free, or less than
+--pressure-inode-percent of its inodes free, idle checkouts
 qualify after --pressure-idle-hours, Docker leftovers after
 --pressure-docker-age-hours, and aged entries of each --pressure-cache
 directory are removed too.
@@ -21,7 +22,7 @@ It never deletes a checkout, a tracked file, uncommitted work, a container or
 a volume. Every decision is one JSON line on stdout.
 
 Usage: disk-gc.py --home H [--path P ...] [--idle-days N] [--pressure-mib N]
-                  [--pressure-idle-hours N] [--docker-age-hours N]
+                  [--pressure-inode-percent N] [--pressure-idle-hours N] [--docker-age-hours N]
                   [--pressure-docker-age-hours N] [--pressure-cache DIR ...]
                   [--max-depth N] [--proc DIR] [--home-only] [--dry-run]
 
@@ -59,6 +60,25 @@ def log(**event):
 def free_bytes(path):
     st = os.statvfs(path)
     return st.f_bavail * st.f_frsize
+
+
+def free_inodes_percent(path):
+    """Free inodes as a percentage; None on a filesystem without a fixed count."""
+    st = os.statvfs(path)
+    if st.f_files <= 0:
+        return None
+    return st.f_favail * 100 / st.f_files
+
+
+def under_pressure(paths, pressure_bytes, inode_percent):
+    """Any watched filesystem short of free bytes or of free inodes."""
+    for path in paths:
+        if free_bytes(path) < pressure_bytes:
+            return True
+        inodes = free_inodes_percent(path)
+        if inodes is not None and inodes < inode_percent:
+            return True
+    return False
 
 
 def mtime(path):
@@ -296,6 +316,7 @@ def main(argv):
     parser.add_argument('--path', action='append', default=[])
     parser.add_argument('--idle-days', type=float, default=7)
     parser.add_argument('--pressure-mib', type=int, default=15360)
+    parser.add_argument('--pressure-inode-percent', type=float, default=0)
     parser.add_argument('--pressure-idle-hours', type=float, default=12)
     parser.add_argument('--docker-age-hours', type=int, default=168)
     parser.add_argument('--pressure-docker-age-hours', type=int, default=24)
@@ -309,7 +330,8 @@ def main(argv):
     paths = args.path or ['/', home]
     now = time.time()
     before = {p: free_bytes(p) for p in paths}
-    pressure = min(before.values()) < args.pressure_mib * MIB
+    pressure = under_pressure(paths, args.pressure_mib * MIB,
+                              args.pressure_inode_percent)
     idle = args.pressure_idle_hours * HOUR if pressure else args.idle_days * 24 * HOUR
     docker_age = args.pressure_docker_age_hours if pressure else args.docker_age_hours
     log(event='started', pressure=pressure, idle_hours=idle / HOUR,

@@ -29,3 +29,16 @@
   ansible.builtin.systemd_service:
     daemon_reload: true
   when: recovery_dropins.changed
+# A skewed clock breaks TLS, tokens, apt signatures and Vault logins with
+# errors that never mention time. Ubuntu ships one time service (chrony on
+# newer releases, systemd-timesyncd before); whichever is installed stays
+# enabled. A container takes its clock from its host. Measured as worker:clock.
+- name: Inspect the time services this worker has
+  ansible.builtin.service_facts:
+- name: Keep the clock synchronised with the time service Ubuntu ships
+  ansible.builtin.systemd_service:
+    name: '{{ item }}'
+    enabled: true
+    state: started
+  loop: "{{ (['chrony.service', 'systemd-timesyncd.service'] | select('in', ansible_facts.services) | list)[:1] }}"
+  when: ansible_facts.virtualization_type not in ['docker', 'container', 'podman', 'lxc', 'systemd-nspawn']

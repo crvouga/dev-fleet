@@ -9,6 +9,8 @@ import { syncNode, type NodeSyncOptions } from './node-sync';
 import { fleetState, type FleetStateOptions } from './fleet-state';
 import { fleetAccounts, type FleetAccountsOptions } from './fleet-accounts';
 import { fleetReport, type FleetReportOptions } from './fleet-report';
+import { fleetWatch, watchServices } from './fleet-watch';
+import type { NodeReport } from '../types';
 
 type Complete = (outcome: CommandOutcome) => void;
 
@@ -295,6 +297,40 @@ function registerReport({ program, complete }: Registration) {
     });
 }
 
+function registerWatch({ program, defaults, complete }: Registration) {
+  program
+    .command('fleet-watch')
+    .description(
+      "Check the workers and notify the fleet's targets when one becomes unhealthy or recovers"
+    )
+    .option('--test', 'Send one test notification to every target and stop')
+    .addHelpText(
+      'after',
+      '\nRuns fleet-status --workers, compares it with the previous run kept in the bucket and notifies only on a change (and again every repeatHours while a worker stays unhealthy). Targets come from "notify" in fleet.json; their addresses are secrets. Every run stores a heartbeat in the bucket for an off-machine check.'
+    )
+    .action(async (_options, command: Command) => {
+      const options = command.optsWithGlobals<
+        CliOptions & { test?: boolean }
+      >();
+      const settings = await withSettings(defaults, options);
+      const status = async (): Promise<NodeReport[]> => {
+        const report = await executeFleet(
+          'health',
+          { ...options, workers: true, managed: true },
+          settings
+        );
+        const data = report.data as { nodes?: NodeReport[] };
+        return data.nodes ?? [];
+      };
+      complete(
+        await fleetWatch(
+          { ...(options.test ? { test: true } : {}) },
+          watchServices(status)
+        )
+      );
+    });
+}
+
 export function registerFleet(
   program: Command,
   defaults: Settings,
@@ -310,6 +346,7 @@ export function registerFleet(
   registerSync(registration);
   registerState(registration);
   registerReport(registration);
+  registerWatch(registration);
   registerRepair(registration);
   registerNodes(registration);
   registerAccounts(registration);

@@ -114,6 +114,35 @@ remote nodes' required lists. Run `fleet-nodes --schema` for editor/agent valida
 | `t3:api`                                                                           | Read-only t3 environment list --json succeeds against the local API; no pairing/token minting.                                                                        |
 | `t3:end-to-end`, `vscode:forwarding`                                               | SKIP: actual relay/peer authorization and VS Code tunnel/server installation require operator testing.                                                                |
 
+### Machine health
+
+| Check                        | Evidence / next action                                                                                                                                                                                                                                                                                                                             |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `worker:capacity:inodes`     | Free inodes on the home filesystem, against `inodeWarnFreePercent`/`inodeFailFreePercent` in `ansible/ubuntu/policy.json`. The disk guard and disk collector act on the same floors.                                                                                                                                                               |
+| `worker:clock`               | `timedatectl` says the clock is synchronised and a time service is enabled; with a reference time, the offset is held to `clock` in the policy.                                                                                                                                                                                                    |
+| `worker:reboot-pending`      | `/var/run/reboot-required` exists: warns with its age, fails after `rebootPendingFailDays`. Reboot when no agent turn is running.                                                                                                                                                                                                                  |
+| `tailscale:key-expiry`       | The node key expiry Tailscale reports: warns 14 days ahead, fails 3 days ahead. See [Tailscale key expiry](#tailscale-key-expiry).                                                                                                                                                                                                                 |
+| `manager:release`            | `sw_vers` against `minimumMajorVersion` in `ansible/macos/policy.json`.                                                                                                                                                                                                                                                                            |
+| `manager:updates`            | `softwareupdate --list --no-scan` (nothing is downloaded): warns on pending updates, and names one that waits for a restart. Names never shown.                                                                                                                                                                                                    |
+| `manager:disk`               | Free space on the data volume and the space Docker holds, against `disk` in `ansible/macos/policy.json`.                                                                                                                                                                                                                                           |
+| `manager:container-watchdog` | The container watchdog (`ansible/monitoring/container-watchdog.py`, a launch agent `hub-darwin.yml` installs) restarts a labelled container that was unhealthy for `unhealthyChecks` runs, at most `maxRestartsPerHour` times an hour (`containerWatchdog` in `ansible/macos/policy.json`). Warns after a restart; fails once it stops restarting. |
+
+### Tailscale key expiry
+
+A node drops off the tailnet on the day its key expires. Keep workers from
+expiring: tag them, or disable key expiry for each in the Tailscale admin
+console (tagged nodes do not expire). `tailscale:key-expiry` warns two weeks
+ahead and fails three days ahead.
+
+To re-join a worker whose key expired, a person signs it in again, because
+only a person's identity can authorise a device:
+
+1. On the worker's console, run `sudo tailscale up` and open the link it
+   prints, signed in to the fleet's tailnet.
+2. In the admin console, disable key expiry for the worker, or tag it.
+3. From the manager, run `devfleet fleet-sync`: `ansible/ubuntu/tailscale.yml`
+   verifies the login and `tailscale:key-expiry` passes.
+
 An SSH shell is not proof that VS Code or T3 Connect works. Diagnostics check
 **directed manager → node** connectivity, not all pairs. Run from each intended
 manager to check reverse directions. No host-key acceptance, known_hosts edits,
@@ -205,9 +234,35 @@ not a way to certify the whole fleet from one shell. Usage errors use
 exception strings. Fleet never prompts; --non-interactive is accepted.
 
 No telemetry or report file is written automatically. Reports still contain
-aliases/hashes: review before sharing publicly. For monitoring, schedule read-only
-`devfleet fleet-status --json` in your existing task runner and alert on exit 1/2;
-do not schedule automatic sync/repairs. `bun run health` remains the separate
+aliases/hashes: review before sharing publicly. Do not schedule automatic
+sync/repairs.
+
+## Notifications and the heartbeat
+
+`devfleet fleet-watch` runs `fleet-status --workers`, compares the result with
+the previous run and notifies only when a worker changes between ready and
+degraded, and again every `repeatHours` (default 24) while it stays degraded.
+Name the targets in `fleet.json`; the address of each is a secret, read through
+the secret provider like any other:
+
+```json
+"notify": { "targets": ["webhook", "ntfy"], "repeatHours": 24 }
+```
+
+| Target    | Secret               | What is sent                                                         |
+| --------- | -------------------- | -------------------------------------------------------------------- |
+| `webhook` | `notify-webhook-url` | A JSON POST: `source`, `event`, `node`, `checks` (check IDs), `text` |
+| `ntfy`    | `notify-ntfy-url`    | A text POST to the topic URL                                         |
+
+A notification carries node and check IDs only. `devfleet fleet-watch --test`
+sends one test notification to every target.
+
+Every run stores what it saw, and when, as `watch.json` beside the fleet state
+in the bucket. That time is the manager's heartbeat. A watcher on the manager
+notices nothing when the manager itself is off, so call the reusable
+`fleet-heartbeat.yml` workflow from the repository that holds your
+`fleet.json` (its header shows the one `uses:` line): it fails, and GitHub
+notifies you, when the heartbeat is older than `max-age-minutes`. `bun run health` remains the separate
 single read-only **cloud platform** report.
 
 ## Development

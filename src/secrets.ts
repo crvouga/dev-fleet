@@ -20,6 +20,9 @@ export const OPTIONAL_SECRET_NAMES = [
   // (services.monitoring.backups).
   'monitoring-backup-access-key',
   'monitoring-backup-secret-key',
+  // Where fleet-watch notifies (notify.targets).
+  'notify-webhook-url',
+  'notify-ntfy-url',
 ] as const;
 export type SecretName =
   (typeof SECRET_NAMES)[number] | (typeof OPTIONAL_SECRET_NAMES)[number];

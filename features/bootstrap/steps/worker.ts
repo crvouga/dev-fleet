@@ -456,3 +456,34 @@ When('T3 is asked whether it runs an agent turn', (world) => {
 Then('the answer says {string}', (world, text: string) => {
   expect(turns(world).output).toContain(text);
 });
+
+const LOW = `
+import importlib.util, json, sys
+spec = importlib.util.spec_from_file_location('guard', sys.argv[1])
+guard = importlib.util.module_from_spec(spec); spec.loader.exec_module(guard)
+print(json.dumps(guard.low_paths({'/': int(sys.argv[2])}, {'/': float(sys.argv[3])}, int(sys.argv[4]), float(sys.argv[5]))))`;
+
+When(
+  /^the guard measures a filesystem with (\d+) MiB and ([\d.]+)% of its inodes free, against floors of (\d+) MiB and ([\d.]+)% of inodes$/,
+  (world, free: string, inodes: string, floor: string, inodeFloor: string) => {
+    const out = Bun.spawnSync([
+      'python3',
+      '-I',
+      '-B',
+      '-c',
+      LOW,
+      join(checkout, 'ansible/ubuntu/disk-guard.py'),
+      String(Number(free) * MiB),
+      inodes,
+      String(Number(floor) * MiB),
+      inodeFloor,
+    ]);
+    expect(out.exitCode).toBe(0);
+    guard(world).low =
+      (JSON.parse(out.stdout.toString()) as string[]).length > 0;
+  }
+);
+
+Then(/^the filesystem is (above|below) its floors$/, (world, side: string) => {
+  expect(guard(world).low).toBe(side === 'below');
+});

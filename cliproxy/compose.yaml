@@ -3,6 +3,10 @@ services:
   proxy:
     image: ${CLI_PROXY_IMAGE:?image must be pinned}
     restart: unless-stopped
+    # Docker restarts a proxy that exits; the container watchdog on the
+    # manager restarts one that stays unhealthy.
+    labels:
+      dev.devfleet.watchdog: restart
     user: '${CLIPROXY_UID:-1000}:${CLIPROXY_GID:-1000}'
     working_dir: /state
     command: ['/CLIProxyAPI/CLIProxyAPI', '-config', '/state/config.yaml']

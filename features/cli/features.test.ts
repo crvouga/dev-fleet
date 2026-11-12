@@ -8,6 +8,7 @@ import './steps/t3';
 import './steps/node-sync';
 import './steps/repair';
 import './steps/menu';
+import './steps/watch';
 
 runFeatures({
   directory: import.meta.dir,

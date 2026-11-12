@@ -131,6 +131,19 @@ Given(
   }
 );
 
+Given(
+  'the disk is short of inodes, where {int} hours without use is idle',
+  (world, hours: number) => {
+    // Every filesystem has fewer than 101% of its inodes free.
+    collector(world).options.push(
+      '--pressure-inode-percent',
+      '101',
+      '--pressure-idle-hours',
+      String(hours)
+    );
+  }
+);
+
 When(/^the disk GC runs( as a dry run)?$/, (world, dry: string | undefined) => {
   const state = collector(world);
   const out = Bun.spawnSync([

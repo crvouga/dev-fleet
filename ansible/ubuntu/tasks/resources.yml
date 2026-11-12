@@ -224,7 +224,7 @@
       StartLimitIntervalSec=0
       [Service]
       Type=simple
-      ExecStart=/usr/bin/python3 -I -B {{ disk_guard_source.stat.path }} --path / --path {{ development_home }} --floor-mib {{ resourceSafety.diskGuardFloorMiB }} --write-mib {{ resourceSafety.diskGuardWriteMiB }} --interval {{ resourceSafety.diskGuardIntervalSeconds }}
+      ExecStart=/usr/bin/python3 -I -B {{ disk_guard_source.stat.path }} --path / --path {{ development_home }} --floor-mib {{ resourceSafety.diskGuardFloorMiB }} --inode-floor-percent {{ resourceSafety.inodeFailFreePercent }} --write-mib {{ resourceSafety.diskGuardWriteMiB }} --interval {{ resourceSafety.diskGuardIntervalSeconds }}
       Restart=always
       RestartSec=5
       OOMScoreAdjust=-1000
@@ -276,7 +276,7 @@
         After=docker.service
         [Service]
         Type=oneshot
-        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ resourceSafety.diskGcPressureMiB }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}
+        ExecStart=/usr/bin/python3 -I -B {{ disk_gc_source.stat.path }} --home {{ development_home }} --path / --path {{ development_home }} --idle-days {{ resourceSafety.diskGcIdleDays }} --pressure-mib {{ resourceSafety.diskGcPressureMiB }} --pressure-inode-percent {{ resourceSafety.inodeWarnFreePercent }} --pressure-idle-hours {{ resourceSafety.diskGcPressureIdleHours }} --docker-age-hours {{ resourceSafety.diskGcDockerAgeHours }} --pressure-docker-age-hours {{ resourceSafety.diskGcPressureDockerAgeHours }}{% for cache in resourceSafety.diskGcPressureCaches %} --pressure-cache {{ cache }}{% endfor %}
 
         TimeoutStartSec=2h
         Nice=19

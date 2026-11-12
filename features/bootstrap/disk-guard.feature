@@ -37,3 +37,18 @@ Feature: The disk guard stops a runaway writer before a worker's disk is full
         | situation                  | space                            | written |
         | the disk has free space    | has free space                   | 800     |
         | every writer is a slow one | is below its floor of free space | 1       |
+
+  Rule: A filesystem is below its floor when it is short of bytes or of inodes
+    A worker that holds many dependency trees runs out of inodes long before
+    bytes, and every write then fails.
+
+    Scenario Outline: <free> MiB and <inodes>% of inodes free is <verdict>
+      When the guard measures a filesystem with <free> MiB and <inodes>% of its inodes free, against floors of 3072 MiB and 2% of inodes
+      Then the filesystem is <verdict>
+
+      Examples:
+        | free  | inodes | verdict          |
+        | 50000 | 40     | above its floors |
+        | 1000  | 40     | below its floors |
+        | 50000 | 0      | below its floors |
+        | 50000 | 1.5    | below its floors |

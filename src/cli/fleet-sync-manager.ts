@@ -17,6 +17,7 @@ import { convergeGitIdentity, gitChecks } from '../git-identity';
 import macos from '../../ansible/macos/policy.json';
 import { ansibleCommand } from '../platform/ansible';
 import { PACKAGE_ROOT } from '../package-info';
+import { managerHealth } from '../manager-health';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -51,6 +52,7 @@ export async function convergeManager(
         run,
       }))
     );
+    checks.push(...(await managerHealth(run)));
     if (input.apply) {
       // Same provider profiles and the same Vault gateway credential as every
       // worker: the instances above launch from these profiles, and the check

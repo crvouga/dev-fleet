@@ -38,6 +38,7 @@ Feature: The command catalog
     Scenario: Only these commands change something
       When the command catalog is read
       Then the commands that change something are, in order:
+        | fleet-watch           |
         | fleet-sync            |
         | fleet-state --init    |
         | fleet-state --push    |

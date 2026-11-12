@@ -5,6 +5,16 @@ services:
   hub:
     image: henrygd/beszel:0.21.1@sha256:8514a69d9bbbcb74f371a3205561ee231fc0289739cea64e8131f341d695b770
     restart: unless-stopped
+    # Docker restarts a hub that exits; the container watchdog on the manager
+    # restarts one that stays unhealthy (container-watchdog.py).
+    labels:
+      dev.devfleet.watchdog: restart
+    healthcheck:
+      test: ['CMD', '/beszel', 'health', '--url', 'http://localhost:8090']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     ports:
       - '127.0.0.1:8090:8090'
     environment:

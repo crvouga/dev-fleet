@@ -6,7 +6,11 @@ import {
   type NodeReport,
   type Runner,
 } from './types';
-import { discoverTailnet, type TailnetComputer } from './tailscale';
+import {
+  discoverTailnet,
+  keyExpiryCheck,
+  type TailnetComputer,
+} from './tailscale';
 import { matchComputers } from './tailnet-matching';
 import { sshArgs, sshFailure } from './ssh';
 import type { FleetDefinition, MachineDefinition } from './definition';
@@ -102,7 +106,12 @@ export async function synchronizeManager(
     ok: false,
     applied: false,
     desiredRevision: input.revision,
-    checks: tailnet.checks,
+    checks: [
+      ...tailnet.checks,
+      ...(tailnet.computers.some((peer) => peer.self)
+        ? [keyExpiryCheck(tailnet.computers.find((peer) => peer.self))]
+        : []),
+    ],
     // Printed for people: the stable public name, never a tailnet address.
     dashboardUrl: publicHubUrl(),
     nodes: [],
@@ -322,6 +331,7 @@ async function inspectManagerNode(
   else {
     checks.push(...(await inspectBootstrap(node, run, machine.os)));
     checks.push(...identityChecks(node, peer));
+    if (peer) checks.push(keyExpiryCheck(peer));
   }
   if (!peer || !peer.online)
     checks.push({
