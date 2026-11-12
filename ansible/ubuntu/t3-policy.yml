@@ -41,8 +41,9 @@
         mode: '0644'
         backup: true
     # T3 reads its policy once, at startup. A running app that has not loaded
-    # the staged policy is restarted (this ends its running turns) so every
-    # node offers the same providers after every sync.
+    # the staged policy is restarted so every node offers the same providers,
+    # but only while it runs no agent turn (tasks/t3-restart.yml): a busy app
+    # keeps its turns and loads the policy at the first idle check.
     - name: Check whether the desktop app is running
       become: true
       become_user: '{{ development_user }}'
@@ -62,15 +63,7 @@
       changed_when: false
       failed_when: false
       when: t3_desktop_active.rc == 0
-    - name: Restart T3 so it loads the staged policy
-      become: true
-      become_user: '{{ development_user }}'
-      environment:
-        XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
-      ansible.builtin.systemd_service:
-        scope: user
-        name: t3code-desktop.service
-        state: restarted
+    - ansible.builtin.import_tasks: tasks/t3-restart.yml
       when:
         - t3_desktop_active.rc == 0
         - t3_policy_loaded.stdout is not search('loaded this policy\.\s*$')

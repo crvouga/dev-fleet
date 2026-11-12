@@ -85,6 +85,77 @@ Feature: What is measured on a worker
       When the recovery of the worker after a power loss is checked
       Then the check "worker:power-loss-recovery" passes
 
+  Rule: The recovery watchdog counts only when its script is there and its last run succeeded
+    The unit runs a copy installed outside every revision, so pruning old
+    revisions cannot leave it pointing at nothing. An active timer says when
+    the watchdog runs, not that it works.
+
+    Background:
+      Given these commands print:
+        | command                                                   | prints         |
+        | systemctl --user is-active personal-worker-recovery.timer | active         |
+        | test -r /usr/local/lib/personal-fleet/t3-health.sh        |                |
+        | systemctl --user show personal-worker-recovery.service    | Result=success |
+
+    Scenario: A watchdog whose last run succeeded passes
+      When the worker's service recovery is checked
+      Then the check "worker:service-recovery" passes
+
+    Scenario: A watchdog whose last run failed fails
+      Given the command "systemctl --user show personal-worker-recovery.service" prints "Result=exit-code"
+      When the worker's service recovery is checked
+      Then the check "worker:service-recovery" fails
+      And the summary of the check "worker:service-recovery" mentions "WORKER_RECOVERY_LAST_RUN_FAILED (exit-code)"
+
+    Scenario: A watchdog whose script is missing fails
+      Given the command "test -r /usr/local/lib/personal-fleet/t3-health.sh" fails
+      When the worker's service recovery is checked
+      Then the check "worker:service-recovery" fails
+      And the summary of the check "worker:service-recovery" mentions "WORKER_RECOVERY_SCRIPT_MISSING"
+
+    Scenario: A watchdog whose timer is not active fails
+      Given the command "systemctl --user is-active personal-worker-recovery.timer" fails
+      When the worker's service recovery is checked
+      Then the check "worker:service-recovery" fails
+      And the summary of the check "worker:service-recovery" mentions "WORKER_RECOVERY_TIMER_INACTIVE"
+
+  Rule: The running T3 is the release that is installed
+    The running server is asked for its version, so no "t3" on the search
+    path is needed. A release installed beside a running app is pending until
+    the app restarts into it, which waits for its agent turns to end, and
+    fails once it has waited longer than the policy allows (24 hours).
+
+    Background:
+      Given these commands print:
+        | command | prints                                          |
+        | curl    | {"serverVersion":"0.1.9-nightly.20261111.4501"} |
+        | cat     | T3-Code-0.1.9-nightly.20261111.4501-amd64.deb   |
+
+    Scenario: A T3 that runs the installed release passes
+      When the release of the running T3 is checked
+      Then the check "t3:running-version" passes
+      And no "t3" command was run
+
+    Scenario: A release installed without a restart is pending
+      Given the command "cat" prints "T3-Code-0.1.10-nightly.20261112.4600-amd64.deb"
+      And a restart of T3 has been deferred for 2 hours
+      When the release of the running T3 is checked
+      Then the check "t3:running-version" warns
+      And the summary of the check "t3:running-version" mentions "T3_RESTART_PENDING"
+
+    Scenario: A restart deferred longer than the policy allows fails
+      Given the command "cat" prints "T3-Code-0.1.10-nightly.20261112.4600-amd64.deb"
+      And a restart of T3 has been deferred for 25 hours
+      When the release of the running T3 is checked
+      Then the check "t3:running-version" fails
+      And the summary of the check "t3:running-version" mentions "T3_RESTART_PENDING"
+
+    Scenario: A server that does not say its version is not taken to run the installed one
+      Given the command "curl" fails
+      When the release of the running T3 is checked
+      Then the check "t3:running-version" fails
+      And the summary of the check "t3:running-version" mentions "T3_RUNNING_VERSION_UNKNOWN"
+
   Rule: The devfleet launcher is looked for, and nothing a command printed is reported
 
     Scenario: A launcher that is there passes, after one command that only reads

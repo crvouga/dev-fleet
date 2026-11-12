@@ -11,7 +11,11 @@ import { machineProviders } from './t3/providers';
 import { quotaLimited, verifyFleetProviders } from './agents/fleet-verify';
 import { verifyNativeAgents } from './agents/native-verify';
 import { managedT3, managedT3Desktop } from '../bootstrap/native-t3';
-import { convergeT3Service, t3StartedAt } from './platform/t3-service';
+import {
+  convergeT3Service,
+  runningVersionCheck,
+  t3StartedAt,
+} from './platform/t3-service';
 import { userInfo } from 'node:os';
 import { resolve } from 'node:path';
 import { auditUbuntu } from './platform/ubuntu-audit';
@@ -243,6 +247,7 @@ async function convergeT3(
   const serviceReady = checks.some(
     (check) => check.id === 't3:service' && check.status === 'pass'
   );
+  if (serviceReady) checks.push(await runningVersionCheck(run, userInfo().uid));
   if (serviceReady)
     checks.push(
       ...(await convergeT3Route(run, () => publishT3Route(root, run)))

@@ -1,0 +1,37 @@
+---
+# Restart a running T3 only while it runs no agent turn: a restart ends every
+# running turn. A busy T3 keeps its turns; the restart is recorded as pending
+# (with the time it was first deferred) and personal-worker-recovery applies it
+# at the first idle check (t3-health.sh). t3_restart_busy restarts it anyway.
+- name: Ask T3 whether an agent turn is running
+  become: true
+  become_user: '{{ development_user }}'
+  ansible.builtin.command:
+    argv:
+      - python3
+      - -I
+      - -B
+      - '{{ playbook_dir }}/t3-idle.py'
+      - --state
+      - '{{ development_home }}/.t3/userdata/statev2.sqlite'
+  register: t3_idle
+  changed_when: false
+  failed_when: false
+- name: Restart T3 while it runs no agent turn
+  become: true
+  become_user: '{{ development_user }}'
+  environment:
+    XDG_RUNTIME_DIR: '/run/user/{{ development_uid }}'
+  ansible.builtin.systemd_service:
+    scope: user
+    name: t3code-desktop.service
+    state: restarted
+  when: t3_idle is not skipped and (t3_idle.rc == 0 or t3_restart_busy | default(false) | bool)
+- name: Record the restart as pending while agent turns run
+  ansible.builtin.copy:
+    dest: '/run/user/{{ development_uid }}/personal-t3-restart-pending'
+    content: "{{ now(utc=true).timestamp() | int }}\n"
+    force: false
+    owner: '{{ development_user }}'
+    mode: '0600'
+  when: t3_idle is not skipped and t3_idle.rc != 0 and not (t3_restart_busy | default(false) | bool)

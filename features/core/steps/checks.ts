@@ -6,7 +6,14 @@ import { convergeProxy } from '../../../src/proxy-converge';
 import { codingAuth, serviceAuth } from '../../../src/service-auth';
 import { toolchainChecks } from '../../../src/toolchain-checks';
 import { workerAccessChecks } from '../../../src/worker-access-checks';
-import { serviceState } from '../../../src/worker-host-checks';
+import {
+  serviceRecoveryCheck,
+  serviceState,
+} from '../../../src/worker-host-checks';
+import {
+  runningVersionCheck,
+  t3RestartMarker,
+} from '../../../src/platform/t3-service';
 import { workstationChecks } from '../../../src/workstation-checks';
 import type { Check } from '../../../src/types';
 import { core, need, type CoreWorld } from './world';
@@ -56,6 +63,25 @@ When(
   'the recovery of the worker after a power loss is checked',
   async (world) => {
     reported(world, [await powerRecoveryCheck(world.commands.run)]);
+  }
+);
+
+When("the worker's service recovery is checked", async (world) => {
+  reported(world, [await serviceRecoveryCheck(world.commands.run)]);
+});
+
+When('the release of the running T3 is checked', async (world) => {
+  reported(world, [await runningVersionCheck(world.commands.run, 1000)]);
+});
+
+Given(
+  'a restart of T3 has been deferred for {int} hours',
+  (world, hours: number) => {
+    const since = Math.floor(Date.now() / 1000) - hours * 3600;
+    world.commands.answer(
+      (command) => command.join(' ') === `cat ${t3RestartMarker(1000)}`,
+      succeeded(`${since}\n`)
+    );
   }
 );
 
