@@ -1,8 +1,11 @@
 import { spawnSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import { fleet as definition } from '../fleet-config';
 import { sshArgs, shellQuote } from '../ssh';
 import { resolveVaultConfig, usesVault } from '../vault-config';
 import { workerTokenLocation } from '../worker-credentials';
+import { runAnsible } from '../platform/ansible';
 import type { Check, FleetNode, Runner } from '../types';
 
 const TOOL_PATH =
@@ -213,3 +216,77 @@ function required(node: FleetNode): Check {
     },
   };
 }
+
+/**
+ * The manager's own Vault session renews itself every ten minutes, like each
+ * worker's: `ansible/macos/vault-renew.yml`, applied on every applying sync.
+ * Measured as the session answering and the job being loaded; a lapsed
+ * session needs one login by a person, and until then agents on the manager
+ * use the proxy client key they last read (src/agents/secrets.ts).
+ */
+export async function holdManagerVault(
+  run: Runner,
+  options: {
+    apply: boolean;
+    root: string;
+    home?: string;
+    uid?: number;
+    scratch?: string;
+  }
+): Promise<Check[]> {
+  if (!usesVault()) return [];
+  const { addr } = resolveVaultConfig();
+  const home = options.home ?? homedir();
+  if (options.apply)
+    await runAnsible(
+      run,
+      join(options.root, 'ansible/macos/vault-renew.yml'),
+      {
+        input: JSON.stringify({
+          vault_address: addr,
+          mise: join(home, '.local/bin/mise'),
+        }),
+        timeoutMs: 120_000,
+      },
+      options.scratch
+    );
+  const loaded = (
+    await run(
+      [
+        'launchctl',
+        'print',
+        `gui/${options.uid ?? process.getuid?.() ?? 0}/${MANAGER_VAULT_RENEWAL}`,
+      ],
+      { timeoutMs: 10_000 }
+    )
+  ).ok;
+  const session = (await run(lookup(), { timeoutMs: 20_000 })).ok;
+  return [vaultRenewalCheck(session, loaded, addr)];
+}
+
+function vaultRenewalCheck(
+  session: boolean,
+  loaded: boolean,
+  addr: string
+): Check {
+  if (session && loaded)
+    return {
+      id: 'manager:vault-renewal',
+      status: 'pass',
+      summary:
+        'The manager is logged in to Vault and renews its session every ten minutes.',
+    };
+  return {
+    id: 'manager:vault-renewal',
+    status: 'fail',
+    summary: session ? 'VAULT_RENEWAL_MISSING' : 'VAULT_LOGIN_REQUIRED',
+    remedy: {
+      action: session
+        ? `The manager's Vault session is not renewed and lapses at its TTL. Run devfleet fleet-sync on the manager; it loads ${MANAGER_VAULT_RENEWAL}.`
+        : `Log the manager in once, in your own terminal: vault login -address=${addr} -method=userpass username=${definition.worker?.vaultUser ?? 'YOUR_USERNAME'}. Then run devfleet fleet-sync. Until then the manager's agents use the proxy client key they last read, and new worker tokens cannot be issued.`,
+    },
+  };
+}
+
+/** The launchd label of the manager's Vault renewal job (vault-renew.yml). */
+export const MANAGER_VAULT_RENEWAL = 'dev.devfleet.vault-renew';

@@ -263,6 +263,10 @@
       "meaning": "The manager's schedule converged the fleet within two of its intervals."
     },
     {
+      "id": "manager:vault-renewal",
+      "meaning": "The manager is logged in to Vault and its launch agent renews the session."
+    },
+    {
       "id": "notify:configured",
       "meaning": "Every notification target fleet.json names has its address available as a secret."
     },

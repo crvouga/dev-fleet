@@ -1,0 +1,85 @@
+---
+# The manager's own Vault session renews itself, as every worker's does
+# (personal-worker-auth): without it the session lapses while nobody runs
+# fleet-sync, and the manager can no longer read the secrets its services and
+# its agents use. The job only renews; a lapsed session needs one login by a
+# person. Measured as manager:vault-renewal. fleet-sync passes vault_address
+# (the fleet configuration's secrets block) and mise (its absolute path).
+- name: Keep the manager's Vault session renewed
+  hosts: localhost
+  connection: local
+  become: false
+  gather_facts: true
+  vars:
+    renew_label: dev.devfleet.vault-renew
+    renew_plist: '{{ ansible_facts.env.HOME }}/Library/LaunchAgents/{{ renew_label }}.plist'
+    renew_domain: 'gui/{{ ansible_facts.user_uid }}'
+  tasks:
+    - name: Require the macOS manager and an HTTPS Vault
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.os_family == 'Darwin'
+          - vault_address is match('^https://[A-Za-z0-9.-]+$')
+          - mise is match('^/')
+        fail_msg: VAULT_RENEWAL_NOT_MANAGER; the renewal job is for the macOS manager's own session.
+    - name: Create the launch agents directory
+      ansible.builtin.file:
+        path: '{{ ansible_facts.env.HOME }}/Library/LaunchAgents'
+        state: directory
+        mode: '0700'
+    # Every ten minutes, like the workers, and at load: a renewal never
+    # outlives the token, so a missed run only shortens the margin. Output is
+    # dropped (the lease, or why it failed): manager:vault-renewal measures the
+    # session itself.
+    - name: Install the renewal job's launch agent
+      ansible.builtin.copy:
+        dest: '{{ renew_plist }}'
+        mode: '0644'
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <!-- Managed by personal Fleet: Vault session renewal -->
+          <plist version="1.0"><dict>
+            <key>Label</key><string>{{ renew_label }}</string>
+            <key>ProgramArguments</key><array>
+              <string>{{ mise }}</string>
+              <string>exec</string>
+              <string>--</string>
+              <string>vault</string>
+              <string>token</string>
+              <string>renew</string>
+              <string>-address={{ vault_address }}</string>
+              <string>-increment=24h</string>
+            </array>
+            <key>WorkingDirectory</key><string>{{ ansible_facts.env.HOME }}</string>
+            <key>EnvironmentVariables</key><dict>
+              <key>PATH</key><string>{{ mise | dirname }}:/usr/local/bin:/usr/bin:/bin</string>
+            </dict>
+            <key>RunAtLoad</key><true/>
+            <key>StartInterval</key><integer>600</integer>
+            <key>ProcessType</key><string>Background</string>
+            <key>Umask</key><integer>63</integer>
+            <key>StandardOutPath</key><string>/dev/null</string>
+            <key>StandardErrorPath</key><string>/dev/null</string>
+          </dict></plist>
+      register: renew_agent
+    - name: Inspect whether the renewal job is loaded
+      ansible.builtin.command:
+        argv: [/bin/launchctl, print, '{{ renew_domain }}/{{ renew_label }}']
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: renew_loaded
+    # launchd caches a loaded definition: a changed plist needs a reload.
+    - name: Unload a stale renewal job definition
+      ansible.builtin.command:
+        argv: [/bin/launchctl, bootout, '{{ renew_domain }}/{{ renew_label }}']
+      when: renew_agent.changed and renew_loaded.rc == 0
+      failed_when: false
+      changed_when: true
+    - name: Load the renewal job
+      ansible.builtin.command:
+        argv:
+          [/bin/launchctl, bootstrap, '{{ renew_domain }}', '{{ renew_plist }}']
+      when: renew_agent.changed or renew_loaded.rc != 0
+      changed_when: true
