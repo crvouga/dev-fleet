@@ -10,6 +10,9 @@ export interface TailnetComputer {
   ips: string[];
   online: boolean;
   self: boolean;
+  /** When the node key expires, in milliseconds since the epoch; absent when
+   * it never does (tagged nodes, or expiry disabled in the admin console). */
+  keyExpiry?: number;
 }
 export interface Tailnet {
   computers: TailnetComputer[];
@@ -103,6 +106,7 @@ function parseComputer(value: unknown, self: boolean): TailnetComputer {
     OS: os,
     TailscaleIPs: ips,
     Online: online,
+    KeyExpiry: keyExpiry,
   } = value;
   if (
     ![id, name, os].every(
@@ -129,6 +133,53 @@ function parseComputer(value: unknown, self: boolean): TailnetComputer {
     ips: ips as string[],
     online,
     self,
+    ...expiry(keyExpiry),
+  };
+}
+
+function expiry(value: unknown): { keyExpiry?: number } {
+  if (typeof value !== 'string') return {};
+  const time = Date.parse(value);
+  // Tailscale writes the zero time for a key that never expires.
+  return Number.isFinite(time) && time > 0 ? { keyExpiry: time } : {};
+}
+
+const DAY_MS = 86_400_000;
+const KEY_EXPIRY = { warnDays: 14, failDays: 3 };
+
+/** A node drops off the tailnet on the day its key expires. The check warns
+ * two weeks ahead and fails three days ahead, like a T3 link that expires.
+ */
+export function keyExpiryCheck(
+  computer: TailnetComputer | undefined,
+  now = Date.now()
+): Check {
+  const id = 'tailscale:key-expiry';
+  if (!computer)
+    return { id, status: 'skip', summary: 'TAILSCALE_KEY_EXPIRY_UNOBSERVED' };
+  if (computer.keyExpiry === undefined)
+    return {
+      id,
+      status: 'pass',
+      summary: 'The Tailscale node key of this machine does not expire.',
+    };
+  const days = Math.floor((computer.keyExpiry - now) / DAY_MS);
+  const remedy = {
+    action: computer.self
+      ? 'Renew the node key of the manager before it expires: tailscale up --force-reauth on the manager, or disable key expiry for it in the Tailscale admin console.'
+      : 'Disable key expiry for the worker in the Tailscale admin console, or tag it (tagged nodes do not expire). After an expiry, re-join it as docs/operations.md describes (Tailscale key expiry).',
+  };
+  if (days < 0)
+    return { id, status: 'fail', summary: 'TAILSCALE_KEY_EXPIRED', remedy };
+  const summary = `TAILSCALE_KEY_EXPIRES_SOON in ${days} days`;
+  if (days <= KEY_EXPIRY.failDays)
+    return { id, status: 'fail', summary, remedy };
+  if (days <= KEY_EXPIRY.warnDays)
+    return { id, status: 'warn', summary, remedy };
+  return {
+    id,
+    status: 'pass',
+    summary: `The Tailscale node key expires in ${days} days.`,
   };
 }
 

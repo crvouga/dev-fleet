@@ -1,3 +1,4 @@
+import policy from '../ansible/ubuntu/policy.json';
 import type { DoctorCheck } from './doctor-check';
 
 /** Machine health sample parsed from `net/remote-probe.sh` output. */
@@ -7,6 +8,14 @@ export type HealthSample = {
   readonly memFreePct?: number;
   readonly swapPct?: number;
   readonly diskMb?: number;
+  /** Free inodes on the home filesystem, as a percentage of all of them. */
+  readonly inodesFreePct?: number;
+  /** 1 when the clock is synchronised to a time source, 0 when not. */
+  readonly clockSynced?: number;
+  /** 1 when a time service is enabled, 0 when not. */
+  readonly timeService?: number;
+  /** The machine's clock, in seconds since the epoch. */
+  readonly epoch?: number;
 };
 
 const PROBE_KEYS = {
@@ -15,6 +24,10 @@ const PROBE_KEYS = {
   memfree: 'memFreePct',
   swap: 'swapPct',
   diskmb: 'diskMb',
+  inodefree: 'inodesFreePct',
+  ntpsync: 'clockSynced',
+  ntp: 'timeService',
+  epoch: 'epoch',
 } as const;
 
 function isProbeKey(key: string): key is keyof typeof PROBE_KEYS {
@@ -33,7 +46,12 @@ export function parseProbe(output: string): HealthSample {
   return sample;
 }
 
-const LABELS = { load: 'CPU load', memory: 'Memory', disk: 'Disk space' };
+const LABELS = {
+  load: 'CPU load',
+  memory: 'Memory',
+  disk: 'Disk space',
+  inodes: 'Free inodes',
+};
 
 function check(
   id: keyof typeof LABELS,
@@ -88,8 +106,37 @@ export function diskCheck(diskMb: number | undefined): DoctorCheck | null {
   return check('disk', 'pass', `${Math.floor(diskMb / 1024)} GB free`);
 }
 
+/** Free inodes, with the floors `policy.json` gives the disk guard: a
+ * filesystem with free bytes and no free inodes fails every write.
+ */
+export function inodesCheck(
+  inodesFreePct: number | undefined,
+  floors = INODE_FLOORS
+): DoctorCheck | null {
+  if (inodesFreePct === undefined) return null;
+  const what = `${inodesFreePct}% of inodes free`;
+  if (inodesFreePct < floors.failPercent)
+    return check(
+      'inodes',
+      'fail',
+      `INODES_EXHAUSTED, ${what}. Every new file fails although bytes are free.`,
+      'Remove idle dependency trees and worktrees: the hourly disk collector does so under pressure, or delete them by hand.'
+    );
+  if (inodesFreePct < floors.warnPercent)
+    return check('inodes', 'warn', `low, ${what}`);
+  return check('inodes', 'pass', what);
+}
+
+const INODE_FLOORS = {
+  warnPercent: policy.resourceSafety.inodeWarnFreePercent,
+  failPercent: policy.resourceSafety.inodeFailFreePercent,
+};
+
 export function healthChecks(s: HealthSample, alias: string): DoctorCheck[] {
-  return [loadCheck(s, alias), memoryCheck(s), diskCheck(s.diskMb)].filter(
-    (c): c is DoctorCheck => c !== null
-  );
+  return [
+    loadCheck(s, alias),
+    memoryCheck(s),
+    diskCheck(s.diskMb),
+    inodesCheck(s.inodesFreePct),
+  ].filter((c): c is DoctorCheck => c !== null);
 }

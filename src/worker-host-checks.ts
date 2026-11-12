@@ -95,6 +95,7 @@ export async function workerHostChecks(
       )
     );
   }
+  checks.push(await rebootPendingCheck(audit.rebootPending, run));
   checks.push(...(await recoveryChecks(run)));
   checks.push(...(await verifyUbuntuBoot(user, run)));
   checks.push(...(await verifyResourceSafety(userInfo().homedir, run)));
@@ -201,4 +202,35 @@ async function t3HealthCheck(run: Runner): Promise<Check> {
     probe.ok && identified,
     'T3 local API answers with its environment identity within 10 seconds.'
   );
+}
+
+const DAY_SECONDS = 86_400;
+
+/** Kernel and library updates apply only after a reboot. A pending reboot
+ * warns with its age, and fails once it is older than `policy.json` allows.
+ */
+export async function rebootPendingCheck(
+  pending: boolean,
+  run: Runner,
+  now = Date.now()
+): Promise<Check> {
+  const id = 'worker:reboot-pending';
+  if (!pending) return { id, status: 'pass', summary: 'No reboot is pending.' };
+  const since = await run(['stat', '-c', '%Y', '/var/run/reboot-required']);
+  const seconds = Number(since.stdout.trim());
+  const days =
+    since.ok && /^\d+$/.test(since.stdout.trim())
+      ? Math.max(0, Math.floor((now / 1000 - seconds) / DAY_SECONDS))
+      : null;
+  const age = days === null ? '' : ` for ${days} days`;
+  return {
+    id,
+    status:
+      days !== null && days > policy.rebootPendingFailDays ? 'fail' : 'warn',
+    summary: `REBOOT_PENDING${age}: installed updates apply only after a reboot.`,
+    remedy: {
+      action:
+        'Reboot the worker when no agent turn is running (sudo systemctl reboot on the worker), then confirm it returns to ready with devfleet fleet-status --workers.',
+    },
+  };
 }

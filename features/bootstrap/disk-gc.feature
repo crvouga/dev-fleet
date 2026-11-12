@@ -54,11 +54,18 @@ Feature: The disk GC removes only what a worker can rebuild
       | node_modules |
     And it reports a removal marked as a dry run
 
-  Scenario: Pressure shortens the idle window to hours
+  Scenario Outline: Pressure shortens the idle window to hours, when <short>
+    A filesystem with free bytes and no free inodes fails every write as
+    surely as a full one.
     Given the checkout was last used 1 day ago
-    And the disk is under pressure, where 12 hours without use is idle
+    And the disk is <short>, where 12 hours without use is idle
     When the disk GC runs
     Then these are gone from the checkout:
       | node_modules |
     But these are still in the checkout:
       | src/main.ts |
+
+    Examples:
+      | short            |
+      | under pressure   |
+      | short of inodes  |

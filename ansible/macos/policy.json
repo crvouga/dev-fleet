@@ -5,5 +5,10 @@
     "sleep": "0",
     "womp": "1"
   },
-  "beszelDaemon": "dev.devfleet.beszel-agent"
+  "beszelDaemon": "dev.devfleet.beszel-agent",
+  "disk": {
+    "warnFreeMiB": 20480,
+    "failFreeMiB": 5120,
+    "dockerWarnGiB": 64
+  }
 }
