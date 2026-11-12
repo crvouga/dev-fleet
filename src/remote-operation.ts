@@ -77,7 +77,7 @@ export const OPERATION_PROBE = [
   'if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then alive=yes; fi',
   'printf \'held=%s\\nalive=%s\\noperation=%s\\nresult=\' "$held" "$alive" "$op"',
   'head -c 1048576 "$r/remote-operation-result.json" 2>/dev/null | head -n 1',
-  'printf \'\\n\'',
+  "printf '\\n'",
 ].join('\n');
 
 function field(stdout: string, name: string): string | null {

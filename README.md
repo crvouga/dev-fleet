@@ -98,7 +98,11 @@ Ansible policy and verifies the result. It prints one table and writes a full
 JSON report. The first run on a machine installs everything, mise included, so
 Git is the only tool it needs beforehand.
 
-`--dry-run` changes no machine. On the manager it checks the release out into
+`--dry-run` changes no machine. It first brings the manager's copy of the
+fleet state up to the bucket (never uploading), then prints, and adds to
+`--json` as `plan`, what a sync would change: the revision, each tool pin that
+moves, and what restarts because of it (a T3 restart ends its running agent
+turns). On the manager it checks the release out into
 dev-fleet's cache and installs the Bun that release pins beside any others, so
 that it can run; it never installs the toolchain, publishes the global mise
 configuration, edits shell profiles or touches a worker.

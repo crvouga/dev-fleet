@@ -79,12 +79,39 @@ Feature: fleet-sync brings the manager's fleet state up to the bucket before it 
     And the enrollment in the fleet state of the manager is what it was before the run
     And the manager stands "diverged" with the bucket
 
-  Scenario: A preview reads the local copy and never contacts the bucket
+  Scenario: A preview records no approval
     Given the manager saved the bucket "$BUCKET" in its bucket.json
     When fleet-sync previews revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     Then the command exits 1
-    And Litestream was never started
     And the manager has no enrollment
+
+  Scenario: A preview of a stale manager is made from the bucket's state, and uploads nothing
+    A preview made from a stale copy would plan against a fleet that no
+    longer exists. Bringing the copy up to the bucket never uploads.
+    Given the manager saved the bucket "$BUCKET" in its bucket.json
+    And manager "b" replicates to the bucket
+    And manager "b" stored the enrollment and uploaded it:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+      """
+    When fleet-sync previews revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    Then the run started over 1 time
+    And the enrollment of the manager is exactly:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+      """
+    And the manager stands "in-sync" with the bucket
+    And the report contains "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 
   Scenario: A run from a project replicates to the bucket its fleet.json names and records the configuration it applied
     Nothing is saved on the manager: it has no bucket.json. A replacement
