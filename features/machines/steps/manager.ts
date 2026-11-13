@@ -1,5 +1,12 @@
 import { expect } from 'bun:test';
-import { access, mkdir, utimes, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdir,
+  readFile,
+  rm,
+  utimes,
+  writeFile,
+} from 'node:fs/promises';
 import { join } from 'node:path';
 import { fleet } from '../../../src/fleet-config';
 import { approvedLocalSource } from '../../../src/machine/local-source';
@@ -69,7 +76,8 @@ Then('it names no applied revision', (world) => {
 const lock = (world: MachinesWorld): string =>
   join(world.directory, 'sync.lock');
 
-Given('a sync is running', async (world) => {
+/** Starts a sync that runs until the scenario lets it end. */
+async function startRunning(world: MachinesWorld): Promise<void> {
   let finish = (): void => {};
   let begun = (): void => {};
   const finished = new Promise<void>((done) => (finish = done));
@@ -80,10 +88,81 @@ Given('a sync is running', async (world) => {
   });
   world.defer(async () => {
     finish();
-    await sync;
+    await sync.catch(() => undefined);
   });
   // A sync that cannot take the lock fails here instead of never beginning.
   await Promise.race([began, sync]);
+  const owner = await readFile(join(lock(world), 'owner.json'), 'utf8');
+  world.running = { finish, sync, owner };
+}
+
+const running = (
+  world: MachinesWorld
+): NonNullable<MachinesWorld['running']> => {
+  if (world.running === undefined) throw new Error('No sync is running.');
+  return world.running;
+};
+
+Given('a sync is running', startRunning);
+
+Given(
+  'a sync that has judged the lock abandoned but not yet reclaimed it',
+  async (world) => {
+    let resume = (): void => {};
+    let judged = (): void => {};
+    const resumed = new Promise<void>((done) => (resume = done));
+    const hasJudged = new Promise<void>((done) => (judged = done));
+    const sync = withMachineLock(
+      world.directory,
+      async () => 'ran',
+      async () => {
+        judged();
+        await resumed;
+      }
+    );
+    world.defer(async () => {
+      resume();
+      await sync.catch(() => undefined);
+    });
+    await Promise.race([hasJudged, sync]);
+    world.paused = { resume, sync };
+  }
+);
+
+Given('another sync has reclaimed the lock and is running', startRunning);
+
+When('the first sync goes on', async (world) => {
+  const paused = world.paused;
+  if (paused === undefined) throw new Error('No sync is paused.');
+  paused.resume();
+  await world.attempt(async () => {
+    world.ran = await paused.sync;
+  });
+});
+
+Then('the running sync still holds {string}', async (world, name: string) => {
+  expect(
+    await readFile(join(world.directory, name, 'owner.json'), 'utf8')
+  ).toBe(running(world).owner);
+});
+
+Given(
+  'its lock has been replaced by one whose owner is recorded as the process running these scenarios',
+  async (world) => {
+    running(world);
+    await rm(lock(world), { recursive: true });
+    await mkdir(lock(world));
+    await writeFile(
+      join(lock(world), 'owner.json'),
+      JSON.stringify({ version: 1, pid: process.pid })
+    );
+  }
+);
+
+When('the running sync ends', async (world) => {
+  const { finish, sync } = running(world);
+  finish();
+  await sync;
 });
 
 Given('a sync ran to its end', async (world) => {

@@ -86,18 +86,37 @@ async function lockAbandoned(lock: string): Promise<boolean> {
   }
 }
 
-/** Removes an abandoned lock. The rename is atomic, so when several managers
- * race to recover it exactly one wins; the others simply retry the lock. */
-async function reclaimAbandonedLock(lock: string): Promise<boolean> {
+/** Removes an abandoned lock. Judging a lock abandoned and renaming it aside
+ * are two steps: between them another reclaimer can have replaced it with a
+ * live lock of its own. So the lock is judged again where it was put aside,
+ * where nobody else can change it, and put back when it turns out to be held.
+ * `judged` runs between the two steps; only the features pause there. */
+async function reclaimAbandonedLock(
+  lock: string,
+  judged: () => Promise<void>
+): Promise<boolean> {
   if (!(await lockAbandoned(lock))) return false;
+  await judged();
   const aside = `${lock}.abandoned-${randomUUID()}`;
   try {
     await rename(lock, aside);
   } catch {
     return true; // Someone else already recovered it; retry.
   }
+  if (!(await lockAbandoned(aside))) {
+    await rename(aside, lock).catch(() => undefined);
+    return false;
+  }
   await rm(aside, { recursive: true, force: true });
   return true;
+}
+
+/** Removes the lock only while it is still the one this run wrote. */
+async function releaseLock(lock: string, owner: string): Promise<void> {
+  const current = await readFile(join(lock, 'owner.json'), 'utf8').catch(
+    () => null
+  );
+  if (current === owner) await rm(lock, { recursive: true, force: true });
 }
 
 /** Bundles are written next to the lock and removed in a `finally`, which a
@@ -113,7 +132,8 @@ async function sweepTransferBundles(root: string): Promise<void> {
  * cleanup. Never steals a lock from a still-running installer. */
 export async function withMachineLock<T>(
   root: string,
-  operation: () => Promise<T>
+  operation: () => Promise<T>,
+  judged: () => Promise<void> = async () => {}
 ): Promise<T> {
   await mkdir(root, { recursive: true, mode: 0o700 });
   const lock = join(root, 'sync.lock');
@@ -126,26 +146,28 @@ export async function withMachineLock<T>(
         throw new FleetUsageError(
           'Cannot create manager lock; inspect private state-directory permissions and free disk space.'
         );
-      if (attempt < 3 && (await reclaimAbandonedLock(lock))) continue;
+      if (attempt < 3 && (await reclaimAbandonedLock(lock, judged))) continue;
       throw new FleetLockError(
         'Fleet sync is locked. Inspect running installers before removing an abandoned sync.lock directory, then rerun.'
       );
     }
   }
+  const owner =
+    JSON.stringify({
+      version: 1,
+      pid: process.pid,
+      startedAt: new Date().toISOString(),
+      run: randomUUID(),
+    }) + '\n';
   try {
-    await writeFile(
-      join(lock, 'owner.json'),
-      JSON.stringify({
-        version: 1,
-        pid: process.pid,
-        startedAt: new Date().toISOString(),
-      }) + '\n',
-      { flag: 'wx', mode: 0o600 }
-    );
+    await writeFile(join(lock, 'owner.json'), owner, {
+      flag: 'wx',
+      mode: 0o600,
+    });
     await sweepTransferBundles(root);
     return await operation();
   } finally {
-    await rm(lock, { recursive: true });
+    await releaseLock(lock, owner);
   }
 }
 
