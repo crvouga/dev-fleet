@@ -1,6 +1,17 @@
 import { expect } from 'bun:test';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import {
+  chmodSync,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import { parse } from 'yaml';
 import macos from '../../ansible/macos/policy.json';
 import ubuntu from '../../ansible/ubuntu/policy.json';
@@ -84,6 +95,8 @@ export class RulesWorld extends World {
   packed: string[] = [];
   output = '';
   ansibleCore = '';
+  /** A copy of the launcher, installed with its own pinned Bun and PATH. */
+  installed: { root: string; path: string; status: number | null } | undefined;
   scenarios: {
     path: string;
     name: string;
@@ -1765,5 +1778,91 @@ Then(
       expect(argv.slice(0, 2).join(' ')).toBe(
         prefix.replace('sudo', '/usr/bin/sudo')
       );
+  }
+);
+
+// ── The launcher ─────────────────────────────────────────────────────────
+
+/** The launcher in a package of its own, whose CLI says which Bun ran it. */
+function installed(world: RulesWorld): NonNullable<RulesWorld['installed']> {
+  if (world.installed) return world.installed;
+  const at = mkdtempSync(join(tmpdir(), 'devfleet-launcher-'));
+  world.defer(() => rmSync(at, { recursive: true, force: true }));
+  for (const directory of ['bin', 'src/cli', 'node_modules/bun/bin', 'path'])
+    mkdirSync(join(at, directory), { recursive: true });
+  copyFileSync(join(root, 'bin/devfleet.mjs'), join(at, 'bin/devfleet.mjs'));
+  writeFileSync(
+    join(at, 'src/cli/cli.ts'),
+    "console.log(process.env['DEVFLEET_TEST_BUN'] ?? 'the pinned Bun');\n"
+  );
+  writeFileSync(
+    join(at, 'node_modules/bun/package.json'),
+    JSON.stringify({ name: 'bun', version: '0.0.0' })
+  );
+  world.installed = { root: at, path: join(at, 'path'), status: null };
+  return world.installed;
+}
+
+Given("the installed launcher's pinned Bun is a Bun executable", (world) => {
+  symlinkSync(
+    process.execPath,
+    join(installed(world).root, 'node_modules/bun/bin/bun.exe')
+  );
+});
+
+Given(
+  "the installed launcher's pinned Bun is a stub left by skipped install scripts",
+  (world) => {
+    // What the bun package leaves before its postinstall replaces it: text
+    // with no shebang, which Linux hands to /bin/sh.
+    const stub = join(installed(world).root, 'node_modules/bun/bin/bun.exe');
+    writeFileSync(
+      stub,
+      'echo "Bun\'s postinstall script was not run."\nexit 1\n'
+    );
+    chmodSync(stub, 0o755);
+  }
+);
+
+Given('a Bun is on PATH', (world) => {
+  const shim = join(installed(world).path, 'bun');
+  writeFileSync(
+    shim,
+    `#!/bin/sh\nDEVFLEET_TEST_BUN='the Bun on PATH' exec '${process.execPath}' "$@"\n`
+  );
+  chmodSync(shim, 0o755);
+});
+
+Given('no Bun is on PATH', (world) => {
+  installed(world);
+});
+
+When('the installed launcher is run', (world) => {
+  const { root: at, path } = installed(world);
+  const node = Bun.which('node');
+  if (!node) throw new Error('These scenarios run the launcher with Node.');
+  const env: Record<string, string> = { PATH: path };
+  for (const name of ['HOME', 'TMPDIR', 'SYSTEMROOT'])
+    if (process.env[name]) env[name] = process.env[name]!;
+  const child = Bun.spawnSync([node, join(at, 'bin/devfleet.mjs')], {
+    cwd: at,
+    env,
+  });
+  world.installed!.status = child.exitCode;
+  world.output = child.stdout.toString() + child.stderr.toString();
+});
+
+Then('the CLI runs on {}', (world, chosen: string) => {
+  expect({
+    status: world.installed?.status,
+    output: world.output.trim(),
+  }).toEqual({ status: 0, output: chosen });
+});
+
+Then(
+  'it exits {int} and says {string}',
+  (world, status: number, text: string) => {
+    expect(world.installed?.status).toBe(status);
+    expect(world.output).toContain(text);
   }
 );

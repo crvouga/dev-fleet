@@ -1,8 +1,11 @@
 Feature: A release is installed and run before it is published
   The Release workflow packs the package once, installs that tarball in an
   empty directory the way a fleet project does, and runs its devfleet on
-  every supported Node. Only the tarball that passed is published. These
-  scenarios pack a small stand-in package with npm and install it for real.
+  every supported Node, once as npm installs by default and once with
+  --ignore-scripts, which leaves the pinned Bun a stub and makes the
+  launcher fall back to the Bun on PATH. Only the tarball that passed is
+  published. These scenarios pack a small stand-in package with npm and
+  install it for real.
 
   Scenario: A package whose devfleet starts and names its release passes
     Given a packed release "1.2.3" from commit "0123456789abcdef0123456789abcdef01234567"
