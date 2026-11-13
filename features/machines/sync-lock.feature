@@ -48,3 +48,24 @@ Feature: One sync at a time on the manager
     And the lock was last changed 120 seconds ago
     When another sync starts
     Then it runs
+
+  Scenario: Two syncs that find the same abandoned lock never both run
+    A killed run left the lock. Two syncs start together and both judge it
+    abandoned; the first reclaims it and is running before the second moves
+    the lock aside. The second finds the lock it moved is held, puts it back
+    and is refused.
+    Given a lock whose owner is recorded as:
+      """
+      {"version":1,"pid":4194305,"startedAt":"x"}
+      """
+    And a sync that has judged the lock abandoned but not yet reclaimed it
+    And another sync has reclaimed the lock and is running
+    When the first sync goes on
+    Then it is refused with "locked"
+    And the running sync still holds "sync.lock"
+
+  Scenario: A sync releases only the lock it took
+    Given a sync is running
+    And its lock has been replaced by one whose owner is recorded as the process running these scenarios
+    When the running sync ends
+    Then "sync.lock" is still in the directory

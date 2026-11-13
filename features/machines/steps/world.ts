@@ -65,6 +65,11 @@ export class MachinesWorld extends CommandWorld {
   // The manager: its earlier enrollment, its lock and a local checkout.
   enrollment: Enrollment | null | undefined;
   ran: string | undefined;
+  /** A sync paused between judging the lock abandoned and reclaiming it. */
+  paused: { resume: () => void; sync: Promise<string> } | undefined;
+  /** The sync that is running, and how to let it end. */
+  running:
+    { finish: () => void; sync: Promise<unknown>; owner: string } | undefined;
   source: string | null | undefined;
 }
 
