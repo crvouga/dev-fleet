@@ -146,6 +146,38 @@ Feature: fleet-sync brings the manager's fleet state up to the bucket before it 
     Then the report contains "FLEET_MANAGER_ENROLLMENT_REQUIRED"
     And the approved revision of the manager is "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 
+  Scenario: --rollback after a failed upgrade approves the revision still applied
+    The canary failed on the approved revision, so the applied one is the
+    revision before it: the rollback goes back to that one, not to the one
+    applied before it.
+    Given the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "cccccccccccccccccccccccccccccccccccccccc",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "previousRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+      """
+    When fleet-sync rolls back
+    Then the report contains "FLEET_MANAGER_ENROLLMENT_REQUIRED"
+    And the approved revision of the manager is "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+  Scenario: --rollback after a failed first upgrade approves the revision still applied
+    Given the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "cccccccccccccccccccccccccccccccccccccccc",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      }
+      """
+    When fleet-sync rolls back
+    Then the report contains "FLEET_MANAGER_ENROLLMENT_REQUIRED"
+    And the approved revision of the manager is "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
   Scenario: --rollback with no earlier revision changes nothing
     Given the manager stored the enrollment:
       """

@@ -283,7 +283,11 @@ const runs = scratch<{
 /** As fleet-sync does: bring the copy up to the bucket, read what the last
  * run recorded, then record this run's approval.
  */
-async function approve(world: StateWorld, revision: string): Promise<void> {
+async function approve(
+  world: StateWorld,
+  revision: string,
+  scoped = false
+): Promise<void> {
   const manager = world.manager();
   const run = runs(world);
   run.started = (await refresh(manager.context)).standing;
@@ -295,14 +299,16 @@ async function approve(world: StateWorld, revision: string): Promise<void> {
       context: manager.context,
       standing: run.started,
       env: manager.stateEnv,
+      scoped,
     }
   );
   run.record.approve();
 }
 
 Given(
-  /^a fleet-sync run for revision "([a-f0-9]{40})" (?:is|was) approved$/,
-  (world, revision: string) => approve(world, revision)
+  /^a fleet-sync run for revision "([a-f0-9]{40})"( scoped with --node)? (?:is|was) approved$/,
+  (world, revision: string, scoped: string | undefined) =>
+    approve(world, revision, Boolean(scoped))
 );
 Given(
   /^a fleet-sync run for revision "([a-f0-9]{40})" (converged|ended without converging)$/,
@@ -313,6 +319,11 @@ Given(
 );
 Given(/^the run (converges|converged)$/, (world, verb: string) =>
   act(world, verb, () => runs(world).record!.settle(true))
+);
+When(
+  'the run converges, with these workers converged:',
+  (world, table: DataTable) =>
+    world.attempt(() => runs(world).record!.settle(true, table.rowsHash()))
 );
 When('the run ends without converging', (world) =>
   world.attempt(() => runs(world).record!.settle(false))

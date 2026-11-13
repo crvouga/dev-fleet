@@ -96,6 +96,35 @@ Feature: A fleet-sync run records its approval and its result in the fleet state
       }
       """
 
+  Scenario: A run scoped with --node records only the workers it covered
+    The other workers still run the revision applied before it, so the
+    fleet's applied revision, and the one it replaced, stay as they were.
+    Given the manager stored the enrollment:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "previousRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workers": { "worker-one": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "worker-two": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+      }
+      """
+    And a fleet-sync run for revision "cccccccccccccccccccccccccccccccccccccccc" scoped with --node is approved
+    When the run converges, with these workers converged:
+      | worker-one | cccccccccccccccccccccccccccccccccccccccc |
+    Then the enrollment of the manager is exactly:
+      """
+      {
+        "version": 1,
+        "id": "manager",
+        "approvedRevision": "cccccccccccccccccccccccccccccccccccccccc",
+        "appliedRevision": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "previousRevision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "workers": { "worker-one": "cccccccccccccccccccccccccccccccccccccccc", "worker-two": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }
+      }
+      """
+
   Rule: What a run could not upload, the next run uploads
 
     Background:
