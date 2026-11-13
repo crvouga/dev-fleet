@@ -349,9 +349,14 @@ export function pull(context: StateContext): Promise<Standing> {
 }
 
 /** Replaces this copy with the version the bucket held at `timestamp`, then
- * uploads it as the bucket's current version: the way back from a replica
- * whose latest version is damaged. `unreachable` when the bucket holds no
- * readable version at that time.
+ * uploads it as the bucket's current version, which takes the manager lease:
+ * the way back from a replica whose latest version is damaged. `unreachable`
+ * when the bucket holds no readable version at that time.
+ *
+ * Refused, before anything changes, while another manager holds the lease in
+ * the bucket's current version, unless told to take it over. When that
+ * version cannot be read the lease of this machine's copy, the last one it
+ * saw, decides instead.
  */
 export function pullAt(
   context: StateContext,
@@ -367,6 +372,17 @@ export function pullAt(
       'No bucket is configured, so there is no earlier version to restore.'
     );
   return locked(context.root, async () => {
+    const database = databasePath(context.root);
+    const current = await fetchRemote({ ...context, bucket });
+    try {
+      const held = leaseIn(
+        context,
+        current.status === 'present' ? current.file : database
+      );
+      if (held) throw new LeaseHeldError(leaseHeldMessage(held));
+    } finally {
+      if (current.status === 'present') discard(current.file);
+    }
     const remote = await fetchRemote(
       { ...context, bucket },
       true,
@@ -374,10 +390,17 @@ export function pullAt(
     );
     if (remote.status !== 'present')
       return remote.status === 'absent' ? 'empty' : remote.status;
-    const database = databasePath(context.root);
     discard(database);
     renameSync(remote.file, database);
     chmodSync(database, 0o600);
+    // The earlier version names whoever held the lease then.
+    if (context.holder) {
+      const now = (context.now ?? (() => new Date()))();
+      writeLease(database, {
+        holder: context.holder,
+        expiresAt: new Date(now.getTime() + LEASE_MS).toISOString(),
+      });
+    }
     return upload({ ...context, bucket }, true);
   });
 }
@@ -408,11 +431,17 @@ export class LeaseHeldError extends FleetUsageError {}
  * and this machine was not told to take it over. Reads local files only: call
  * it on the bucket's version, after a refresh.
  */
-export function leaseConflict(
+export function leaseConflict(context: StateContext, now?: Date): Lease | null {
+  return leaseIn(context, databasePath(context.root), now);
+}
+
+/** The lease another manager holds over the database at `file`. */
+function leaseIn(
   context: StateContext,
+  file: string,
   now: Date = (context.now ?? (() => new Date()))()
 ): Lease | null {
-  const lease = readLease(databasePath(context.root));
+  const lease = readLease(file);
   if (!context.holder || !lease || lease.holder === context.holder) return null;
   if (Date.parse(lease.expiresAt) <= now.getTime() || context.takeOver)
     return null;
