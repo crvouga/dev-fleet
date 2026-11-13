@@ -1,4 +1,6 @@
 import { expect } from 'bun:test';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { authCheck } from '../../../src/auth-checks';
 import { CAPABILITIES } from '../../../src/config';
 import {
@@ -22,6 +24,13 @@ const current = (world: OrchestrationWorld): Promise<Fingerprint> =>
   fingerprint(need(world.root, 'a checkout'), world.run);
 
 // ── Fingerprints ─────────────────────────────────────────────────────────
+
+Given('the checkout has no {string} directory', async (world, name: string) => {
+  await rm(join(need(world.root, 'a checkout'), name), {
+    recursive: true,
+    force: true,
+  });
+});
 
 When(
   'the fingerprint of the checkout is compared with itself',
