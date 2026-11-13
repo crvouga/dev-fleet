@@ -105,6 +105,30 @@ Then(
   }
 );
 
+/** Commands the check ran again in a fresh session made with `sg docker`. */
+const freshSession = (world: CoreWorld) =>
+  world.commands.calls.filter(
+    (call) => call.command[0] === 'sg' && call.command[1] === 'docker'
+  );
+
+Then(
+  '{int} command(s) ran in a fresh session of the docker group',
+  (world, count: number) => {
+    expect(freshSession(world)).toHaveLength(count);
+  }
+);
+
+Then(
+  'the image was built in a fresh session of the docker group from {string}',
+  (world, input: string) => {
+    const builds = freshSession(world).filter((call) =>
+      call.command[3]?.startsWith("'docker' 'build'")
+    );
+    expect(builds).toHaveLength(1);
+    expect(builds[0]!.options?.input).toBe(control(input));
+  }
+);
+
 Then(
   "every {string} command ran with git's prompts turned off",
   (world, name: string) => {
