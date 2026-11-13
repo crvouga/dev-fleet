@@ -8,44 +8,84 @@ name: Failure issues
 #
 # Runs of pull requests are not tracked: their author sees them. A workflow
 # only another repository calls (workflow_call) reports there.
+#
+# A run started with a workflow's own token (CI on main and the release after
+# a merge auto-merge.yml made, for example) ends without starting this
+# workflow. So every hour the newest finished run of each workflow it follows
+# is read again, the same way.
 on:
   workflow_run:
     workflows: [CI, Release, Ubuntu VM, Tailnet, Pins, Auto-merge]
     types: [completed]
+  schedule:
+    - cron: '47 * * * *'
+  workflow_dispatch: {}
 permissions:
   contents: read
-concurrency:
-  group: failure-issues-${{ github.event.workflow_run.name }}
-  cancel-in-progress: false
 jobs:
   track:
-    name: Track ${{ github.event.workflow_run.name }}
+    name: Track ${{ matrix.workflow }}
     # A cancelled or skipped run says nothing either way. A release from a
     # hand-pushed tag runs on the tag, not on main.
     if: >-
-      github.event.workflow_run.event != 'pull_request' &&
-      github.event.workflow_run.head_repository.full_name == github.repository &&
-      (github.event.workflow_run.head_branch == github.event.repository.default_branch ||
-       github.event.workflow_run.name == 'Release') &&
-      contains(fromJSON('["success", "failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion)
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.event != 'pull_request' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       (github.event.workflow_run.head_branch == github.event.repository.default_branch ||
+        github.event.workflow_run.name == 'Release') &&
+       contains(fromJSON('["success", "failure", "timed_out", "startup_failure"]'), github.event.workflow_run.conclusion))
+    strategy:
+      fail-fast: false
+      # The run that ended, or on the hour every workflow followed above.
+      matrix:
+        workflow: ${{ github.event_name == 'workflow_run' && fromJSON(format('["{0}"]', github.event.workflow_run.name)) || fromJSON('["CI", "Release", "Ubuntu VM", "Tailnet", "Pins", "Auto-merge"]') }}
+    concurrency:
+      group: failure-issues-${{ matrix.workflow }}
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: read
       issues: write
     steps:
-      - name: Open, update or close the issue of this workflow
+      - name: Find the run
+        id: run
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          WORKFLOW: ${{ github.event.workflow_run.name }}
-          WORKFLOW_ID: ${{ github.event.workflow_run.workflow_id }}
+          WORKFLOW: ${{ matrix.workflow }}
+          MAIN: ${{ github.event.repository.default_branch }}
+          # The run that ended, when one did.
           RUN_ID: ${{ github.event.workflow_run.id }}
-          ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
-          RUN_URL: ${{ github.event.workflow_run.html_url }}
-          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
-          COMMIT: ${{ github.event.workflow_run.head_sha }}
-          STARTED_BY: ${{ github.event.workflow_run.event }}
+        run: |
+          set -eu
+          if [ -n "$RUN_ID" ]; then
+            run=$(gh api "repos/$GH_REPO/actions/runs/$RUN_ID")
+          else
+            id=$(gh api "repos/$GH_REPO/actions/workflows" --paginate \
+              --jq ".workflows[] | select(.name == \"$WORKFLOW\") | .id" | head -n 1)
+            if [ -z "$id" ]; then echo "::warning::No workflow is named $WORKFLOW."; exit 0; fi
+            run=$(gh api "repos/$GH_REPO/actions/workflows/$id/runs?status=completed&per_page=50" \
+              --jq "[.workflow_runs[] | select(.event != \"pull_request\" and .head_repository.full_name == \"$GH_REPO\" and (.head_branch == \"$MAIN\" or .name == \"Release\") and (.conclusion == \"success\" or .conclusion == \"failure\" or .conclusion == \"timed_out\" or .conclusion == \"startup_failure\"))][0] // empty")
+            if [ -z "$run" ]; then echo "$WORKFLOW has no finished run on $MAIN."; exit 0; fi
+          fi
+          jq -r '"found=true",
+            "workflow-id=\(.workflow_id)", "id=\(.id)", "attempt=\(.run_attempt)",
+            "url=\(.html_url)", "conclusion=\(.conclusion)", "commit=\(.head_sha)",
+            "event=\(.event)"' <<< "$run" >> "$GITHUB_OUTPUT"
+      - name: Open, update or close the issue of this workflow
+        if: steps.run.outputs.found == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          WORKFLOW: ${{ matrix.workflow }}
+          WORKFLOW_ID: ${{ steps.run.outputs.workflow-id }}
+          RUN_ID: ${{ steps.run.outputs.id }}
+          ATTEMPT: ${{ steps.run.outputs.attempt }}
+          RUN_URL: ${{ steps.run.outputs.url }}
+          CONCLUSION: ${{ steps.run.outputs.conclusion }}
+          COMMIT: ${{ steps.run.outputs.commit }}
+          STARTED_BY: ${{ steps.run.outputs.event }}
           MAIN: ${{ github.event.repository.default_branch }}
         run: |
           set -eu

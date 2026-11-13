@@ -12,6 +12,10 @@
  *   `feat:`                         minor
  *   anything else                   patch
  *
+ * A `HEAD` that already carries its release tag is released again when that
+ * tag has no GitHub Release: a run that pushed the tag and then failed is
+ * finished by any re-run of it, not only by re-running its failed jobs.
+ *
  * Exits 1 when nothing can be released because publishing was never set up
  * (no tag and nothing on npm), so the Release workflow does not report a
  * skipped release as a success.
@@ -62,13 +66,16 @@ export function bumpVersion(tag: string, bump: Bump): string {
   return `${major}.${minor + 1}.0`;
 }
 
+function releaseTags(listed: string | null): string[] {
+  return (listed ?? '')
+    .split('\n')
+    .map((tag) => tag.trim())
+    .filter((tag) => TAG.test(tag));
+}
+
 export function latestTag(git: Git): string | null {
-  const tags = git(['tag', '--list', 'v*', '--sort=-v:refname']) ?? '';
   return (
-    tags
-      .split('\n')
-      .map((tag) => tag.trim())
-      .find((tag) => TAG.test(tag)) ?? null
+    releaseTags(git(['tag', '--list', 'v*', '--sort=-v:refname']))[0] ?? null
   );
 }
 
@@ -81,11 +88,30 @@ export function newestPublished(versions: string[]): string | null {
   return stable[0]?.join('.') ?? null;
 }
 
+/** Whether the release tag has its GitHub Release. */
+export type Finished = (tag: string) => boolean;
+
 /**
  * `published` is the newest stable version on npm, or null when the package
  * is not there.
  */
-export function decide(git: Git, published: string | null = null): Decision {
+export function decide(
+  git: Git,
+  published: string | null = null,
+  finished: Finished = () => true
+): Decision {
+  const unfinished = releaseTags(
+    git(['tag', '--list', 'v*', '--points-at', 'HEAD', '--sort=-v:refname'])
+  ).find((tag) => !finished(tag));
+  if (unfinished)
+    return {
+      release: true,
+      version: unfinished.slice(1),
+      previous:
+        releaseTags(git(['tag', '--list', 'v*', '--sort=-v:refname'])).find(
+          (tag) => tag !== unfinished
+        ) ?? unfinished,
+    };
   const tag = latestTag(git);
   if (!tag && !published)
     return {
@@ -136,8 +162,16 @@ function npmVersions(): string[] {
       : [];
 }
 
+/** Whether the tag has a GitHub Release, as `gh` sees it with the run's token. */
+const hasGitHubRelease: Finished = (tag) =>
+  spawnSync('gh', ['release', 'view', tag], { stdio: 'ignore' }).status === 0;
+
 if (import.meta.main) {
-  const decision = decide(system, newestPublished(npmVersions()));
+  const decision = decide(
+    system,
+    newestPublished(npmVersions()),
+    hasGitHubRelease
+  );
   const summary = process.env['GITHUB_STEP_SUMMARY'];
   const note = (line: string) => {
     if (summary) appendFileSync(summary, `${line}\n`);

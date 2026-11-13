@@ -51,7 +51,8 @@ cannot release because publishing was never set up (no tag and nothing on
 npm) fails, and the run summary says why; a merge with nothing new to release
 passes and says so. Re-running a
 release whose version is already on npm skips the publish and finishes the tag
-and GitHub Release.
+and GitHub Release, whether all its jobs or only the failed ones are re-run: a
+`HEAD` that carries its tag but has no GitHub Release is released again.
 
 Nothing is published until the release has been tried. The workflow packs
 the package once, then, for that commit and that tarball:
@@ -102,7 +103,12 @@ which the release waits for.
 A pull request is merged by a workflow, and a merge made with a workflow's
 own token starts no CI on `main`. [`auto-merge.yml`](../.github/workflows/auto-merge.yml)
 starts it when the newest commit on `main` has no run: when a CI run ends,
-and every hour.
+and every hour. A run started that way starts nothing when it ends either,
+so the same hourly run starts the release once CI has passed on the newest
+commit of `main` and no release has run for it, and the Failure issues
+workflow reads the newest finished run of every workflow it follows each
+hour as well. A merge is therefore released within about an hour of its CI
+passing.
 
 ## One-time setup
 
