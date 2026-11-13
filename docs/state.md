@@ -264,9 +264,14 @@ mise exec litestream -- litestream restore -no-expand-env \
 ```
 
 `devfleet fleet-state --restore --timestamp 2026-11-01T00:00:00Z --yes` does
-the same and then uploads that version as the bucket's current one. It is the
-remedy for a `corrupt` replica: the bucket answers, but its latest version
-cannot be read.
+the same and then uploads that version as the bucket's current one, which
+takes the manager lease. It is the remedy for a `corrupt` replica: the bucket
+answers, but its latest version cannot be read. `--yes` consents to replacing
+the bucket, not to replacing another manager: while one holds the lease in the
+bucket's current version, the restore stops with `FLEET_MANAGER_LEASE_HELD`
+before it changes anything, and `--take-over` overrides it. When the current
+version cannot be read, its lease cannot either, and the lease in this
+machine's copy (the last one it saw) decides instead.
 
 Litestream is pinned in `mise.toml` and installed the first time it is used.
 The manager is the only machine that runs it.
@@ -281,8 +286,8 @@ writes anything and stops with `FLEET_MANAGER_LEASE_HELD`. `fleet-state
 --init` still restores the state on such a machine; it only writes nothing.
 
 The lease runs for seven days after the last change. After that, any machine
-may take it. Before that, `--take-over` (on `fleet-sync`, `fleet-state --init`
-or `fleet-state --import`) makes this machine the manager; use it only once
+may take it. Before that, `--take-over` (on `fleet-sync`, `fleet-state --init`,
+`fleet-state --import` or `fleet-state --restore --timestamp`) makes this machine the manager; use it only once
 the other one is gone ([replacing the manager](manager-recovery.md)).
 
 A machine is named in the lease by a digest of its machine ID

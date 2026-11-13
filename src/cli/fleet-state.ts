@@ -486,13 +486,14 @@ async function restore(
   options: FleetStateOptions,
   services: FleetStateServices
 ): Promise<CommandOutcome> {
-  const target = context(services);
+  const target = context(services, options);
   if (!target.bucket)
     throw new FleetUsageError(
       'No bucket is configured, so there is nothing to restore from. Name it under "state" in fleet.json, or run devfleet fleet-state --init --bucket NAME --endpoint https://HOST.'
     );
   if (options.timestamp !== undefined) {
     // The bucket's current version is replaced too: --yes is the consent.
+    // Another manager's lease is not, and needs --take-over.
     if (!options.yes)
       throw new FleetUsageError(
         '--restore --timestamp replaces the fleet state in the bucket and on this machine with an earlier version. Repeat with --yes.'

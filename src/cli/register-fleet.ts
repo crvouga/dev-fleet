@@ -332,11 +332,11 @@ function registerState({ program, complete }: Registration) {
     .option('--yes', 'With --restore: discard changes the bucket does not hold')
     .option(
       '--timestamp <time>',
-      'With --restore: the version the bucket held at this time, uploaded again as the current one (a damaged replica)'
+      'With --restore: the version the bucket held at this time, uploaded again as the current one (a damaged replica); refused while another manager holds the manager lease, unless with --take-over'
     )
     .option(
       '--take-over',
-      'With --init or --import: change the fleet state while another manager still holds the manager lease'
+      'With --init, --import or --restore --timestamp: change the fleet state while another manager still holds the manager lease'
     )
     .addHelpText(
       'after',
