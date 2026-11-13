@@ -22,10 +22,16 @@ export async function fileHash(path: string): Promise<string | null> {
   }
 }
 
+/** A repository without a packages directory (dev-fleet itself) has an
+ * empty set of workspace manifests, which is known, not missing.
+ */
 export async function manifestHash(root: string): Promise<string | null> {
   try {
     const entries = await readdir(join(root, 'packages'), {
       withFileTypes: true,
+    }).catch((error: NodeJS.ErrnoException) => {
+      if (error.code === 'ENOENT') return [];
+      throw error;
     });
     const hashes: string[] = [];
     for (const entry of entries

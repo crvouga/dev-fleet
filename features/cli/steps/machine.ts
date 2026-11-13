@@ -1,6 +1,8 @@
 import { expect } from 'bun:test';
 import { leftoverControl } from './leftovers';
-import { writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { workspace } from '../../support/fixtures';
 import { Command } from 'commander';
 import { executeFleet, type FleetServices } from '../../../src/cli/fleet';
 import { syncNode, type NodeSyncOptions } from '../../../src/cli/node-sync';
@@ -43,6 +45,11 @@ class Machine {
   whileRepairing: (() => Promise<void>) | undefined;
   /** Every request a worker received, decoded. */
   readonly requests: Record<string, unknown>[] = [];
+  /** The commit the package devfleet runs from names, when it runs from one,
+   * and where this manager keeps its fleet-owned checkouts.
+   */
+  revision: string | undefined;
+  runs: string | undefined;
 }
 
 export const machine = part((world) => {
@@ -95,6 +102,9 @@ async function dispatch(
       return described.probe;
     },
     ...(leftoverControl(world) ? { tailnet: leftoverControl(world)! } : {}),
+    ...(described.revision
+      ? { revision: described.revision, runs: described.runs! }
+      : {}),
   };
   if (name === 'fleet-status')
     return executeFleet(
@@ -207,12 +217,58 @@ Given('the probe sent to workers is {string}', (world, source: string) => {
   machine(world).probe = source;
 });
 
+// ── Running from the published package ───────────────────────────────────
+
+/** The package as npm installs it: its manifest and tool pins, but no Git
+ * history and no bun.lock.
+ */
 Given(
-  'every worker answers the probe as this workspace does at the commit {string}',
+  'devfleet runs from a package published from the commit {string}',
   async (world, commit: string) => {
     const described = machine(world);
+    const root = await temporary(world, 'fleet-home-');
+    const installed = join(root, 'project/node_modules/@scope/dev-fleet');
+    await mkdir(installed, { recursive: true });
+    for (const file of ['package.json', 'mise.toml', 'mise.lock'])
+      await writeFile(join(installed, file), '{}');
+    described.revision = commit;
+    described.runs = join(root, 'manager-runs');
+    world.where = { ...where(world), workspace: installed };
+  }
+);
+
+Given(
+  'the manager has its fleet-owned checkout of that commit',
+  async (world) => {
+    const described = machine(world);
+    // Made elsewhere, then moved where fleet-sync keeps it.
+    const checkout = await workspace();
+    await mkdir(described.runs!, { recursive: true });
+    await rename(checkout, runCheckout(described));
+  }
+);
+
+const runCheckout = (described: Machine): string =>
+  join(described.runs!, described.revision!);
+
+Then('Git was run only in the fleet-owned checkout', (world) => {
+  const described = machine(world);
+  const git = described.commands.calls.filter(
+    (call) => call.command[0] === 'git'
+  );
+  expect(git.length).toBeGreaterThan(0);
+  for (const call of git)
+    expect(call.options?.cwd).toBe(runCheckout(described));
+});
+
+Given(
+  /^every worker answers the probe as (this workspace|the fleet-owned checkout) does at the commit "([^"]*)"$/,
+  async (world, reference: string, commit: string) => {
+    const described = machine(world);
     described.snapshot = await probe(
-      where(world).workspace,
+      reference === 'this workspace'
+        ? where(world).workspace
+        : runCheckout(described),
       [],
       async (command) => succeeded(command.includes('rev-parse') ? commit : '')
     );
@@ -380,6 +436,17 @@ Then('the report covers exactly {string}', (world, nodes: string) => {
 Then('the report covers {string}', (world, node: string) => {
   expect(report(world).nodes.some((entry) => entry.node === node)).toBe(true);
 });
+
+Then(
+  'the check {string} of {string} has the status {string}',
+  (world, id: string, node: string, status: string) => {
+    expect<string | undefined>(
+      report(world)
+        .nodes.find((entry) => entry.node === node)
+        ?.checks.find((check) => check.id === id)?.status
+    ).toBe(status);
+  }
+);
 
 Then(
   'the check {string} has the status {string}',

@@ -21,6 +21,10 @@ import { activeNodes, appendUsage } from './worker-usage-report';
 import { fleet, secret } from '../fleet-config';
 import { appendTailnetLeftovers } from '../tailnet-cleanup';
 import { fleetTailnetControl, type TailnetControl } from '../tailnet-control';
+import { packageInfo } from '../package-info';
+import { managerRuns } from './fleet-sync-checkout';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
 
 export interface FleetServices {
   run: Runner;
@@ -30,12 +34,18 @@ export interface FleetServices {
    * fleet-status says nothing about them.
    */
   tailnet?: () => Promise<TailnetControl | null>;
+  /** The commit the running package names; absent or null in a checkout. */
+  revision?: string | null;
+  /** Where the manager keeps its fleet-owned checkout of each revision. */
+  runs?: string;
 }
 
 const SERVICES: FleetServices = {
   run: runCommand,
   source: probeSource,
   tailnet: () => fleetTailnetControl(fleet.tailnet, secret),
+  revision: packageInfo().revision,
+  runs: managerRuns(),
 };
 
 export async function executeFleet(
@@ -131,10 +141,11 @@ async function diagnose(
   // A parked worker is not contacted; it is listed as parked.
   const active = activeNodes(nodes);
   const source = active.length ? await services.source() : undefined;
+  const root = statusRoot(settings, services);
   const reports = await doctor(
     active,
     {
-      root: settings.workspace,
+      root,
       local: options.local === true,
       required: capabilities(options.require),
       timeoutMs: timeout(options),
@@ -142,6 +153,7 @@ async function diagnose(
     },
     services.run
   );
+  explainMissingCheckout(reports, root);
   if (!options.local && settings.missingRoster) reports.push(missingRoster());
   const schedule = scheduleCheck(readHistory(), new Date());
   if (schedule) reports[0]?.checks.push(schedule);
@@ -174,6 +186,32 @@ async function diagnose(
     exitCode: reportExitCode(report, options.strict === true),
     data: report,
     text: withUsage(renderReport(report), usage),
+  };
+}
+
+/** What the manager and the workers are measured against. The published
+ * package holds no Git history and no bun.lock, and whatever repository
+ * surrounds it is the consumer's project: from a package it is the
+ * fleet-owned checkout fleet-sync made of the commit the package names. A
+ * checkout (development) is its own reference.
+ */
+function statusRoot(settings: Settings, services: FleetServices): string {
+  const { revision, runs } = services;
+  return revision && runs ? join(runs, revision) : settings.workspace;
+}
+
+/** The manager has not run fleet-sync at this package's commit yet (a
+ * checkout is its own reference, so it always exists).
+ */
+function explainMissingCheckout(reports: NodeReport[], root: string): void {
+  if (existsSync(root)) return;
+  const check = reports[0]?.checks.find((item) => item.id === 'workspace');
+  if (!check) return;
+  check.summary =
+    'This manager has no fleet-owned checkout of the commit this package names; it is made by fleet-sync.';
+  check.remedy = {
+    action:
+      'Run devfleet fleet-sync from the project that holds your fleet.json, then fleet-status again.',
   };
 }
 

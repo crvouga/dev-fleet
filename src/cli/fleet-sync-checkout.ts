@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { prepareSource } from '../machine/source';
 import { PACKAGE_ROOT, packageInfo } from '../package-info';
@@ -15,6 +16,12 @@ import { forwardedFlags, type ForwardSpawn } from './fleet-sync-forward';
 export const RUN_CHECKOUT_ENV = 'PERSONAL_FLEET_RUN_CHECKOUT';
 
 const RUN_SCRIPT = 'bootstrap/fleet-manager-run.sh';
+
+/** Where the run script keeps the manager's fleet-owned checkouts, one per
+ * revision (`$fleet/manager-runs/<revision>`).
+ */
+export const managerRuns = (): string =>
+  join(homedir(), '.local/share/personal/fleet/manager-runs');
 
 export const inRunCheckout = (revision: string): boolean =>
   process.env[RUN_CHECKOUT_ENV] === revision;

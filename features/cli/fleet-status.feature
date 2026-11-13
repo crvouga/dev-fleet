@@ -31,6 +31,38 @@ Feature: fleet-status checks the manager and its workers without changing them
     And the check "fleet:roster" has the status "fail"
     And no probe was bundled for workers
 
+  Rule: From the published package, everything is measured against the fleet-owned checkout of the commit it names
+    The installed package holds no Git history and no bun.lock, and the
+    repository around it is the operator's project. fleet-sync makes a
+    fleet-owned checkout of the package's commit on the manager; fleet-status
+    checks the manager in it and compares every worker with it.
+
+    Background:
+      Given devfleet runs from a package published from the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+    Scenario: The manager is checked in its checkout of the package's commit, not in the package
+      Given the manager has its fleet-owned checkout of that commit
+      When the operator runs "devfleet fleet-status --local --require none"
+      Then the check "workspace" of "manager" has the status "pass"
+      And Git was run only in the fleet-owned checkout
+
+    Scenario: A worker at the package's commit matches it, lockfiles included
+      Given the manager has its fleet-owned checkout of that commit
+      And these workers are registered:
+        | id  | ssh     | workspace           |
+        | one | dev-one | /home/dev/workspace |
+      And the probe sent to workers is "standalone-probe-source"
+      And every worker answers the probe as the fleet-owned checkout does at the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      When the operator runs "devfleet fleet-status --require none"
+      Then the check "revision" of "one" has the status "pass"
+      And the check "sync:bun.lock" of "one" has the status "pass"
+      And the check "sync:package.json" of "one" has the status "pass"
+
+    Scenario: Before fleet-sync has made the checkout, fleet-status says to run it
+      When the operator runs "devfleet fleet-status --local --require none"
+      Then the check "workspace" of "manager" has the status "fail"
+      And the check "workspace" of "manager" says "no fleet-owned checkout of the commit this package names"
+
   Rule: Workers are reached over SSH with the probe the manager supplies
 
     Background:
