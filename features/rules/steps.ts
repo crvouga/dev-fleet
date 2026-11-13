@@ -835,6 +835,18 @@ Then(
 );
 
 Then(
+  'on the hour its {string} job reads every workflow it follows',
+  (world, name: string) => {
+    // The matrix is the workflow that ended, or else this literal list.
+    const matrix = String(job(world, name).strategy?.matrix?.['workflow']);
+    const hourly = /fromJSON\('(\[[^']*\])'\)\s*\}\}$/.exec(matrix)?.[1];
+    expect(JSON.parse(hourly ?? '[]')).toEqual(
+      world.workflow?.on['workflow_run']?.workflows
+    );
+  }
+);
+
+Then(
   'the {string} workflow follows no run of a pull request',
   async (_world, name: string) => {
     for (const entry of Object.values((await workflow(name)).jobs))

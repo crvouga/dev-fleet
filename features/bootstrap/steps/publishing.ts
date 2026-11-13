@@ -246,6 +246,10 @@ Then('the plan has these steps, in order:', (world, table: DataTable) => {
 
 const release = part(() => ({
   tags: [] as string[],
+  /** The release tags HEAD itself carries. */
+  head: [] as string[],
+  /** Release tags that have no GitHub Release. */
+  unfinished: [] as string[],
   released: false,
   messages: [] as string[],
   npm: [] as string[],
@@ -263,7 +267,10 @@ const git =
   (args) => {
     const state = release(world);
     const [command] = args;
-    if (command === 'tag') return state.tags.join('\n');
+    if (command === 'tag')
+      return (args.includes('--points-at') ? state.head : state.tags).join(
+        '\n'
+      );
     if (command === 'merge-base') return state.released ? '' : null;
     if (command === 'log')
       return state.messages.map((message) => `${message}\n\0`).join('\n');
@@ -307,6 +314,16 @@ Given('HEAD is already in the last release', (world) => {
   release(world).released = true;
 });
 
+Given(
+  /^HEAD carries the tag "([^"]+)", (with|without) its GitHub Release$/,
+  (world, tag: string, finished: string) => {
+    const state = release(world);
+    state.head = [tag];
+    state.released = true;
+    if (finished === 'without') state.unfinished.push(tag);
+  }
+);
+
 Given(/^the commits since the last tag are (.+)$/, (world, commits: string) => {
   release(world).messages = quoted(commits);
 });
@@ -328,9 +345,11 @@ Given(/^npm holds the versions (.+)$/, (world, versions: string) => {
 });
 
 When('the release is decided', (world) => {
-  release(world).decision = decide(
+  const state = release(world);
+  state.decision = decide(
     git(world),
-    newestPublished(release(world).npm)
+    newestPublished(state.npm),
+    (tag) => !state.unfinished.includes(tag)
   );
 });
 

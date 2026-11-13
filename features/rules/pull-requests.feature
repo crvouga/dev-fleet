@@ -27,14 +27,18 @@ Feature: A pull request reaches a release with nobody attending
     And the "Auto-merge" workflow runs on "schedule"
     And its "reconcile" job runs "gh pr merge --repo \"$REPO\" --auto --squash"
 
-  Scenario: A merge that started no checks on main gets them
+  Scenario: A merge that started no checks on main gets them, and its release
     A merge made with a workflow's own token starts no workflow. The end of a
     CI run (which is what merges a pull request) and every hour start CI on
-    main when its newest commit has no run, and the release follows that run.
+    main when its newest commit has no run. That run, started with the same
+    token, starts no release when it ends: every hour the release is started
+    when CI passed on the newest commit of main and no release ran for it.
     Then the "Auto-merge" workflow runs on "workflow_run"
     And the "Auto-merge" workflow runs on "schedule"
     And its "reconcile" job runs "gh workflow run ci.yml"
+    And its "reconcile" job runs "gh workflow run release.yml"
     And the "CI" workflow runs on "workflow_dispatch"
+    And the "Release" workflow runs on "workflow_dispatch"
     And the "Release" workflow follows the "CI" workflow
 
   Scenario: A pull request a workflow opens is checked like any other
@@ -45,6 +49,13 @@ Feature: A pull request reaches a release with nobody attending
     When the workflows that run in this repository by themselves are listed
     Then there is at least one
     And each is followed by the "Failure issues" workflow
+
+  Scenario: A run that starts no workflow when it ends still has its issue
+    A run started with a workflow's own token ends without starting the
+    Failure issues workflow, so every hour it reads the newest finished run
+    of each workflow it follows.
+    Then the "Failure issues" workflow runs on "schedule"
+    And on the hour its "track" job reads every workflow it follows
 
   Scenario: The issue of a failing workflow is opened once, kept current and closed by the first passing run
     When the "Open, update or close the issue of this workflow" step of the "Failure issues" workflow is read

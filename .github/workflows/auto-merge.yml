@@ -9,7 +9,10 @@ name: Auto-merge
 # release. Nothing can be hung on the merge itself, so this workflow also
 # runs when a CI run ends (the last check of a pull request ending is what
 # merges it) and hourly, and each time starts CI on main when the newest
-# commit there has no run. The release follows that run as after any merge.
+# commit there has no run. A run started with the workflow's own token ends
+# without starting the workflows that follow it either, so the release is
+# started the same way: when CI has passed on the newest commit of main and
+# no release has run for it.
 #
 # The hourly run also enables auto-merge on any open pull request that missed
 # its event (one opened by another workflow, for example).
@@ -89,4 +92,20 @@ jobs:
           else
             echo "No CI run for $commit: starting one."
             gh workflow run ci.yml --repo "$REPO" --ref "$MAIN"
+          fi
+      - name: Start the release when CI passed on main and nothing released it
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          commit=$(gh api "repos/$REPO/commits/$MAIN" --jq .sha)
+          passed=$(gh api "repos/$REPO/actions/workflows/ci.yml/runs?head_sha=$commit&branch=$MAIN" \
+            --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch") | select(.conclusion == "success")] | length')
+          released=$(gh api "repos/$REPO/actions/workflows/release.yml/runs?head_sha=$commit" --jq .total_count)
+          if [ "$passed" -eq 0 ]; then
+            echo "CI has not passed on $commit yet."
+          elif [ "$released" -gt 0 ]; then
+            echo "The release has run for $commit."
+          else
+            echo "CI passed on $commit and nothing released it: starting the release."
+            gh workflow run release.yml --repo "$REPO" --ref "$MAIN"
           fi

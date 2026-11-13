@@ -8,6 +8,9 @@ on:
   # A hand-pushed vX.Y.Z tag (the bootstrap seed) still publishes that version.
   push:
     tags: ['v*']
+  # By auto-merge.yml, for a run of CI that a workflow started: its end
+  # starts no workflow_run, so it would never be released otherwise.
+  workflow_dispatch: {}
 permissions:
   contents: write
   # npm Trusted Publishing: the job proves who it is with a short-lived OIDC
@@ -18,16 +21,19 @@ permissions:
 # releases nothing (CI failed or was cancelled on main) stays out of the
 # queue: there it would take the place of a release that is waiting.
 concurrency:
-  group: ${{ (github.event_name == 'push' || github.event.workflow_run.conclusion == 'success') && 'release' || format('release-nothing-{0}', github.run_id) }}
+  group: ${{ (github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success') && 'release' || format('release-nothing-{0}', github.run_id) }}
   cancel-in-progress: false
 jobs:
   # Choose the version, stamp it and the commit into the package, and pack it
   # once. Every later job tests or publishes this one tarball.
   # CI on main runs on a push, or is dispatched by auto-merge.yml after a merge
-  # made with the workflow's own token (which starts no push workflow).
+  # made with the workflow's own token (which starts no push workflow). A run
+  # of CI started that way starts no Release either: auto-merge.yml dispatches
+  # this workflow once CI has passed on the newest commit of main.
   pack:
     if: >-
       github.event_name == 'push' ||
+      (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch) ||
       (github.event.workflow_run.conclusion == 'success' &&
        contains(fromJSON('["push", "workflow_dispatch"]'), github.event.workflow_run.event))
     runs-on: ubuntu-latest
@@ -58,6 +64,9 @@ jobs:
         run: bun run format && bun run tc && bun run lint && bun test
       - name: Choose the version
         id: version
+        env:
+          # Whether a tag on HEAD has its GitHub Release yet.
+          GH_TOKEN: ${{ github.token }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = push ]; then
             version="${GITHUB_REF_NAME#v}"

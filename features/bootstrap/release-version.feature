@@ -101,6 +101,21 @@ Feature: The version a release publishes
       When the release is decided
       Then nothing is released, because "HEAD is already in v0.2.0."
 
+    Scenario: A release that pushed its tag and failed before its GitHub Release is finished by a full re-run
+      A re-run of every job finds HEAD tagged. The version is released again:
+      the publish skips what npm already holds from this commit, and the
+      GitHub Release is created.
+      Given git lists the tags "v0.3.0", "v0.2.0", newest first
+      And HEAD carries the tag "v0.3.0", without its GitHub Release
+      When the release is decided
+      Then the version "0.3.0" is released, after "v0.2.0"
+
+    Scenario: A finished release is not released again
+      Given git lists the tags "v0.3.0", "v0.2.0", newest first
+      And HEAD carries the tag "v0.3.0", with its GitHub Release
+      When the release is decided
+      Then nothing is released, because "HEAD is already in v0.3.0."
+
     Scenario: No commits since the tag means nothing to release
       Given git lists the tags "v0.2.0", newest first
       When the release is decided
