@@ -54,3 +54,24 @@ Feature: The published package is the whole CLI and nothing else
   Scenario: The launcher starts the CLI through Bun and reports the manifest version
     When "node bin/devfleet.mjs --version" is run in the checkout
     Then it prints "0.0.0-development (unreleased source build)"
+
+  Scenario Outline: The launcher runs the pinned Bun only when it is an executable
+    A package installed without its install scripts (pnpm, npm
+    --ignore-scripts) holds a text stub where the pinned Bun belongs. Linux
+    runs that stub through the shell instead of refusing it, so the launcher
+    looks at the file before it chooses, and then falls back to the Bun on PATH.
+    Given the installed launcher's pinned Bun is <pinned>
+    And a Bun is on PATH
+    When the installed launcher is run
+    Then the CLI runs on <chosen>
+
+    Examples:
+      | pinned                                 | chosen          |
+      | a Bun executable                       | the pinned Bun  |
+      | a stub left by skipped install scripts | the Bun on PATH |
+
+  Scenario: The launcher says Bun is needed when no Bun can start
+    Given the installed launcher's pinned Bun is a stub left by skipped install scripts
+    And no Bun is on PATH
+    When the installed launcher is run
+    Then it exits 127 and says "dev-fleet needs Bun"

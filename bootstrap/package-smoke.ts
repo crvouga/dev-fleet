@@ -6,8 +6,11 @@
  *
  *   bun bootstrap/package-smoke.ts <tarball> <version> <commit>
  *
- * It runs in an empty directory, outside any project, so it reads no
- * fleet.json and contacts no machine.
+ * It installs twice: as npm does by default, and with `--ignore-scripts` as
+ * pnpm and cautious projects do, which leaves the pinned Bun a text stub and
+ * makes the launcher fall back to the Bun on PATH. Each runs in an empty
+ * directory, outside any project, so it reads no fleet.json and contacts no
+ * machine.
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -47,9 +50,16 @@ function must(ran: Ran, what: string): string {
   return ran.stdout;
 }
 
-/** Install the tarball in a new directory and run its `devfleet`. */
-export function smoke(tarball: string, expected: Expected): void {
+/** Install the tarball in a new directory, with these npm flags, and run its
+ * `devfleet`.
+ */
+function installAndRun(
+  tarball: string,
+  expected: Expected,
+  flags: string[]
+): void {
   const directory = mkdtempSync(join(tmpdir(), 'devfleet-smoke-'));
+  const how = flags.length ? ` (installed with ${flags.join(' ')})` : '';
   try {
     writeFileSync(
       join(directory, 'package.json'),
@@ -66,35 +76,42 @@ export function smoke(tarball: string, expected: Expected): void {
           '--no-audit',
           '--no-fund',
           '--save-exact',
+          ...flags,
           resolve(tarball),
         ],
         directory
       ),
-      'npm install'
+      `npm install${how}`
     );
     const devfleet = join(directory, 'node_modules', '.bin', 'devfleet');
     const version = must(
       run([devfleet, '--version'], directory),
-      'devfleet --version'
+      `devfleet --version${how}`
     );
     if (!version.includes(expected.version))
       throw new Error(
-        `devfleet --version printed "${version.trim()}", not ${expected.version}.`
+        `devfleet --version printed "${version.trim()}", not ${expected.version}${how}.`
       );
     if (!version.includes(expected.commit.slice(0, 7)))
       throw new Error(
-        `devfleet --version names no commit ${expected.commit.slice(0, 7)}.`
+        `devfleet --version names no commit ${expected.commit.slice(0, 7)}${how}.`
       );
     const example = must(
       run([devfleet, 'fleet-state', '--example'], directory),
-      'devfleet fleet-state --example'
+      `devfleet fleet-state --example${how}`
     );
     const parsed = JSON.parse(example) as { $schema?: unknown };
     if (typeof parsed.$schema !== 'string')
-      throw new Error('The example fleet.json names no schema.');
+      throw new Error(`The example fleet.json names no schema${how}.`);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+}
+
+/** Install the tarball with and without install scripts and run it each time. */
+export function smoke(tarball: string, expected: Expected): void {
+  installAndRun(tarball, expected, []);
+  installAndRun(tarball, expected, ['--ignore-scripts']);
 }
 
 if (import.meta.main) {
