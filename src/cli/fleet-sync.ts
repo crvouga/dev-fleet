@@ -250,7 +250,7 @@ export async function managerSync(
 /** The revision the manager converges to, or why there is none. */
 async function managerRevision(
   options: FleetSyncOptions,
-  state: { approvedRevision?: string; previousRevision?: string } | null,
+  state: Enrollment | null,
   settings: Settings,
   run: Runner
 ): Promise<string | CommandOutcome> {
@@ -258,7 +258,7 @@ async function managerRevision(
   if (explicit === null)
     return actionRequired(
       'FLEET_ROLLBACK_UNAVAILABLE',
-      'Nothing was changed: the fleet state records no revision applied before the current one. Install the dev-fleet version to go back to and run fleet-sync.'
+      'Nothing was changed: the fleet state records no revision applied before the approved one. Install the dev-fleet version to go back to and run fleet-sync.'
     );
   const revision = await selectedRevision(
     explicit,
@@ -381,6 +381,7 @@ function applyLocked(
     ...(definitionSource().kind === 'file'
       ? { definition: JSON.stringify(canonicalDefinition, null, 2) + '\n' }
       : {}),
+    scoped: Boolean(request.node?.length),
   });
   return withMachineLock(root, async () => {
     record.approve();
@@ -629,13 +630,20 @@ function validateSchedule(schedule: unknown): void {
 }
 
 /** The revision a request names: --revision, or for --rollback the one
- * applied before the current one (null when the fleet state records none).
+ * applied before the approved one (null when the fleet state records none).
+ * After an approved revision that never became the applied one (its canary
+ * failed), that is the applied revision itself.
  */
 function requestedRevision(
   options: FleetSyncOptions,
-  state: { previousRevision?: string } | null
+  state: Enrollment | null
 ): string | undefined | null {
   if (!options.rollback) return options.revision;
+  if (
+    state?.appliedRevision &&
+    state.appliedRevision !== state.approvedRevision
+  )
+    return state.appliedRevision;
   return state?.previousRevision ?? null;
 }
 

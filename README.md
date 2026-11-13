@@ -143,8 +143,9 @@ ends those turns, and `fleet-sync --dry-run` (with or without the flag) says
 which of the two a sync would do.
 
 To go back, run `npx devfleet fleet-sync --rollback` on the manager: it
-converges every machine to the revision applied before the current one, which
-the fleet state records. A rollback covers what a revision declares: the
+converges every machine to the revision applied before the approved one, which
+the fleet state records: after an upgrade whose canary failed, that is the
+revision the fleet still runs. A rollback covers what a revision declares: the
 checkout, the pinned tools and T3 Code. System packages roll forward only
 (apt never downgrades them), so a release that moved one keeps it. Installing
 an older version and running `fleet-sync` does the same for any earlier
@@ -269,7 +270,9 @@ and leaves a tombstone in the fleet state), then delete its entry and run
 `fleet-sync`. To put a fresh machine in place of a worker under the same id,
 run `npx devfleet fleet-node-replace --id ID --host-key "TYPE BASE64" --apply
 --yes` and then `fleet-sync --node ID`; the manager's T3 pairs with the new
-machine's T3 by itself, with no code to copy.
+machine's T3 by itself, with no code to copy. A run scoped with `--node` records only the
+revision of the workers it covered; the fleet's applied revision moves with a
+full `fleet-sync`.
 
 ## Configuration
 

@@ -23,9 +23,10 @@ export interface RunRecord {
   approve(): void;
   /** Once the result is known. The check says whether the bucket holds it.
    * `applied` is the revision each worker that converged now holds: it is
-   * kept even when the fleet as a whole is not ready.
+   * kept even when the fleet as a whole is not ready, and it is all a run
+   * scoped with --node records.
    */
-  settle(converged: boolean, applied?: Record<string, string>): Promise<Check>;
+  settle(ready: boolean, applied?: Record<string, string>): Promise<Check>;
   /** For a run that stopped before its result: its approval is still uploaded. */
   abandon(): Promise<void>;
 }
@@ -42,6 +43,10 @@ export function runRecord(
      * worker, a replacement manager) uses the one last applied.
      */
     definition?: string;
+    /** A run scoped with --node covers only the workers it selected: it
+     * records their revisions, never one applied for the whole fleet.
+     */
+    scoped?: boolean;
   }
 ): RunRecord {
   const env = state.env ?? process.env;
@@ -73,8 +78,9 @@ export function runRecord(
       }
       claimLease(state.context);
     },
-    async settle(converged, applied = {}) {
+    async settle(ready, applied = {}) {
       settled = true;
+      const converged = ready && state.scoped !== true;
       if (converged || Object.keys(applied).length) {
         // What was recorded since the approval stands: the run itself
         // retires a worker whose record was removed, and another command
