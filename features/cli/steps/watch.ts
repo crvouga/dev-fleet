@@ -196,3 +196,12 @@ Then(
 Then('the notify block {string} is refused', (_world, json: string) => {
   expect(parseNotify(JSON.parse(json))).toBeNull();
 });
+
+Given(
+  'fleet-status warns about {string} on {string}',
+  (world, id: string, node: string) => {
+    watch(world).nodes = [
+      { node, checks: [{ id, status: 'warn', summary: 'low disk' }] },
+    ];
+  }
+);

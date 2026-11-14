@@ -67,12 +67,16 @@ export interface Notification {
   checks: string[];
 }
 
-/** Only what a report concluded: the required checks that failed. */
+/** Required failures and early disk warnings reach the configured targets. */
 export function observe(nodes: NodeReport[]): Observation[] {
   return nodes.map((node) => ({
     node: node.node,
     failing: node.checks
-      .filter((check) => check.status === 'fail' && check.required !== false)
+      .filter(
+        (check) =>
+          (check.status === 'fail' && check.required !== false) ||
+          (check.status === 'warn' && check.id === 'worker:capacity:disk')
+      )
       .map((check) => check.id),
   }));
 }

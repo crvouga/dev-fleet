@@ -119,17 +119,20 @@ to the measured parts with room for the disk floors below.
 
 The disk and memory lines of the worker policy scale with the machine: each
 is a share of the root filesystem or of memory between a lower and an upper
-bound (`sizing.thresholds`), and the upper bounds are the fixed numbers every
-worker had before.
+bound (`sizing.thresholds`), with higher disk warning and cleanup caps for large build disks.
+The warning starts below 15% free (capped at 256 GiB); cleanup pressure starts
+below 20% free (capped at 512 GiB). Small workers intentionally reserve more
+space too: a 40 GiB disk now warns below 6 GiB and cleans below 8 GiB.
+Configured fleet-watch targets receive disk warnings before they become failures.
 
-| Line                               | Share         | Lower    | Upper     |
-| ---------------------------------- | ------------- | -------- | --------- |
-| Swap file (created only when none) | 50% of memory | 1024 MiB | 8192 MiB  |
-| Free disk the baseline keeps       | 5% of disk    | 2048 MiB | 4096 MiB  |
-| Disk guard floor                   | 3% of disk    | 1024 MiB | 3072 MiB  |
-| Disk GC pressure line              | 15% of disk   | 4096 MiB | 15360 MiB |
-| `worker:capacity:disk` warns under | 10% of disk   | 3072 MiB | 10240 MiB |
-| `worker:capacity:disk` fails under | 2% of disk    | 1024 MiB | 2048 MiB  |
+| Line                               | Share         | Lower    | Upper      |
+| ---------------------------------- | ------------- | -------- | ---------- |
+| Swap file (created only when none) | 50% of memory | 1024 MiB | 8192 MiB   |
+| Free disk the baseline keeps       | 5% of disk    | 2048 MiB | 4096 MiB   |
+| Disk guard floor                   | 3% of disk    | 1024 MiB | 3072 MiB   |
+| Disk GC pressure line              | 20% of disk   | 4096 MiB | 524288 MiB |
+| `worker:capacity:disk` warns under | 15% of disk   | 3072 MiB | 262144 MiB |
+| `worker:capacity:disk` fails under | 2% of disk    | 1024 MiB | 2048 MiB   |
 
 `worker:agent-sessions` reports how many agent sessions run and how many the
 memory policy supports at once: the memory user workloads may use (90%), less

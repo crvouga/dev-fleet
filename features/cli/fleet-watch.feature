@@ -50,6 +50,13 @@ Feature: The fleet tells someone when a worker becomes unhealthy
       And fleet-watch exits with 0 and its check "watch:heartbeat" passes
       And the bucket holds a heartbeat from "2026-11-11T00:00:00Z"
 
+    Scenario: Low disk space warns the operator before the worker fails
+      Given fleet-status warns about "worker:capacity:disk" on "worker-a"
+      When the watcher runs
+      Then the webhook receiver got, in order:
+        | event    | node     | checks               |
+        | degraded | worker-a | worker:capacity:disk |
+
   Rule: A test notification proves a target works, without a fleet to watch
 
     Scenario: The test reaches the webhook

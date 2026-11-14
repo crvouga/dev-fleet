@@ -4,8 +4,7 @@ Feature: A worker's disk and memory lines scale with the machine
   in the Ubuntu policy: the swap file, the free disk the baseline keeps, the
   disk guard's floor, the line under which the disk GC works under pressure,
   and the lines under which worker:capacity warns and fails. A small rented
-  instance gets lines it can meet; a large disk never gets more than the upper
-  bounds, which are the fixed numbers every worker had before.
+  instance gets lines it can meet; large disks retain enough free space for builds before warning or cleanup.
 
   Rule: The lines are shares between bounds
 
@@ -15,19 +14,25 @@ Feature: A worker's disk and memory lines scale with the machine
         | swapFile        | 4096 |
         | minimumFreeDisk | 2048 |
         | diskGuardFloor  | 1228 |
-        | diskGcPressure  | 6144 |
-        | capacityWarn    | 4096 |
+        | diskGcPressure  | 8192 |
+        | capacityWarn    | 6144 |
         | capacityFail    | 1024 |
 
-    Scenario: A large workstation keeps the lines every worker had before
+    Scenario: A large workstation reserves space before builds fill its disk
       Then on a machine with 64 GiB of memory and a 500 GiB disk the lines are, in MiB:
         | line            | MiB   |
         | swapFile        | 8192  |
         | minimumFreeDisk | 4096  |
         | diskGuardFloor  | 3072  |
-        | diskGcPressure  | 15360 |
-        | capacityWarn    | 10240 |
+        | diskGcPressure  | 102400 |
+        | capacityWarn    | 76800 |
         | capacityFail    | 2048  |
+
+    Scenario: A nearly one terabyte disk warns before it is full
+      Then on a machine with 64 GiB of memory and a 937 GiB disk the lines are, in MiB:
+        | line           | MiB    |
+        | diskGcPressure | 191897 |
+        | capacityWarn   | 143923 |
 
     Scenario Outline: No line leaves its bounds on a <disk> GiB disk
       Then no line is above its declared upper bound on a <disk> GiB disk
@@ -46,11 +51,11 @@ Feature: A worker's disk and memory lines scale with the machine
 
       Examples:
         | disk | free  | verdict |
-        | 40   | 5000  | passes  |
+        | 40   | 7000  | passes  |
         | 40   | 3500  | warns   |
         | 40   | 900   | fails   |
         | 500  | 9000  | warns   |
-        | 500  | 12000 | passes  |
+        | 500  | 80000 | passes  |
 
   Rule: fleet-status says how many agent sessions the memory policy supports, and how many run
 

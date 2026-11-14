@@ -15,6 +15,7 @@ Feature: The health of a machine itself
         memfree=50
         swap=0
         diskmb=50000
+        disktotalmb=102400
         inodefree=<inodes>
         ntp=1
         ntpsync=1
@@ -37,6 +38,7 @@ Feature: The health of a machine itself
         memfree=50
         swap=0
         diskmb=50000
+        disktotalmb=102400
         inodefree=0
         """
       When the capacity of the worker is checked
@@ -53,6 +55,7 @@ Feature: The health of a machine itself
         memfree=50
         swap=0
         diskmb=50000
+        disktotalmb=102400
         ntp=<ntp>
         ntpsync=<synced>
         epoch=<epoch>
@@ -77,6 +80,7 @@ Feature: The health of a machine itself
         memfree=50
         swap=0
         diskmb=50000
+        disktotalmb=102400
         ntp=0
         ntpsync=0
         epoch=1800000100

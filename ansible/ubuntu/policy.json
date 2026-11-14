@@ -126,15 +126,15 @@
       },
       "diskGcPressure": {
         "of": "disk",
-        "share": 0.15,
+        "share": 0.2,
         "minMiB": 4096,
-        "maxMiB": 15360
+        "maxMiB": 524288
       },
       "capacityWarn": {
         "of": "disk",
-        "share": 0.1,
+        "share": 0.15,
         "minMiB": 3072,
-        "maxMiB": 10240
+        "maxMiB": 262144
       },
       "capacityFail": {
         "of": "disk",
