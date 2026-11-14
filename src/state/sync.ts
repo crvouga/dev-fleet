@@ -11,7 +11,7 @@ import { basename, dirname, join } from 'node:path';
 import { record } from '../config';
 import { FleetUsageError } from '../errors';
 import { FleetLockError } from '../machine/lock-error';
-import { withMachineLock } from '../machine/state';
+import { withMachineLock } from '../machine/lock';
 import { runCommand } from '../runner';
 import type { Runner } from '../types';
 import { bucketIdentity, type Bucket } from './bucket';

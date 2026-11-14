@@ -8,7 +8,7 @@ person (a login, an approval, a choice) is marked **needs a person**.
 `features/rules/runbooks.feature` fails when a code in the source has no
 entry here, or a `devfleet` command quoted in the documents does not exist.
 
-There are 301 codes; 46 need a person.
+There are 302 codes; 46 need a person.
 
 ## Bootstrap of a new or returning worker
 
@@ -494,3 +494,7 @@ There are 301 codes; 46 need a person.
 
 - `NOTIFY_DELIVERY_FAILED`: notify delivery failed.
 - `NOTIFY_TARGET_UNAVAILABLE`: notify target unavailable.
+
+## Local command lock
+
+- `SQLITE_BUSY`: SQLite reports that another command holds the local guard. The CLI translates this into a locked message. Wait for that command to finish and retry; do not delete `sync.guard.sqlite` while commands are running. See [local command locking](state.md#local-command-locking).

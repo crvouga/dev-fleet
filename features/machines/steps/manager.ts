@@ -10,7 +10,8 @@ import {
 import { join } from 'node:path';
 import { fleet } from '../../../src/fleet-config';
 import { approvedLocalSource } from '../../../src/machine/local-source';
-import { readEnrollment, withMachineLock } from '../../../src/machine/state';
+import { readEnrollment } from '../../../src/machine/state';
+import { withMachineLock } from '../../../src/machine/lock';
 import { machines, temporary } from './world';
 import type { MachinesWorld } from './world';
 
@@ -230,4 +231,57 @@ Then('the checkout {string} supplies it', (world, checkout: string) => {
 
 Then('no checkout supplies it', (world) => {
   expect(world.source).toBeNull();
+});
+
+Given(
+  'a sync has removed the abandoned directory and pauses before claiming it',
+  async (world) => {
+    let resume = (): void => {};
+    let reached = (): void => {};
+    const resumed = new Promise<void>((done) => (resume = done));
+    const removed = new Promise<void>((done) => (reached = done));
+    const sync = withMachineLock(
+      world.directory,
+      async () => 'ran',
+      async () => {},
+      async () => {
+        reached();
+        await resumed;
+      }
+    );
+    world.defer(async () => {
+      resume();
+      await sync.catch(() => undefined);
+    });
+    await Promise.race([removed, sync]);
+    expect(await exists(lock(world))).toBe(false);
+    world.paused = { resume, sync };
+  }
+);
+
+Given(
+  'two other syncs try to enter while the directory is absent',
+  async (world) => {
+    world.contenders = await Promise.allSettled([
+      withMachineLock(world.directory, async () => 'ran'),
+      withMachineLock(world.directory, async () => 'ran'),
+    ]);
+  }
+);
+
+Then('both other syncs were refused as locked', (world) => {
+  expect(world.contenders).toHaveLength(2);
+  for (const result of world.contenders) {
+    expect(result.status).toBe('rejected');
+    if (result.status === 'rejected')
+      expect(String(result.reason)).toContain('locked');
+  }
+});
+
+Given('a sync failed inside its operation', async (world) => {
+  await expect(
+    withMachineLock(world.directory, async () => {
+      throw new Error('operation failed');
+    })
+  ).rejects.toThrow('operation failed');
 });
