@@ -139,7 +139,9 @@ are preserved by the hub's backups. Set them once, as the fleet account:
   all-to-all mesh, so a failed check names a path you can reason about.
 - **Alerts.** Prefer sustained thresholds over instant ones: CPU, memory and
   disk above a level for several minutes, disk capacity, a system going offline,
-  and temperatures where the sensor is actually reported. Do not add a
+  and temperatures where the sensor is actually reported. Set disk capacity
+  alerts to 85% used to match the worker warning on disks up to 1706 GiB;
+  on larger disks use the 256 GiB free warning floor from the worker policy. Do not add a
   notification destination until one you are allowed to use exists.
 - **Service alerts are not promised.** Alerting on a failed systemd service has
   not been verified against the pinned release; the agent watches only the
