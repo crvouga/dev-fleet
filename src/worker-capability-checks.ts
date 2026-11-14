@@ -54,30 +54,67 @@ function dockerFailure(result: CommandResult): {
   };
 }
 
+/** A word the shell reads back unchanged. */
+const quoted = (word: string): string => `'${word.replaceAll("'", `'\\''`)}'`;
+
+/** fleet-sync adds the worker's user to the docker group, but a session
+ * started before that keeps its old groups: the group database lists the
+ * user in docker while this process does not hold the group. A fresh session
+ * made with `sg docker` then reads the group from scratch, as the baseline's
+ * own smoke test does with `runuser`, so the first sync of a new worker
+ * measures the worker and not the age of its session.
+ */
+async function freshDockerSession(run: Runner): Promise<Runner | undefined> {
+  const user = await run(['id', '-un']);
+  const name = user.stdout.trim();
+  if (!user.ok || !name) return undefined;
+  const held = await run(['id', '-Gn']);
+  const listed = await run(['id', '-Gn', name]);
+  const groups = (result: CommandResult): string[] =>
+    result.ok ? result.stdout.trim().split(/\s+/) : [];
+  if (groups(held).includes('docker') || !groups(listed).includes('docker'))
+    return undefined;
+  return (command, options) =>
+    run(['sg', 'docker', '-c', command.map(quoted).join(' ')], options);
+}
+
 /** Runs the pinned image offline, then builds a one-line image from it. */
 export async function dockerRunCheck(run: Runner): Promise<Check> {
   const id = 'worker:docker-run';
   const { image, timeoutSeconds } = policy.dockerSmokeTest;
   const timeoutMs = timeoutSeconds * 1000;
-  const started = await run(
-    [
-      'docker',
-      'run',
-      '--rm',
-      '--network',
-      'none',
-      '--pull',
-      'never',
-      image,
-      'true',
-    ],
-    { timeoutMs }
-  );
+  const runContainer = (runner: Runner) =>
+    runner(
+      [
+        'docker',
+        'run',
+        '--rm',
+        '--network',
+        'none',
+        '--pull',
+        'never',
+        image,
+        'true',
+      ],
+      { timeoutMs }
+    );
+  let session = run;
+  let started = await runContainer(session);
+  if (
+    !started.ok &&
+    dockerFailure(started).code === 'DOCKER_SOCKET_ACCESS_DENIED'
+  ) {
+    const fresh = await freshDockerSession(run);
+    if (fresh) {
+      session = fresh;
+      started = await runContainer(session);
+    }
+  }
   if (!started.ok) {
     const { code, action } = dockerFailure(started);
     return failure(id, code, action);
   }
-  const built = await run(
+  const built = await session(
     ['docker', 'build', '--quiet', '--pull=false', '--network', 'none', '-'],
     { input: `FROM ${image}\nRUN true\n`, timeoutMs }
   );
@@ -95,7 +132,9 @@ export async function dockerRunCheck(run: Runner): Promise<Check> {
     id,
     status: 'pass',
     summary:
-      'A container of the pinned image ran and a one-line image built, offline, in this session.',
+      session === run
+        ? 'A container of the pinned image ran and a one-line image built, offline, in this session.'
+        : 'A container of the pinned image ran and a one-line image built, offline, in a fresh session of the docker group: sessions started before fleet-sync granted it need a new login.',
   };
 }
 

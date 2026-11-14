@@ -39,6 +39,48 @@ Feature: A worker proves it can do what agents do on it
       And the summary of the check "worker:docker-run" mentions "DOCKER_BUILD_FAILED"
       And nothing reported contains "PRIVATE_SENTINEL"
 
+    Scenario: A session older than the docker group runs the check in a fresh session
+      fleet-sync adds the worker's user to the docker group, but the session
+      that runs the check started before the grant. The group database lists
+      the user in docker while the session does not hold the group, so the
+      check runs again in a fresh session of the group, and the first sync of
+      a new worker is green.
+      Given these commands print:
+        | command     | prints              |
+        | id -un      | dev                 |
+        | id -Gn      | dev sudo            |
+        | id -Gn dev  | dev sudo docker     |
+        | sg docker   |                     |
+      And the command "docker run" fails with the error "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock PRIVATE_SENTINEL"
+      When the worker's Docker is tried
+      Then the check "worker:docker-run" passes
+      And the summary of the check "worker:docker-run" mentions "fresh session"
+      And the first "sg" command run was:
+        | sg | docker | -c | 'docker' 'run' '--rm' '--network' 'none' '--pull' 'never' 'busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec' 'true' |
+      And 2 commands ran in a fresh session of the docker group
+      And the image was built in a fresh session of the docker group from "FROM busybox:1.37.0@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec␊RUN true␊"
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+    Scenario Outline: A refused socket is not retried when <why>
+      Given these commands print:
+        | command     | prints     |
+        | id -un      | dev        |
+        | id -Gn      | <held>     |
+        | id -Gn dev  | <listed>   |
+      And the command "sg docker" fails with the error "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock PRIVATE_SENTINEL"
+      And the command "docker run" fails with the error "permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock PRIVATE_SENTINEL"
+      When the worker's Docker is tried
+      Then the check "worker:docker-run" fails
+      And the summary of the check "worker:docker-run" mentions "DOCKER_SOCKET_ACCESS_DENIED"
+      And <fresh> commands ran in a fresh session of the docker group
+      And nothing reported contains "PRIVATE_SENTINEL"
+
+      Examples:
+        | why                                                | held            | listed          | fresh |
+        | the user is not in the docker group at all         | dev sudo        | dev sudo        | 0     |
+        | the session already holds the docker group         | dev sudo docker | dev sudo docker | 0     |
+        | a fresh session of the docker group is refused too | dev sudo        | dev sudo docker | 1     |
+
   Rule: worker:browser launches the pinned headless Chromium on workers with the web profile
 
     Scenario: A worker without the web profile has no browser to check
