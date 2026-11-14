@@ -1,3 +1,4 @@
+import { withMachineLock } from '../machine/lock';
 import type { ManagerReport } from '../manager-sync';
 import { localCheckoutRevision } from '../machine/local-source';
 import {
@@ -15,7 +16,6 @@ import { join } from 'node:path';
 import { existsSync, renameSync } from 'node:fs';
 import {
   isRevision,
-  withMachineLock,
   ensurePrivateRoot,
   type Enrollment,
 } from '../machine/state';

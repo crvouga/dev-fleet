@@ -51,9 +51,8 @@ Feature: One sync at a time on the manager
 
   Scenario: Two syncs that find the same abandoned lock never both run
     A killed run left the lock. Two syncs start together and both judge it
-    abandoned; the first reclaims it and is running before the second moves
-    the lock aside. The second finds the lock it moved is held, puts it back
-    and is refused.
+    abandoned; the first reclaims it and is running before the second acquires the kernel lock. The second is refused before
+    touching the running command’s directory.
     Given a lock whose owner is recorded as:
       """
       {"version":1,"pid":4194305,"startedAt":"x"}
@@ -69,3 +68,19 @@ Feature: One sync at a time on the manager
     And its lock has been replaced by one whose owner is recorded as the process running these scenarios
     When the running sync ends
     Then "sync.lock" is still in the directory
+
+  Scenario: A third command cannot enter while reclamation leaves the directory absent
+    Given a lock whose owner is recorded as:
+      """
+      {"version":1,"pid":4194305,"startedAt":"x"}
+      """
+    And a sync has removed the abandoned directory and pauses before claiming it
+    And two other syncs try to enter while the directory is absent
+    When the first sync goes on
+    Then it runs
+    And both other syncs were refused as locked
+
+  Scenario: An operation failure releases the kernel lock too
+    Given a sync failed inside its operation
+    When another sync starts
+    Then it runs

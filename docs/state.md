@@ -302,3 +302,17 @@ and a command brings an older database forward before it writes. A database a
 newer dev-fleet wrote is refused with `FLEET_STATE_NEWER_THAN_CLI`, read or
 written, and nothing in it changes: install the dev-fleet version the fleet
 runs.
+
+## Local command locking
+
+The CLI holds an exclusive SQLite transaction in `sync.guard.sqlite` beside
+`sync.lock` while a manager operation runs. This file holds no fleet data;
+it is a disposable local lock, never replicated to the bucket. Its stable
+inode lets SQLite serialize commands through the operating system even while
+an abandoned `sync.lock` directory is removed. Do not unlink the guard file
+while any command is running. Process exit releases the kernel lock.
+
+The historical directory and owner marker remain, so a live command from an
+older release is still refused. Finish commands from older releases before
+upgrading: they do not acquire the new guard. Worker probes and launchers
+continue to use Node; only the Bun CLI imports the locking module.
