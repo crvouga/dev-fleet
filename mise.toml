@@ -2,7 +2,7 @@
 # Commit mise.lock whenever changing these pins.
 # min_version is also the exact mise bootstrap/bootstrap.sh installs; the
 # mise_*_sha256 digests under [vars] move with it (bun bootstrap/pins.ts mise).
-min_version = "2026.10.24"
+min_version = "2026.11.11"
 
 [settings]
 lockfile = true
@@ -86,10 +86,10 @@ AGY_CLI_DISABLE_AUTO_UPDATE = "true"
 # mise itself, installed by bootstrap/bootstrap.sh before mise can read this
 # file: the version is min_version above, these are its release archives
 # (SHASUMS256.txt of that release).
-mise_linux_x64_sha256 = "9a6c9c55f5c6372d0af70a9979fe6d742aea3793267a929e1738022143c466cc"
-mise_linux_arm64_sha256 = "8c8f5d7f748bf3aef431dc50f0ad776270f36025c788aa21c74e2fabdbbd6d3e"
-mise_macos_x64_sha256 = "83a36355bf6ee7c1660300e12dd94464de5c672dab1b8cc33ec4d19356e7ddac"
-mise_macos_arm64_sha256 = "aa2fc59242db108f97ea9fb2d2e2cb42ff1467fcafe3c91e48d51c841ba67a65"
+mise_linux_x64_sha256 = "8366f07309794f93cfdd7343e3de3d5294c185165a0ec418426508cf0733e3d7"
+mise_linux_arm64_sha256 = "638faf3b6eb49228557876ebf3826b08011f8359599df377406b3d648a5a1d9b"
+mise_macos_x64_sha256 = "7784da9fd85c77a0f0df6e6e39a6908089afc2a3f2c7ade78d362147fc4ef222"
+mise_macos_arm64_sha256 = "3a0b7a727d86bd15a64c6df9ef6531111a4741b07e6f1e2bb6f6bb5b09e2663f"
 # Official native server distribution (Ubuntu workers, and the manager's
 # pinned CLI); bootstrap/native-t3.ts owns installation. From the release's SHA256SUMS.
 t3_version = "0.1.12-nightly.20261121.5024"
