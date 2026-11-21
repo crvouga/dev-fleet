@@ -284,7 +284,15 @@ worker's tailnet name.
 bound beyond loopback and the tailnet outside the allow-list (sshd, tailscaled,
 the system's DHCP and name-resolution listeners, `publicPorts`), naming the
 port and its unit. A fleet service there always fails; anything else, such as
-an agent's development server, warns or fails by `otherListeners`.
+an agent's development server, warns or fails by `otherListeners`. The T3
+desktop app counts as a fleet service in `t3code-desktop.service` and in the
+`app-com.t3tools.T3Code-<pid>.scope` its main process moves into. It serves on
+127.0.0.1 only: its exposure (`serverExposureMode` in its desktop settings,
+`T3CODE_LAN` in `~/.t3/service.env`) is not a setting T3's administrator
+policy can lock, and the running app rewrites its settings, so the unit sets
+both to local-only before every start (`ansible/ubuntu/t3-local-only.py`).
+fleet-sync restarts an app that still listens beyond loopback once it runs
+no agent turn, like a release update.
 `worker:public-reachability` (from the manager, in `fleet-status --workers`)
 tries the SSH, T3 and monitoring ports on the public address Tailscale knows
 for the worker; it never blocks readiness, because the manager may share the

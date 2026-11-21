@@ -365,7 +365,7 @@ class CommandLine(unittest.TestCase):
 
     def test_caller_runs_inference_hourly_at_most(self):
         workflow = (support.PACKAGE / "docs/health-workflow.example.yml").read_text()
-        self.assertIn("uses: crvouga/dev-fleet/.github/workflows/cliproxy-health.yml@", workflow)
+        self.assertIn("uses: crvouga-organization/dev-fleet/.github/workflows/cliproxy-health.yml@", workflow)
         self.assertNotIn("pull_request", workflow)
         crons = [line.split("cron:")[1].strip(" '\n") for line in workflow.splitlines() if "cron:" in line]
         self.assertEqual(crons, ["7,22,37,52 * * * *", "17 * * * *", "41 3 * * *"])

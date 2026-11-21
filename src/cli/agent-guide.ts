@@ -56,7 +56,7 @@ export function agentGuide(release: Release) {
     invocation: 'devfleet <command> --json --non-interactive',
     discovery: 'devfleet commands --json',
     setup:
-      'Setting up a fleet from a project: llms.txt and docs/consumer-setup.md in this package (node_modules/@crvouga/dev-fleet/), also at https://github.com/crvouga/dev-fleet/blob/main/docs/consumer-setup.md',
+      'Setting up a fleet from a project: llms.txt and docs/consumer-setup.md in this package (node_modules/@crvouga/dev-fleet/), also at https://github.com/crvouga-organization/dev-fleet/blob/main/docs/consumer-setup.md',
     defaultCommand: 'help',
     help: 'devfleet <command> --help',
     interactive:

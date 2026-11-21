@@ -5,13 +5,13 @@ Feature: A local checkout supplies only a commit it really holds
   that commit. Nothing is fetched, checked out or staged to find out.
 
   Background:
-    Given the fleet configuration names the source repository "https://github.com/crvouga/dev-fleet.git"
+    Given the fleet configuration names the source repository "https://github.com/crvouga-organization/dev-fleet.git"
 
   Scenario: A checkout of the fleet's repository that holds the commit supplies it
     Given these commands answer:
       | command                                                                  | answer                                            |
       | git rev-parse --show-toplevel                                            | prints /repo\n                                    |
-      | git remote get-url origin                                                | prints https://github.com/crvouga/dev-fleet\n     |
+      | git remote get-url origin                                                | prints https://github.com/crvouga-organization/dev-fleet\n     |
       | git rev-parse --verify aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^{commit} | prints aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n |
     When the commit "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" is looked for in the checkout "/repo"
     Then the checkout "/repo" supplies it
@@ -34,4 +34,4 @@ Feature: A local checkout supplies only a commit it really holds
     Examples:
       | which checkout                                          | origin                                   |
       | A checkout of another repository                        | https://github.com/other/repo.git        |
-      | A checkout of the fleet's repository without the commit | https://github.com/crvouga/dev-fleet.git |
+      | A checkout of the fleet's repository without the commit | https://github.com/crvouga-organization/dev-fleet.git |

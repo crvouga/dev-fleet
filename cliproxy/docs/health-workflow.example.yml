@@ -51,7 +51,7 @@ permissions:
   issues: write
 jobs:
   health:
-    uses: crvouga/dev-fleet/.github/workflows/cliproxy-health.yml@RELEASE_TAG
+    uses: crvouga-organization/dev-fleet/.github/workflows/cliproxy-health.yml@RELEASE_TAG
     with:
       # Inference only on the hourly schedule; the 15-minute one is free.
       profile: ${{ github.event_name == 'workflow_dispatch' && inputs.profile || github.event.schedule == '41 3 * * *' && 'nightly' || github.event.schedule == '17 * * * *' && 'light' || 'readiness' }}

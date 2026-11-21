@@ -19,10 +19,10 @@ if (Test-Path (Join-Path $LocalRoot 'mise.toml')) {
   $WorkspaceDir = (Resolve-Path $LocalRoot).Path
 } else {
   if (-not (Test-Path (Join-Path $WorkspaceDir '.git'))) {
-    Invoke-Checked git @('clone', 'https://github.com/crvouga/dev-fleet.git', $WorkspaceDir)
+    Invoke-Checked git @('clone', 'https://github.com/crvouga-organization/dev-fleet.git', $WorkspaceDir)
   }
   $Origin = & git -C $WorkspaceDir remote get-url origin
-  if ($LASTEXITCODE -ne 0 -or $Origin -ne 'https://github.com/crvouga/dev-fleet.git') { throw "Unexpected checkout at $WorkspaceDir; choose an empty -WorkspaceDir." }
+  if ($LASTEXITCODE -ne 0 -or $Origin -ne 'https://github.com/crvouga-organization/dev-fleet.git') { throw "Unexpected checkout at $WorkspaceDir; choose an empty -WorkspaceDir." }
 }
 # The baseline uses Windows x64; ARM machines can use an x64 PowerShell/process.
 if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'Use Windows x64 PowerShell. Native Windows ARM64 tool coverage is not yet validated.' }

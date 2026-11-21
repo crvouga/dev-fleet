@@ -139,7 +139,7 @@ npx --yes @crvouga/dev-fleet --version
 
 If `npm trust` is unavailable, set the publisher in the browser instead:
 <https://www.npmjs.com/package/@crvouga/dev-fleet/access> → Trusted Publisher →
-GitHub Actions → organization `crvouga`, repository `dev-fleet`, workflow
+GitHub Actions → organization `crvouga-organization`, repository `dev-fleet`, workflow
 filename `release.yml`, environment empty.
 
 ## Why the package looks like this

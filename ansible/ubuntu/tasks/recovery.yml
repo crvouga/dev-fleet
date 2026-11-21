@@ -21,6 +21,7 @@
     - t3-health.sh
     - t3-idle.py
     - t3-renderers.py
+    - t3-local-only.py
 - name: Declare bounded recovery of the worker T3 desktop app
   ansible.builtin.copy:
     dest: '{{ development_home }}/.config/systemd/user/personal-worker-recovery.service'

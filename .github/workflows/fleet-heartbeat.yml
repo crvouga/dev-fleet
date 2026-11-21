@@ -11,7 +11,7 @@ name: Fleet heartbeat
 #     schedule: [{ cron: '*/30 * * * *' }]
 #   jobs:
 #     heartbeat:
-#       uses: crvouga/dev-fleet/.github/workflows/fleet-heartbeat.yml@<release tag>
+#       uses: crvouga-organization/dev-fleet/.github/workflows/fleet-heartbeat.yml@<release tag>
 #       with: { bucket: my-fleet-state, endpoint: https://s3.example.com }
 #       secrets: inherit
 #

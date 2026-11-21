@@ -20,7 +20,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 import cliproxy_host
 
 PACKAGE = "cliproxy"
-REPOSITORY = "https://github.com/crvouga/dev-fleet.git"
+REPOSITORY = "https://github.com/crvouga-organization/dev-fleet.git"
 LEGACY_FILES = [
     "scripts/tailscale-admin",
     "scripts/install-system",

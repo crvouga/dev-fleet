@@ -205,6 +205,10 @@
           # exhaust; agents use disk-backed /var/tmp (aged by tasks/resources.yml).
           Environment=TMPDIR=/var/tmp
           Environment=NODE_OPTIONS=--max-old-space-size={{ sizing.agentBuildMiB }}
+          # Serve on loopback only: the route is tailscale serve to 127.0.0.1.
+          # The running app rewrites its settings, so they are set before it
+          # starts; a failure never keeps T3 from starting (worker:exposure).
+          ExecStartPre=-/usr/bin/python3 -I -B /usr/local/lib/personal-fleet/t3-local-only.py --home %h/.t3
           # Native Wayland hangs before the first window on Asahi (16K pages);
           # XWayland works on every GNOME worker, so use it everywhere.
           ExecStart="{{ t3_desktop_dir }}/t3code" --ozone-platform=x11
@@ -274,6 +278,15 @@
         name: t3code-desktop.service
         state: started
       failed_when: false
+    # The app reads its exposure only when it starts (ExecStartPre above): a
+    # running app that serves beyond loopback is restarted like an update.
+    - name: Read the addresses the T3 server listens on
+      ansible.builtin.command:
+        argv: [ss, -H, -l, -n, -t, 'sport = :3773']
+      register: t3_desktop_listeners
+      changed_when: false
+      check_mode: false
+      failed_when: false
     # A running app keeps the files of its release: restart it into the one
     # just installed, only while it runs no agent turn. Otherwise
     # personal-worker-recovery restarts it at the first idle check, and
@@ -282,4 +295,8 @@
       ansible.builtin.import_tasks: tasks/t3-restart.yml
       when:
         - t3_desktop_was_active.rc == 0
-        - t3_desktop_updated is changed
+        - >-
+          t3_desktop_updated is changed or
+          (t3_desktop_listeners.stdout_lines
+          | select('match', '^\S+\s+\S+\s+\S+\s+(?!\s|127\.0\.0\.1:|\[::1\]:)')
+          | list | length > 0)

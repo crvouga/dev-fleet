@@ -7,7 +7,7 @@ name: CLI proxy health
 #   permissions: { contents: read, id-token: write, issues: write }
 #   jobs:
 #     health:
-#       uses: crvouga/dev-fleet/.github/workflows/cliproxy-health.yml@<release tag>
+#       uses: crvouga-organization/dev-fleet/.github/workflows/cliproxy-health.yml@<release tag>
 #       with: { profile: readiness }
 #
 # It needs no stored secret. Everything else comes from the caller's

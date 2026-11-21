@@ -78,7 +78,7 @@ previous = (
 generator_sha256 = hashlib.sha256(pathlib.Path(__file__).read_bytes()).hexdigest()
 settings = {
     "endpoint": a.endpoint.rstrip("/"),
-    "generator_repository": "https://github.com/crvouga/dev-fleet",
+    "generator_repository": "https://github.com/crvouga-organization/dev-fleet",
     "generator_sha256": generator_sha256,
     "model": a.model,
     "claude_model": a.claude_model or previous.get("claude_model"),

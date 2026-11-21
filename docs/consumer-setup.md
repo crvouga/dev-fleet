@@ -37,7 +37,7 @@ version in `package.json` is the commit every machine runs.
 - **Do not clone, vendor or patch dev-fleet.** Not `node_modules`, not a
   checkout `fleet-sync` puts on a machine, not a file it manages there. The
   next install or sync replaces them. A bug or a missing feature is an issue
-  at <https://github.com/crvouga/dev-fleet/issues>; tell the human what is
+  at <https://github.com/crvouga-organization/dev-fleet/issues>; tell the human what is
   blocked and link it. Issues are public: no credentials, hostnames,
   accounts, domains or `fleet.json` contents.
 - **Never put a secret in an argument, in `fleet.json`, in a commit or in a
@@ -158,37 +158,37 @@ npx devfleet fleet-state --example > fleet.json
 Then replace every placeholder. Each field, from
 [`schema/fleet.schema.json`](../schema/fleet.schema.json):
 
-| Field                                                 | Value                                                                                                                    |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `version`                                             | `3`                                                                                                                      |
-| `source.repository`                                   | `https://github.com/crvouga/dev-fleet.git`, or your fork if you publish one. Machines only accept code from it.          |
-| `state`                                               | `{ "bucket", "endpoint"?, "region"?, "prefix"? }` or `{ "directory": "/absolute/path" }`. Never credentials.             |
-| `secrets`                                             | See [secrets](#secrets).                                                                                                 |
-| `manager.id`                                          | A short lowercase id, `^[a-z][a-z0-9-]{0,62}$`, e.g. `manager-mac`.                                                      |
-| `manager.os`                                          | `"macOS"`                                                                                                                |
-| `manager.network.tailscaleName`                       | The manager's MagicDNS name: `tailscale status --json` → `.Self.DNSName` without the trailing dot.                       |
-| `manager.network.user`                                | The manager's login name (`id -un`).                                                                                     |
-| `manager.neverSleepOnPower`                           | `true` (workers depend on the manager's services).                                                                       |
-| `workers[].id`                                        | A short lowercase id. The first reachable worker is the canary: a new revision must pass there before the others get it. |
-| `canary`                                              | Optional: the id of the worker to prefer as canary. When it is unreachable, the next reachable worker is used.           |
-| `workers[].ssh`                                       | The worker's alias in the manager's `~/.ssh/config`.                                                                     |
-| `workers[].os`                                        | `"linux"`                                                                                                                |
-| `workers[].network.tailscaleName`                     | The worker's MagicDNS name (from `tailscale status --json` → `.Peer[].DNSName` on the manager).                          |
-| `workers[].network.sshPort`                           | `22` unless the worker's sshd listens elsewhere.                                                                         |
-| `workers[].network.user`                              | The worker account (`ssh WORKER_ALIAS id -un`).                                                                          |
-| `workers[].network.t3Port`                            | `3773`                                                                                                                   |
-| `services.proxy.endpoint`                             | The public HTTPS origin of the CLI proxy, e.g. `https://cli-proxy.example.com`.                                          |
-| `services.monitoring.hubPort`                         | `8443`                                                                                                                   |
-| `services.monitoring.publicUrl`                       | The public HTTPS origin of the monitoring dashboard.                                                                     |
-| `services.monitoring.managerAccount`                  | The email of the monitoring account the manager enrolls machines with.                                                   |
-| `services.monitoring.viewerAccount`                   | The email of the read-only account visitors are signed in as.                                                            |
-| `ubuntu`                                              | `{ "release": "26.04", "architectures": ["amd64", "arm64"] }`: a release of the [support matrix](support-matrix.md).     |
-| `worker.requiredCapabilities`                         | Normally all of `github`, `vault`, `t3`, `toolchain`, `workstation`, `worker`.                                           |
-| `worker.githubLogin`                                  | The GitHub login every worker must be signed in as.                                                                      |
-| `github` (optional)                                   | Who the manager signs in to GitHub as, per-node tokens, required scopes; see [GitHub](github.md).                        |
-| `worker.vaultUser`                                    | The Vault user each worker's token is issued for.                                                                        |
-| `worker.toolchain`, `agentProfile`                    | `"mise.lock"`, `"proxy"` (fixed).                                                                                        |
-| `worker.unattendedSudo`, `persistentT3`, `neverSleep` | `true` (fixed policy).                                                                                                   |
+| Field                                                 | Value                                                                                                                        |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `version`                                             | `3`                                                                                                                          |
+| `source.repository`                                   | `https://github.com/crvouga-organization/dev-fleet.git`, or your fork if you publish one. Machines only accept code from it. |
+| `state`                                               | `{ "bucket", "endpoint"?, "region"?, "prefix"? }` or `{ "directory": "/absolute/path" }`. Never credentials.                 |
+| `secrets`                                             | See [secrets](#secrets).                                                                                                     |
+| `manager.id`                                          | A short lowercase id, `^[a-z][a-z0-9-]{0,62}$`, e.g. `manager-mac`.                                                          |
+| `manager.os`                                          | `"macOS"`                                                                                                                    |
+| `manager.network.tailscaleName`                       | The manager's MagicDNS name: `tailscale status --json` → `.Self.DNSName` without the trailing dot.                           |
+| `manager.network.user`                                | The manager's login name (`id -un`).                                                                                         |
+| `manager.neverSleepOnPower`                           | `true` (workers depend on the manager's services).                                                                           |
+| `workers[].id`                                        | A short lowercase id. The first reachable worker is the canary: a new revision must pass there before the others get it.     |
+| `canary`                                              | Optional: the id of the worker to prefer as canary. When it is unreachable, the next reachable worker is used.               |
+| `workers[].ssh`                                       | The worker's alias in the manager's `~/.ssh/config`.                                                                         |
+| `workers[].os`                                        | `"linux"`                                                                                                                    |
+| `workers[].network.tailscaleName`                     | The worker's MagicDNS name (from `tailscale status --json` → `.Peer[].DNSName` on the manager).                              |
+| `workers[].network.sshPort`                           | `22` unless the worker's sshd listens elsewhere.                                                                             |
+| `workers[].network.user`                              | The worker account (`ssh WORKER_ALIAS id -un`).                                                                              |
+| `workers[].network.t3Port`                            | `3773`                                                                                                                       |
+| `services.proxy.endpoint`                             | The public HTTPS origin of the CLI proxy, e.g. `https://cli-proxy.example.com`.                                              |
+| `services.monitoring.hubPort`                         | `8443`                                                                                                                       |
+| `services.monitoring.publicUrl`                       | The public HTTPS origin of the monitoring dashboard.                                                                         |
+| `services.monitoring.managerAccount`                  | The email of the monitoring account the manager enrolls machines with.                                                       |
+| `services.monitoring.viewerAccount`                   | The email of the read-only account visitors are signed in as.                                                                |
+| `ubuntu`                                              | `{ "release": "26.04", "architectures": ["amd64", "arm64"] }`: a release of the [support matrix](support-matrix.md).         |
+| `worker.requiredCapabilities`                         | Normally all of `github`, `vault`, `t3`, `toolchain`, `workstation`, `worker`.                                               |
+| `worker.githubLogin`                                  | The GitHub login every worker must be signed in as.                                                                          |
+| `github` (optional)                                   | Who the manager signs in to GitHub as, per-node tokens, required scopes; see [GitHub](github.md).                            |
+| `worker.vaultUser`                                    | The Vault user each worker's token is issued for.                                                                            |
+| `worker.toolchain`, `agentProfile`                    | `"mise.lock"`, `"proxy"` (fixed).                                                                                            |
+| `worker.unattendedSudo`, `persistentT3`, `neverSleep` | `true` (fixed policy).                                                                                                       |
 
 Use the same values in every place they repeat. Validate before going on:
 
@@ -252,7 +252,7 @@ The fleet is managed with dev-fleet (`npx devfleet`, pinned in package.json).
 Read `npx devfleet commands --json` before using it. Never edit dev-fleet
 itself: not node_modules, not a clone, not what it installs on a machine. A
 bug in dev-fleet or a feature it lacks is a GitHub issue at
-https://github.com/crvouga/dev-fleet/issues; tell me what is blocked and link
+https://github.com/crvouga-organization/dev-fleet/issues; tell me what is blocked and link
 it. Issues are public: no credentials, hostnames, accounts, domains or
 fleet.json contents.
 ```
@@ -383,7 +383,7 @@ Read `summary` and `remedy.action` of the failing check. The common ones:
 | `BESZEL_ACCOUNT_REQUIRED`                 | The monitoring hub has no account yet. Follow the remedy; other workers are not blocked.                                      |
 
 A failure the remedy does not explain, or one you believe is a defect, is an
-issue at <https://github.com/crvouga/dev-fleet/issues>: include
+issue at <https://github.com/crvouga-organization/dev-fleet/issues>: include
 `npx devfleet --version`, the command and flags, and the failing check IDs
 and codes; leave out everything private.
 

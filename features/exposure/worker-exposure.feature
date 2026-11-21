@@ -82,6 +82,22 @@ Feature: Nothing on a worker listens beyond loopback and the tailnet unless the 
       Then the check fails
       And the summary of the check mentions "tcp 192.0.2.10:4100 (t3code-headless.service)"
 
+    Scenario: The desktop app's own scope is a fleet service too
+      The desktop app's main process and its server move out of
+      t3code-desktop.service into an application scope of their own.
+      Given the exposure policy is:
+        """
+        {"otherListeners": "warn"}
+        """
+      And these sockets listen:
+        | protocol | address | port | unit                                 |
+        | tcp      | 0.0.0.0 | 3773 | app-com.t3tools.T3Code-4242.scope    |
+        | udp      | 0.0.0.0 | 50123 | app-com.t3tools.T3Code-4242.scope    |
+      When the exposure of the worker is checked
+      Then the check fails
+      And the summary of the check is "WORKER_LISTENER_UNRESTRICTED tcp 0.0.0.0:3773 (app-com.t3tools.T3Code-4242.scope), udp 0.0.0.0:50123 (app-com.t3tools.T3Code-4242.scope)"
+      And the remedy of the check contains "returns to loopback when it next starts"
+
     Scenario: The report names a unit and a port, never what the process was started with
       Given these sockets listen:
         | protocol | address | port | unit                   |

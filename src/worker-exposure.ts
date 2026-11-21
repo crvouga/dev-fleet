@@ -15,6 +15,10 @@ const FLEET_UNITS = [
   't3code-headless.service',
   'beszel-agent.service',
 ];
+/** The scope the desktop app's main process and its server move into. */
+const T3_APP_SCOPE = /^app-com\.t3tools\.T3Code-\d+\.scope$/;
+const fleetUnit = (unit: string) =>
+  FLEET_UNITS.includes(unit) || T3_APP_SCOPE.test(unit);
 /** The table tasks/firewall.yml loads. */
 export const FIREWALL_TABLE = ['inet', 'personal_fleet'];
 
@@ -210,7 +214,7 @@ const REMEDY: Record<string, string> = {
   WORKER_PUBLIC_SSH_UNDECLARED:
     'SSH is still open beyond the tailnet because fleet-sync could not prove the manager reaches the worker over the tailnet. Point the SSH alias of this worker at its tailnet name, then run devfleet fleet-sync; declare exposure.publicSsh only for break-glass access.',
   WORKER_LISTENER_UNRESTRICTED:
-    'Bind the named service to 127.0.0.1 or the tailnet address, or declare its port in exposure.publicPorts of fleet.json. A fleet service on a public address is a fault of its unit: run devfleet fleet-sync.',
+    'Bind the named service to 127.0.0.1 or the tailnet address, or declare its port in exposure.publicPorts of fleet.json. A fleet service on a public address is a fault of its unit: run devfleet fleet-sync. The T3 desktop app returns to loopback when it next starts; fleet-sync restarts it once it runs no agent turn.',
   WORKER_EXPOSURE_UNOBSERVED:
     'The listening sockets or the firewall could not be read with sudo -n; check worker:sudo, then rerun devfleet fleet-status --workers.',
 };
@@ -332,8 +336,7 @@ async function unrestricted(
     const unit =
       listener.pids.map((pid) => units.get(pid)).find(Boolean) ?? null;
     const owned =
-      fleetPorts.includes(listener.port) ||
-      (unit !== null && FLEET_UNITS.includes(unit));
+      fleetPorts.includes(listener.port) || (unit !== null && fleetUnit(unit));
     (owned ? found.fleet : found.other).add(describe(listener, unit));
   }
   return { fleet: [...found.fleet], other: [...found.other] };
