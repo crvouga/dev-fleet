@@ -309,7 +309,7 @@ async function versionCheck(
       timeoutMs: 30_000,
     });
     return result.ok
-      ? /(?:^|[\s/])v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)(?=[\s)]|$)/m.exec(
+      ? /(?:^|[\s/])v?(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=\.?(?:[\s)]|$))/m.exec(
           result.stdout
         )?.[1]
       : undefined;

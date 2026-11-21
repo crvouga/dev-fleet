@@ -77,14 +77,23 @@ export function render(s: Selection): Record<string, string> {
  * comes from the environment (env_key), never the file; no grok login.
  */
 function grokConfig(s: Selection): string {
-  // Grok records a one-time skills migration in config.toml; declaring it up
-  // front keeps the rendered file unchanged by the CLI (no profile drift).
+  // Grok writes its installer, a one-time skills migration and its UI defaults
+  // into config.toml; declaring them up front keeps the rendered file
+  // unchanged by the CLI (no profile drift).
   const lines = [
     '[cli]',
     'auto_update = false',
+    'installer = "internal"',
     '',
     '[marketplace]',
     'default_skills_installs_purged = true',
+    '',
+  ];
+  const ui = [
+    '[ui]',
+    'max_thoughts_width = 120',
+    'yolo = false',
+    'compact_mode = false',
     '',
   ];
   if (s.profile !== 'proxy')
@@ -93,6 +102,7 @@ function grokConfig(s: Selection): string {
       '[models]',
       `default = ${JSON.stringify(s.model)}`,
       '',
+      ...ui,
     ].join('\n');
   return [
     ...lines,
@@ -106,5 +116,6 @@ function grokConfig(s: Selection): string {
     'env_key = "CLIPROXY_API_KEY"',
     'api_backend = "chat_completions"',
     '',
+    ...ui,
   ].join('\n');
 }

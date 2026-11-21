@@ -41,15 +41,15 @@ docker-cli = "29.9.2"
 "npm:vercel" = "65.8.0"
 "npm:wrangler" = "4.156.0"
 railway = "5.71.0"
-"aqua:anomalyco/opencode" = "1.19.5"
+"aqua:anomalyco/opencode" = "1.19.6"
 vault = "2.2.1"
-claude = "2.1.314"
-codex = "0.166.0"
-gemini = { version = "0.66.0", allow_builds = ["@lydell/node-pty"] }
-copilot = "1.0.105"
+claude = "2.1.330"
+codex = "0.171.0"
+gemini = { version = "0.70.0", allow_builds = ["@lydell/node-pty"] }
+copilot = "1.0.114"
 # Agent CLIs without a registry backend: exact vendor artifacts, checksums in mise.lock.
-"http:grok" = { version = "1.0.77", os = ["linux", "macos"], bin = "grok", platforms = { linux-x64 = { url = "https://x.ai/cli/grok-{{version}}-linux-x86_64" }, linux-arm64 = { url = "https://x.ai/cli/grok-{{version}}-linux-aarch64" }, macos-x64 = { url = "https://x.ai/cli/grok-{{version}}-macos-x86_64" }, macos-arm64 = { url = "https://x.ai/cli/grok-{{version}}-macos-aarch64" } } }
-"http:antigravity" = { version = "1.5.3", os = ["linux", "macos"], bin = "antigravity", platforms = { linux-x64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/linux-x64/cli_linux_x64.tar.gz" }, linux-arm64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/linux-arm/cli_linux_arm64.tar.gz" }, macos-x64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/darwin-x64/cli_mac_x64.tar.gz" }, macos-arm64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.3-6604829099950080/darwin-arm/cli_mac_arm64.tar.gz" } } }
+"http:grok" = { version = "1.0.92", bin = "grok", platforms = { linux-x64 = { url = "https://x.ai/cli/grok-{{version}}-linux-x86_64" }, linux-arm64 = { url = "https://x.ai/cli/grok-{{version}}-linux-aarch64" }, macos-x64 = { url = "https://x.ai/cli/grok-{{version}}-macos-x86_64" }, macos-arm64 = { url = "https://x.ai/cli/grok-{{version}}-macos-aarch64" } }, os = ["linux", "macos"] }
+"http:antigravity" = { version = "1.5.14", bin = "antigravity", platforms = { linux-x64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672/linux-x64/cli_linux_x64.tar.gz" }, linux-arm64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672/linux-arm/cli_linux_arm64.tar.gz" }, macos-x64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672/darwin-x64/cli_mac_x64.tar.gz" }, macos-arm64 = { url = "https://storage.googleapis.com/antigravity-public/antigravity-cli/1.5.14-5302690847260672/darwin-arm/cli_mac_arm64.tar.gz" } }, os = ["linux", "macos"] }
 
 "aws" = { version = "2.39.2", os = ["linux", "macos"] }
 "rust" = "1.99.1"
@@ -92,15 +92,15 @@ mise_macos_x64_sha256 = "83a36355bf6ee7c1660300e12dd94464de5c672dab1b8cc33ec4d19
 mise_macos_arm64_sha256 = "aa2fc59242db108f97ea9fb2d2e2cb42ff1467fcafe3c91e48d51c841ba67a65"
 # Official native server distribution (Ubuntu workers, and the manager's
 # pinned CLI); bootstrap/native-t3.ts owns installation. From the release's SHA256SUMS.
-t3_version = "0.1.12-nightly.20261121.5024"
-t3_linux_x64_sha256 = "44f2f1856d952a97c4fb7ea600c1b29a03bfcb1cc520cc6d5e48accc98412f03"
-t3_linux_arm64_sha256 = "e641da28a98cae572ff862bbb6faed1bd20816add706c3d6875337879a8d92ec"
-t3_darwin_arm64_sha256 = "6dc6f34959ec90fbf3d6995ec8c53f67d7ff43d45e30e61de79e89942394bf23"
+t3_version = "0.1.12-nightly.20261121.5038"
+t3_linux_x64_sha256 = "3a04231a33ecfae9b8e6c9bd481e6e8053bc0372bf532160f38537ba70c65536"
+t3_linux_arm64_sha256 = "fe97ee54d520fef09bdacb74d3ab8c1aa9dbec72eaa193c49bdc2921e4566219"
+t3_darwin_arm64_sha256 = "5fe362b215c1eea42443cf29a61a19a0c60caab731c837045b40c377f34a10fa"
 # Official T3 Code desktop .deb (same release). Workers run this GUI app as their
 # only T3 process; it embeds the server. Upstream SHA256SUMS omits .deb files,
 # so these digests were computed from the release assets.
-t3_desktop_amd64_sha256 = "fd4b1826c1151360d7f5497f9efd091af458a3e62dc8716aa057cdd7af8cac0d"
-t3_desktop_arm64_sha256 = "a9b71f66210e5ed864e84974c28169f53d1970640cf4fa8dae700a699ef5e4ef"
+t3_desktop_amd64_sha256 = "e44f5e7c460c24dfea5082898900b4e8b7dfcb24224d7d0785c367ffc34f44d8"
+t3_desktop_arm64_sha256 = "e918bd97512107c0ec85dbf681a65cca5b96e2245af6b3a9726898573763f70f"
 # Official AWS v2 Windows MSI, same version as tools.aws; checked before execution.
 aws_windows_msi_sha256 = "c7857d5981e68396852e8b7eca0b1772f1c99b34d4938075857d45ec9c232113"
 # Docker Desktop supplies the macOS engine, Compose and Buildx as one vendor bundle.

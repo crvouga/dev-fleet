@@ -55,6 +55,14 @@ Feature: Native agents are verified on every machine
       And the check "agent:claude:session" passes
       And no check contains "raw-detail"
 
+    Scenario: A version that ends a sentence matches its pin
+      Copilot CLI prints "GitHub Copilot CLI 1.0.114." with a full stop.
+      Given every agent reports the version mise.toml pins
+      But "copilot" prints its pinned version as "GitHub Copilot CLI {version}."
+      And every launcher answers "OK"
+      When the agents of the machine "node-a" are verified
+      Then every check passes
+
     Scenario: A drifted binary is reinstalled from the lock, then passes
       A vendor's self-updater rewrote the binary; the locked artifact is
       installed over it and the version is checked again.

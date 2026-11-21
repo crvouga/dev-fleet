@@ -104,6 +104,17 @@ Given('every agent reports the version mise.toml pins', async (world) => {
   );
 });
 
+Given(
+  '{string} prints its pinned version as {string}',
+  async (world, binary: string, template: string) => {
+    const version = (await pinned())[binary]!;
+    machine(world).commands.answer(
+      (command) => isVersion(command) && command[0] === binary,
+      succeeded(`${template.replace('{version}', version)}\n`)
+    );
+  }
+);
+
 Given('every agent reports the version {string}', (world, version: string) => {
   machine(world).commands.answer(isVersion, succeeded(`tool ${version}`));
 });

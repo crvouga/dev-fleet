@@ -7,6 +7,6 @@
     }
   },
   "dependencies": {
-    "@google/gemini-cli": "0.66.0"
+    "@google/gemini-cli": "0.70.0"
   }
 }

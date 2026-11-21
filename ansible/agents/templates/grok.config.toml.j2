@@ -1,5 +1,6 @@
 [cli]
 auto_update = false
+installer = "internal"
 
 [marketplace]
 default_skills_installs_purged = true
@@ -17,3 +18,8 @@ api_backend = "chat_completions"
 {% else %}
 default = {{ agent_model | to_json }}
 {% endif %}
+
+[ui]
+max_thoughts_width = 120
+yolo = false
+compact_mode = false

@@ -54,12 +54,15 @@ Feature: The agents play writes each CLI's configuration from templates, byte fo
         """
 
     Scenario: Grok through the proxy, as every machine has it
+      Grok writes its installer and UI defaults into config.toml on its first
+      run; the profile declares them, so the CLI leaves the file unchanged.
       Given the "proxy" profile of "grok" for the machine "node" at the revision "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", in an empty agent directory
       When the profile is applied
       Then its "config.toml" is, byte for byte:
         """
         [cli]
         auto_update = false
+        installer = "internal"
 
         [marketplace]
         default_skills_installs_purged = true
@@ -73,6 +76,11 @@ Feature: The agents play writes each CLI's configuration from templates, byte fo
         base_url = "https://cli-proxy.example.com/v1"
         env_key = "CLIPROXY_API_KEY"
         api_backend = "chat_completions"
+
+        [ui]
+        max_thoughts_width = 120
+        yolo = false
+        compact_mode = false
         """
 
     Scenario: Gemini through the proxy, as every machine has it
