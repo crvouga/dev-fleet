@@ -52,8 +52,9 @@ Feature: What a machine becomes is declared, once
       But "bootstrap/bootstrap.sh" names no mise release number
       And "bootstrap/bootstrap.sh" does not contain "SHASUMS"
 
-    Scenario: The Windows bootstrap installs the same mise
-      Then "bootstrap/bootstrap.ps1" sets $MiseVersion to the mise version mise.toml pins
+    Scenario: The Windows bootstrap reads the mise pin and carries none of its own
+      Then "bootstrap/bootstrap.ps1" reads $MiseVersion from min_version in mise.toml
+      But "bootstrap/bootstrap.ps1" names no mise release number
 
     Scenario: CI installs the mise version every machine gets, named only in mise.toml
       A workflow that wrote the version again would drift from the pin, and

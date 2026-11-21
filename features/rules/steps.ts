@@ -400,10 +400,10 @@ Then('{string} names no mise release number', (_world, path: string) => {
 });
 
 Then(
-  '{string} sets $MiseVersion to the mise version mise.toml pins',
+  '{string} reads $MiseVersion from min_version in mise.toml',
   (_world, path: string) => {
-    expect(/^\$MiseVersion = '(.*)'$/m.exec(read(path))?.[1]).toBe(
-      pin('min_version')!
+    expect(read(path)).toMatch(
+      /^\$MiseVersion = \(Select-String -Path \(Join-Path \$WorkspaceDir 'mise\.toml'\) -Pattern '\^min_version = /m
     );
   }
 );

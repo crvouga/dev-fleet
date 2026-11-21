@@ -1,7 +1,6 @@
 # Native Windows, PowerShell 5.1+. Download and run this file (not a bash script).
 param([string]$WorkspaceDir = "$HOME\workspace")
 $ErrorActionPreference = 'Stop'
-$MiseVersion = '2026.10.24'
 function Invoke-Checked([string]$Program, [string[]]$Arguments) {
   & $Program @Arguments
   if ($LASTEXITCODE -ne 0) { throw "$Program failed with exit code $LASTEXITCODE" }
@@ -24,6 +23,10 @@ if (Test-Path (Join-Path $LocalRoot 'mise.toml')) {
   $Origin = & git -C $WorkspaceDir remote get-url origin
   if ($LASTEXITCODE -ne 0 -or $Origin -ne 'https://github.com/crvouga-organization/dev-fleet.git') { throw "Unexpected checkout at $WorkspaceDir; choose an empty -WorkspaceDir." }
 }
+# mise is pinned where every other tool is: `min_version` in mise.toml, read
+# from the checkout because mise cannot read it before it exists.
+$MiseVersion = (Select-String -Path (Join-Path $WorkspaceDir 'mise.toml') -Pattern '^min_version = "(.*)"$' | Select-Object -First 1).Matches.Groups[1].Value
+if (-not $MiseVersion) { throw 'mise.toml does not pin mise.' }
 # The baseline uses Windows x64; ARM machines can use an x64 PowerShell/process.
 if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw 'Use Windows x64 PowerShell. Native Windows ARM64 tool coverage is not yet validated.' }
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
